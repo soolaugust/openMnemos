@@ -9624,3 +9624,229 @@ def pelt_discount(project: str, chunk_type: str,
     # 线性插值: util_avg=0 → discount=min_discount, util_avg=threshold → discount=1.0
     discount = min_discount + (1.0 - min_discount) * (util_avg / low_threshold)
     return round(importance * discount, 4)
+
+
+# ── iter559: fair_clock — Cumulative Retrieval Score Importance Calibration ──
+# OS 类比：Linux CFS vruntime (Ingo Molnár, 2007, kernel 2.6.23, sched/fair.c)
+#   CFS 为每个 sched_entity 维护 vruntime——基于实际 CPU 时间而非静态优先级。
+#   仅 nice 值高(静态)不保证获得 CPU；必须有实际 runtime 才积累 vruntime。
+#   min_vruntime 作为 fairness 基线：新进程从 min_vruntime 开始，
+#   而非 0（否则新进程饿死旧进程）或 max（否则新进程永远轮不到）。
+#
+# Memory-OS 应用：
+#   write-time importance 是"nice 值"(静态声明)，cum_score 是"vruntime"(运行时累积)。
+#   静态 importance 高但 cum_score=0 → 如同高 nice 进程从不运行 → importance 被高估。
+#   cum_score 高但 importance 低 → 如同低 nice 进程承担大量 CPU → importance 被低估。
+#   校准逻辑：
+#     Demote: imp≥threshold + cum_score=0 + age>grace_days → imp *= decay
+#     Promote: cum_score≥threshold + imp<target → imp = target
+
+
+def fair_clock(conn: "sqlite3.Connection", project: str = None) -> dict:
+    """
+    iter559: fair_clock — 基于累积检索分数校准 importance。
+
+    OS 类比：CFS update_min_vruntime() + update_curr() — 每个 tick 更新
+    当前 sched_entity 的 vruntime，然后比较所有 entity 的 vruntime 做调度决策。
+
+    Phase 1: 从 recall_traces.top_k_json 计算 per-chunk cum_score
+    Phase 2: Demote — high importance + zero cum_score + old → decay
+    Phase 3: Promote — high cum_score + low importance → boost
+
+    与 numa_balancing 的区别：
+      - numa_balancing 看 access_count（是否被注入到上下文的二值信号）
+      - fair_clock 看 cum_score（检索相关性分数的连续值累积）
+      - 一个 chunk 可能 access_count>0 但 cum_score 很低（候选池小时侥幸入选）
+      - 一个 chunk 可能 access_count=0 但 cum_score>0（在 candidates 中多次高分
+        但竞争激烈未进 top_k——vmstat dark page 会误判为无价值）
+
+    返回:
+      demoted: int — 降级数量
+      promoted: int — 提升数量
+      skipped_grace: int — 宽限期跳过
+      skipped_protected: int — 保护跳过（mlock/pinned）
+      total_scored: int — 有 cum_score 的 chunk 数
+      duration_ms: float
+    """
+    from config import get as _cfg
+
+    t0 = _time.time()
+    result = {
+        "demoted": 0,
+        "promoted": 0,
+        "skipped_grace": 0,
+        "skipped_protected": 0,
+        "total_scored": 0,
+        "duration_ms": 0.0,
+    }
+
+    if not _cfg("fair_clock.enabled"):
+        return result
+
+    window = _cfg("fair_clock.window_traces")
+    min_traces = _cfg("fair_clock.min_traces")
+    demote_min_imp = float(_cfg("fair_clock.demote_min_importance"))
+    demote_decay = float(_cfg("fair_clock.demote_decay"))
+    demote_min_age_days = _cfg("fair_clock.demote_min_age_days")
+    promote_min_cum = float(_cfg("fair_clock.promote_min_cum_score"))
+    promote_target = float(_cfg("fair_clock.promote_target"))
+    max_per_scan = _cfg("fair_clock.max_per_scan")
+
+    # ── Phase 0: 检查 trace 数量是否充足 ──
+    try:
+        if project:
+            trace_count = conn.execute(
+                "SELECT COUNT(*) FROM recall_traces WHERE project = ?",
+                (project,)
+            ).fetchone()[0]
+        else:
+            trace_count = conn.execute(
+                "SELECT COUNT(*) FROM recall_traces"
+            ).fetchone()[0]
+    except Exception:
+        trace_count = 0
+
+    if trace_count < min_traces:
+        result["duration_ms"] = (_time.time() - t0) * 1000
+        return result
+
+    # ── Phase 1: 计算 per-chunk cum_score from top_k_json ──
+    # OS 类比：update_curr() — 从调度实体的实际运行记录计算 vruntime
+    cum_scores = {}  # chunk_id -> cumulative score
+    try:
+        if project:
+            rows = conn.execute(
+                "SELECT top_k_json FROM recall_traces "
+                "WHERE project = ? AND top_k_json IS NOT NULL "
+                "ORDER BY timestamp DESC LIMIT ?",
+                (project, window)
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT top_k_json FROM recall_traces "
+                "WHERE top_k_json IS NOT NULL "
+                "ORDER BY timestamp DESC LIMIT ?",
+                (window,)
+            ).fetchall()
+
+        for (tk_json,) in rows:
+            try:
+                items = json.loads(tk_json)
+                if isinstance(items, list):
+                    for item in items:
+                        cid = item.get("id", "")
+                        score = item.get("score", 0)
+                        if cid and isinstance(score, (int, float)) and score > 0:
+                            cum_scores[cid] = cum_scores.get(cid, 0.0) + score
+            except (json.JSONDecodeError, TypeError):
+                continue
+    except Exception:
+        result["duration_ms"] = (_time.time() - t0) * 1000
+        return result
+
+    result["total_scored"] = len(cum_scores)
+    scored_ids = set(cum_scores.keys())
+
+    # ── Phase 2: Demote — high importance + zero cum_score + old ──
+    # OS 类比：CFS put_prev_entity() — 进程被抢占时比较 vruntime 是否落后太多
+    demote_count = 0
+    try:
+        # 候选：imp >= threshold, access 非高频, 非保护
+        proj_filter = "AND project IN (?, 'global')" if project else ""
+        params = [project] if project else []
+
+        candidates = conn.execute(
+            f"""SELECT id, importance, created_at, oom_adj, access_count, chunk_type
+                FROM memory_chunks
+                WHERE importance >= ?
+                  AND COALESCE(oom_adj, 0) > -500
+                  AND chunk_type NOT IN ('task_state', 'excluded_path')
+                  {proj_filter}
+                ORDER BY importance DESC""",
+            [demote_min_imp] + params
+        ).fetchall()
+
+        now = datetime.now(timezone.utc)
+        for cid, imp, created_at, oom_adj, acc, ctype in candidates:
+            if demote_count >= max_per_scan:
+                break
+
+            # 只 demote cum_score = 0 的 chunk
+            if cid in scored_ids:
+                continue
+
+            # 宽限期检查
+            try:
+                created_dt = datetime.fromisoformat(created_at.replace("Z", "+00:00"))
+                if created_dt.tzinfo is None:
+                    created_dt = created_dt.replace(tzinfo=timezone.utc)
+                age_days = (now - created_dt).total_seconds() / 86400
+            except Exception:
+                age_days = 0
+
+            if age_days < demote_min_age_days:
+                result["skipped_grace"] += 1
+                continue
+
+            # 保护检查：pinned chunks 不动
+            if oom_adj is not None and oom_adj <= -200:
+                result["skipped_protected"] += 1
+                continue
+
+            # 执行 demote: importance *= decay
+            new_imp = round(imp * demote_decay, 4)
+            conn.execute(
+                "UPDATE memory_chunks SET importance = ?, updated_at = ? WHERE id = ?",
+                (new_imp, now.isoformat(), cid)
+            )
+            demote_count += 1
+
+        result["demoted"] = demote_count
+    except Exception:
+        pass
+
+    # ── Phase 3: Promote — high cum_score + low importance ──
+    # OS 类比：CFS place_entity() — 新进程/唤醒进程放置到 min_vruntime 附近
+    #   cum_score 高说明该 chunk 在检索中频繁高相关性 → importance 应匹配
+    promote_count = 0
+    try:
+        for cid, cum_score in sorted(cum_scores.items(),
+                                     key=lambda x: x[1], reverse=True):
+            if promote_count >= max_per_scan:
+                break
+            if cum_score < promote_min_cum:
+                break  # sorted desc, 后面都更小
+
+            # 查询当前 chunk 状态
+            row = conn.execute(
+                "SELECT importance, chunk_type, oom_adj FROM memory_chunks WHERE id = ?",
+                (cid,)
+            ).fetchone()
+            if not row:
+                continue
+
+            current_imp, ctype, oom_adj = row
+            # 只 promote importance 低于 target 的
+            if current_imp >= promote_target:
+                continue
+            # 不 promote 控制面类型
+            if ctype in ("task_state", "excluded_path"):
+                continue
+
+            # 执行 promote
+            now = datetime.now(timezone.utc)
+            conn.execute(
+                "UPDATE memory_chunks SET importance = ?, updated_at = ? WHERE id = ?",
+                (promote_target, now.isoformat(), cid)
+            )
+            promote_count += 1
+
+        result["promoted"] = promote_count
+    except Exception:
+        pass
+
+    if demote_count > 0 or promote_count > 0:
+        conn.commit()
+
+    result["duration_ms"] = round((_time.time() - t0) * 1000, 2)
+    return result

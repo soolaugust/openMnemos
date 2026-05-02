@@ -3336,6 +3336,30 @@ _REGISTRY: dict = {
     "pelt.min_discount_factor": (0.50, float, 0.20, 0.90, None,
         "最大折扣因子——util_avg=0 时 importance 乘以此值"),
 
+    # ── iter559: fair_clock — Cumulative Retrieval Score Importance Calibration ──
+    # OS 类比：Linux CFS vruntime (Ingo Molnár, 2007, kernel 2.6.23, sched/fair.c)
+    #   CFS 为每个 sched_entity 维护 vruntime（累积虚拟运行时间），
+    #   基于实际 CPU time / weight。vruntime 反映"公平份额消耗量"——
+    #   只有实际运行过才能积累 vruntime，纯静态优先级无法体现。
+    "fair_clock.enabled": (True, bool, None, None, None,
+        "是否启用基于累积检索分数的 importance 校准"),
+    "fair_clock.window_traces": (50, int, 10, 200, None,
+        "统计窗口大小（最近 N 条 recall_traces）"),
+    "fair_clock.min_traces": (5, int, 2, 30, None,
+        "触发校准的最小 trace 数（冷启动保护）"),
+    "fair_clock.demote_min_importance": (0.70, float, 0.3, 0.99, None,
+        "只降级 importance >= 此值的 chunk（不碰已经低的）"),
+    "fair_clock.demote_decay": (0.75, float, 0.3, 0.95, None,
+        "降级衰减因子（importance *= decay）"),
+    "fair_clock.demote_min_age_days": (3, int, 1, 30, None,
+        "降级宽限期天数（新 chunk 不动）"),
+    "fair_clock.promote_min_cum_score": (2.0, float, 0.5, 10.0, None,
+        "Promote 所需最低累积检索分数"),
+    "fair_clock.promote_target": (0.75, float, 0.5, 0.95, None,
+        "Promote 后 importance 的目标值"),
+    "fair_clock.max_per_scan": (20, int, 3, 50, None,
+        "每次扫描最多校准的 chunk 数"),
+
     "bdi_writeback.enabled": (True, bool, None, None, None,
         "是否启用 boot-time 内容质量审计"),
     "bdi_writeback.max_per_scan": (30, int, 5, 100, None,

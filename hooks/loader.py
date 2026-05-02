@@ -1314,6 +1314,28 @@ def main():
             except Exception:
                 pass
 
+        # ── iter559：fair_clock — Cumulative Retrieval Score Importance Calibration ──
+        if _ict_enabled: _ict_milestones.append(("fair_clock", _ict_time.time()))
+        # OS 类比：Linux CFS vruntime (Ingo Molnár, 2007, kernel 2.6.23)
+        # 基于累积检索分数校准 importance：cum_score=0+高imp → demote, cum_score高+低imp → promote
+        # 与 numa_balancing(access_count 粗粒度) 互补：fair_clock 用检索 score 连续值
+        if not _defer_reclaim and not _ts_skip("fair_clock"):
+            try:
+                from store_mm import fair_clock
+                fc_result = fair_clock(_log_conn, project)
+                if fc_result["demoted"] > 0 or fc_result["promoted"] > 0:
+                    dmesg_log(_log_conn, DMESG_INFO, "fair_clock",
+                              f"calibrate: demoted={fc_result['demoted']} "
+                              f"promoted={fc_result['promoted']} "
+                              f"scored={fc_result['total_scored']} "
+                              f"grace_skip={fc_result['skipped_grace']} "
+                              f"prot_skip={fc_result['skipped_protected']} "
+                              f"{fc_result['duration_ms']:.1f}ms",
+                              session_id=_session_id, project=project)
+                _ts_report("fair_clock", (fc_result.get("demoted", 0) + fc_result.get("promoted", 0)) > 0)
+            except Exception:
+                pass
+
         # ── iter524：mincore — Memory Residency Validation ──
         if _ict_enabled: _ict_milestones.append(("mincore", _ict_time.time()))
         # OS 类比：Linux mincore() (Linus Torvalds, 1994) — 查询哪些页面真实驻留在物理内存
