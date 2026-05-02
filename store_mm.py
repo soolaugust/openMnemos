@@ -4161,38 +4161,49 @@ def page_idle_mark(conn: sqlite3.Connection, project: str) -> dict:
       carried_over — 从上轮延续的（连续 idle）chunk 数
     """
     try:
-        # 获取当前项目所有 active chunk IDs
+        # iter574: lru_add_drain_all — 标记当前项目 + global 的所有 active chunks
+        # OS 类比：Linux lru_add_drain_all() 遍历所有 CPU 的 pagevec，
+        # 而非只 drain 当前 CPU。global chunks 属于所有项目的 "共享页面"，
+        # 需要在每个项目的 session 中被标记，否则 folio_batch_drain 无法
+        # 为 global chunks 积累 idle_rounds 信号。
         rows = conn.execute(
-            """SELECT id FROM memory_chunks
-               WHERE project = ? AND chunk_type != 'task_state'""",
+            """SELECT id, project FROM memory_chunks
+               WHERE project IN (?, 'global') AND chunk_type != 'task_state'""",
             (project,)
         ).fetchall()
         current_ids = {r[0] for r in rows}
+        # 按实际 project 分组（保持 bitmap 的 per-project 嵌套结构）
+        ids_by_project = {}
+        for r in rows:
+            ids_by_project.setdefault(r[1], set()).add(r[0])
 
         if not current_ids:
             return {"marked": 0, "carried_over": 0}
 
         # 加载上轮 bitmap
         old_bitmap = _page_idle_load()
-        project_bitmap = old_bitmap.get(project, {})
 
-        # 构建新 bitmap：当前存在的 chunk 全标 idle
-        new_project_bitmap = {}
+        # 构建新 bitmap：当前存在的 chunk 全标 idle（按实际 project 分桶）
+        total_marked = 0
         carried_over = 0
-        for cid in current_ids:
-            if cid in project_bitmap:
-                # 连续 idle：轮次 +1
-                new_project_bitmap[cid] = project_bitmap[cid] + 1
-                carried_over += 1
-            else:
-                # 新标记或上轮被访问过（已移除）
-                new_project_bitmap[cid] = 1
+        for proj_key, proj_ids in ids_by_project.items():
+            project_bitmap = old_bitmap.get(proj_key, {})
+            new_project_bitmap = {}
+            for cid in proj_ids:
+                if cid in project_bitmap:
+                    # 连续 idle：轮次 +1
+                    new_project_bitmap[cid] = project_bitmap[cid] + 1
+                    carried_over += 1
+                else:
+                    # 新标记或上轮被访问过（已移除）
+                    new_project_bitmap[cid] = 1
+            old_bitmap[proj_key] = new_project_bitmap
+            total_marked += len(new_project_bitmap)
 
         # 保存
-        old_bitmap[project] = new_project_bitmap
         _page_idle_save(old_bitmap)
 
-        return {"marked": len(new_project_bitmap), "carried_over": carried_over}
+        return {"marked": total_marked, "carried_over": carried_over}
 
     except Exception:
         return {"marked": 0, "carried_over": 0}
@@ -4205,24 +4216,29 @@ def page_idle_clear(chunk_ids: list, project: str) -> int:
     在 retriever 检索命中后调用（与 update_accessed/mglru_promote 同路径）。
     移除意味着"本轮会话中被使用了"，下次 mark 时不会被判为连续 idle。
 
+    iter574: lru_add_drain_all — 清除时遍历所有 project bitmap（含 global），
+    因为被命中的 chunk 可能存储在 bitmap["global"] 或 bitmap[project] 中。
+
     返回：实际清除的 chunk 数
     """
     if not chunk_ids:
         return 0
     try:
         bitmap = _page_idle_load()
-        project_bitmap = bitmap.get(project, {})
-        if not project_bitmap:
-            return 0
 
+        # iter574: 在所有 project bitmap 中搜索并清除（drain_all 语义）
         cleared = 0
-        for cid in chunk_ids:
-            if cid in project_bitmap:
-                del project_bitmap[cid]
-                cleared += 1
+        chunk_set = set(chunk_ids)
+        for proj_key in list(bitmap.keys()):
+            proj_bm = bitmap[proj_key]
+            if not isinstance(proj_bm, dict):
+                continue
+            for cid in chunk_set:
+                if cid in proj_bm:
+                    del proj_bm[cid]
+                    cleared += 1
 
         if cleared > 0:
-            bitmap[project] = project_bitmap
             _page_idle_save(bitmap)
 
         return cleared
@@ -11173,7 +11189,18 @@ def folio_batch_drain(conn: sqlite3.Connection, project: str = None) -> dict:
                 "skipped_pinned": 0, "duration_ms": 0.0}
 
     # Phase 1: 加载 page_idle bitmap（跨 session 空闲轮次追踪）
-    idle_bitmap = _page_idle_load()
+    # iter574: bitmap 结构是 {project: {chunk_id: rounds}}，需要合并
+    raw_bitmap = _page_idle_load()
+
+    # iter574: lru_add_drain_all — 合并所有项目的 bitmap 到 flat dict
+    # OS 类比：Linux lru_add_drain_all() (Andrew Morton, 2005, mm/swap.c)
+    # per-CPU pagevec 分散在各 CPU 的本地 batch 中，lru_add_drain_all()
+    # 遍历所有 CPU 执行 drain，使 LRU 操作全局可见。
+    # folio_batch_drain 需要跨 project 可见的 idle_rounds 才能正确判断。
+    idle_bitmap = {}
+    for _proj_key, _proj_bm in raw_bitmap.items():
+        if isinstance(_proj_bm, dict):
+            idle_bitmap.update(_proj_bm)
 
     # Phase 2: 查询候选 — kcompactd 相同条件但不含 age 门控
     proj_filter = ""
@@ -11183,7 +11210,7 @@ def folio_batch_drain(conn: sqlite3.Connection, project: str = None) -> dict:
         params.append(project)
 
     candidates = conn.execute(
-        f"""SELECT id, summary, importance, oom_adj, chunk_type
+        f"""SELECT id, summary, importance, oom_adj, chunk_type, project
             FROM memory_chunks
             WHERE access_count = 0
             AND oom_adj >= ?
@@ -11215,7 +11242,7 @@ def folio_batch_drain(conn: sqlite3.Connection, project: str = None) -> dict:
         if len(drain_ids) >= max_drain:
             break
 
-        cid, summary, importance, oom_adj, chunk_type = row
+        cid, summary, importance, oom_adj, chunk_type, _chunk_proj = row
 
         # 保护：pinned (mlock)
         if cid in pinned:
@@ -11223,6 +11250,7 @@ def folio_batch_drain(conn: sqlite3.Connection, project: str = None) -> dict:
             continue
 
         # 核心判断：page_idle bitmap 中的 idle_rounds 确认
+        # iter574: 使用合并后的 flat bitmap（lru_add_drain_all 后全局可见）
         rounds = idle_bitmap.get(cid, 0)
         if rounds < min_idle_rounds:
             skipped_no_idle += 1
@@ -11243,10 +11271,14 @@ def folio_batch_drain(conn: sqlite3.Connection, project: str = None) -> dict:
         except Exception:
             pass
 
-        # 从 page_idle bitmap 清除已删除的条目
-        for cid in drain_ids:
-            idle_bitmap.pop(cid, None)
-        _page_idle_save(idle_bitmap)
+        # iter574: 从原始嵌套 bitmap 中清除已删除的条目
+        drain_set = set(drain_ids)
+        for _proj_key in list(raw_bitmap.keys()):
+            _proj_bm = raw_bitmap[_proj_key]
+            if isinstance(_proj_bm, dict):
+                for cid in drain_set:
+                    _proj_bm.pop(cid, None)
+        _page_idle_save(raw_bitmap)
 
     duration_ms = (_t.time() - t0) * 1000
 

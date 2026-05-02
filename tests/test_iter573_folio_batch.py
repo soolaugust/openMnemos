@@ -47,8 +47,11 @@ def _make_chunk(conn, summary, project="test_proj", chunk_type="decision",
     return chunk_id
 
 
-def _setup_idle_bitmap(bitmap: dict):
-    """设置 page_idle bitmap"""
+def _setup_idle_bitmap(bitmap: dict, project: str = "test_proj"):
+    """设置 page_idle bitmap（iter574: 使用嵌套格式 {project: {cid: rounds}}）"""
+    # 如果传入的是 flat dict {cid: rounds}，转换为嵌套格式
+    if bitmap and not any(isinstance(v, dict) for v in bitmap.values()):
+        bitmap = {project: bitmap}
     _page_idle_save(bitmap)
 
 
@@ -153,7 +156,7 @@ class TestProtection:
             conn.commit()
         except Exception:
             pass
-        _setup_idle_bitmap({cid: 5})
+        _setup_idle_bitmap({cid: 5}, project=proj)
 
         result = folio_batch_drain(conn, proj)
 
@@ -186,7 +189,7 @@ class TestProtection:
             cid = _make_chunk(conn, f"batch chunk cap {i}", project=proj, importance=0.15, oom_adj=300)
             ids.append(cid)
             bitmap[cid] = 5
-        _setup_idle_bitmap(bitmap)
+        _setup_idle_bitmap(bitmap, project=proj)
 
         result = folio_batch_drain(conn, proj)
 
@@ -243,10 +246,11 @@ class TestConfig:
 
         folio_batch_drain(conn, "test_proj")
 
-        # 验证 bitmap 中已删除 chunk 的条目被清理
+        # iter574: bitmap 现在是嵌套结构 {project: {cid: rounds}}
         bitmap_after = _page_idle_load()
-        assert cid not in bitmap_after
-        assert "other_chunk" in bitmap_after  # 其他条目保留
+        proj_bm = bitmap_after.get("test_proj", {})
+        assert cid not in proj_bm
+        assert "other_chunk" in proj_bm  # 其他条目保留
         conn.close()
 
     def test_global_scan(self):
@@ -255,7 +259,8 @@ class TestConfig:
         ensure_schema(conn)
         cid1 = _make_chunk(conn, "proj1 dead", project="proj1", importance=0.15, oom_adj=300)
         cid2 = _make_chunk(conn, "global dead", project="global", importance=0.15, oom_adj=400)
-        _setup_idle_bitmap({cid1: 3, cid2: 3})
+        # iter574: 嵌套 bitmap，每个 chunk 在其实际 project 下
+        _page_idle_save({"proj1": {cid1: 3}, "global": {cid2: 3}})
 
         result = folio_batch_drain(conn, None)  # 全局扫描
 
