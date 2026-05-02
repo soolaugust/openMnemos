@@ -934,6 +934,21 @@ def main():
         except Exception:
             pass
 
+        # ── iter523：kfree_rcu — Deferred Cross-Project Zombie Reclaim ──
+        # OS 类比：Linux kfree_rcu() (Paul E. McKenney, 2002) — 延迟到 grace period 后全局释放
+        # free_pages_ok 只扫描当前 project，global 层 zombie 无人回收 → 全局扫描补漏
+        try:
+            from store_mm import kfree_rcu
+            kr_result = kfree_rcu(_log_conn)
+            if kr_result["freed"] > 0:
+                dmesg_log(_log_conn, DMESG_INFO, "kfree_rcu",
+                          f"freed={kr_result['freed']} dead={kr_result['total_dead']} "
+                          f"skip_prot={kr_result['skipped_protected']} "
+                          f"{kr_result['duration_ms']:.1f}ms",
+                          session_id=_session_id, project=project)
+        except Exception:
+            pass
+
         # ── iter522：numa_balancing — Access-Pattern Importance Rebalancing ──
         # OS 类比：Linux AutoNUMA (Ingo Molnár, 2012) — 观察访问模式动态迁移页面到正确 NUMA node
         # 双向平衡：高访问+低imp → promote，高imp+零访问+超龄 → demote

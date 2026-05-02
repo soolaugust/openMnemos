@@ -5766,6 +5766,106 @@ def free_pages_ok(conn: "sqlite3.Connection", project: str = None) -> dict:
     }
 
 
+# ── iter523: kfree_rcu — Deferred Cross-Project Zombie Reclaim ───────────────
+def kfree_rcu(conn: "sqlite3.Connection") -> dict:
+    """
+    iter523: kfree_rcu — 跨 project 延迟 zombie 回收器。
+
+    OS 类比：Linux kfree_rcu() (Paul E. McKenney, 2002)
+      RCU read-side critical section 持有引用时 kfree() 不能立即释放。
+      kfree_rcu() 将释放延迟到所有读者退出 grace period 后执行。
+      解决"多个子系统各自判定可回收，但无人执行最终释放"的问题。
+
+    根因：
+      free_pages_ok(conn, project) 只扫描当前 project，不扫描 global 层。
+      overcommit_kill 有自稳定阈值（60%），零访问率降到阈值以下即停止触发。
+      当 global 零访问率 42.2% < 60% 后，27 个 importance=0.150 的 zombie
+      chunks 被所有回收器遗漏——处于"回收死区"。
+
+    策略：
+      - 全局扫描（不限 project）所有 importance < dead_threshold + access=0
+      - 跳过当前 project（已由 free_pages_ok 处理）
+      - 保护：mlock / pinned / task_state / design_constraint
+      - 批次限制防止单次删除过多
+
+    调用时机：loader.py SessionStart，在 free_pages_ok 之后。
+    """
+    import time as _t
+    t0 = _t.time()
+
+    try:
+        from config import get as _cfg
+    except Exception:
+        return {"freed": 0, "skipped_protected": 0, "total_dead": 0, "duration_ms": 0}
+
+    dead_threshold = _cfg("free_pages.dead_threshold")  # 复用同一阈值 (0.2)
+    max_free = int(_cfg("free_pages.max_per_scan"))  # 复用同一批次限制
+
+    # 全局扫描：所有 project 的 zombie chunks
+    rows = conn.execute(
+        """SELECT id, access_count, oom_adj, chunk_type, project
+           FROM memory_chunks
+           WHERE importance < ?
+           ORDER BY importance ASC, oom_adj DESC
+           LIMIT ?""",
+        (dead_threshold, max_free * 3),
+    ).fetchall()
+
+    total_dead = len(rows)
+    to_delete = []
+    skipped_protected = 0
+
+    # 获取 pinned IDs
+    pinned_ids = set()
+    try:
+        pin_rows = conn.execute(
+            "SELECT chunk_id FROM chunk_pins WHERE pin_type IN ('hard', 'soft')"
+        ).fetchall()
+        pinned_ids = {r[0] for r in pin_rows}
+    except Exception:
+        pass
+
+    for chunk_id, access_count, oom_adj, chunk_type, _proj in rows:
+        # 保护：mlock
+        if oom_adj is not None and oom_adj <= -500:
+            skipped_protected += 1
+            continue
+        # 保护：pinned
+        if chunk_id in pinned_ids:
+            skipped_protected += 1
+            continue
+        # 保护：task_state / design_constraint
+        if chunk_type in ("task_state", "design_constraint"):
+            skipped_protected += 1
+            continue
+        # 核心判定：有访问记录 → 保留
+        if access_count and access_count > 0:
+            continue
+        # 可回收
+        to_delete.append(chunk_id)
+        if len(to_delete) >= max_free:
+            break
+
+    # 执行删除
+    freed = 0
+    if to_delete:
+        freed = delete_chunks(conn, to_delete)
+        try:
+            dmesg_log(conn, DMESG_INFO, "kfree_rcu",
+                      f"freed={freed} dead={total_dead} skip_prot={skipped_protected}",
+                      project="global")
+        except Exception:
+            pass
+
+    duration_ms = (_t.time() - t0) * 1000
+    return {
+        "freed": freed,
+        "skipped_protected": skipped_protected,
+        "total_dead": total_dead,
+        "duration_ms": round(duration_ms, 2),
+    }
+
+
 # ── iter522: numa_balancing — Access-Pattern Importance Rebalancing ──────────
 def numa_balancing(conn: "sqlite3.Connection", project: str = None) -> dict:
     """
