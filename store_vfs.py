@@ -626,24 +626,33 @@ def _safe_add_column(conn: sqlite3.Connection, table: str, column: str, col_type
 
 def _normalize_structured_summary(text: str) -> str:
     """
-    iter108：结构化 summary 归一化 — 在 FTS5 索引前展开标签/路径分隔符。
+    iter108+iter507：结构化 summary 归一化 — 在 FTS5 索引前清理标签和分隔符。
 
-    目标：把 "[capabilities] 锁/并发分析协议 > 迁移到新项目/子系统时需确认"
-    转为  "capabilities 锁 并发分析协议 迁移到新项目 子系统时需确认"
-    让 FTS5 能按语义词命中，而不是被 []、>、/ 等 ASCII 符号截断。
+    iter108 目标：去除 []、>、/ 等 ASCII 符号，让 FTS5 按语义词命中。
+    iter507 升级：完全剥离分类标签前缀（而非保留标签内容为 token）。
+
+    问题（iter507）：
+      [decisions]、[memory-os]、[kernel_process] 等分类标签去掉方括号后
+      仍作为 FTS5 token 存在（如 "decisions"），但用户查询从不包含这些词。
+      BM25 公式中文档长度是分母——标签 token 增大文档长度，稀释语义关键词权重。
 
     处理规则：
-      - [topic] 前缀 → 去掉括号，保留内容
-      - [规则/Category] 前缀 → 同上
+      - [tag] 前缀标签 → 完全移除（不保留标签内容）iter507
+      - [规则/Category] → 完全移除 iter507
       - X > Y → "X Y"（去掉 >）
       - X/Y 路径分隔 → "X Y"（仅非文件路径的 /）
       - (xxx) / （xxx） → 保留内容去括号
-    OS 类比：search indexer 对结构化字段做 field normalization 再建倒排索引。
+    OS 类比：Linux drop_caches (2006) — flush 无用的 page cache/dentry/inode 条目，
+      释放内存给真正有用的数据。FTS5 索引中的标签 token 就是无用的 dentry 缓存条目。
     """
     if not text:
         return text
-    # 去掉方括号，保留内容
-    result = re.sub(r'\[([^\]]{1,40})\]', r' \1 ', text)
+    # iter507: 完全移除分类标签前缀（[tag] 或 [tag/subtag] 在文本开头）
+    # 这些标签是存储层分类元数据，不是语义内容，不应参与 BM25 评分
+    # 已知标签模式：[decisions], [memory-os], [kernel_process], [规则/Patterns], etc.
+    result = re.sub(r'^\[[\w/\-\u4e00-\u9fff]+\]\s*', '', text)
+    # 文本中间的 [tag] — 也移除（如 "[语义化] Android 性能诊断..."）
+    result = re.sub(r'\[[\w/\-\u4e00-\u9fff]{2,30}\]\s*', ' ', result)
     # > 分隔符 → 空格
     result = result.replace('>', ' ')
     # / 在非文件路径上下文中 → 空格（文件路径含 . 不替换）

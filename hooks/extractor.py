@@ -1284,6 +1284,39 @@ def _is_quality_chunk(summary: str) -> bool:
         return False
     if re.match(r'^={2,}', s):  # "====== separator"
         return False
+    # ── iter506: seccomp-bpf Content Domain Filter ──────────────────────────
+    # OS 类比：Linux seccomp-bpf (Will Drewry, 2012) — 系统调用入口强制访问控制。
+    # 拦截非技术域内容（生活/日常对话/美食/旅行/情感）进入知识库。
+    # 触发条件：无任何技术信号 AND 含生活域信号词。
+    # 设计：宁可漏过（false negative）也不误杀技术内容（zero false positive 目标）。
+    _TECH_SIGNALS = (
+        # 代码/文件标识符
+        re.search(r'[\w./]+\.(?:py|js|ts|json|db|sql|yaml|toml|sh|c|h|rs|go|java)\b', s),
+        # 代码语法元素
+        re.search(r'`[^`]+`|def |class |import |function |const |var |let ', s),
+        # 技术术语（英文）
+        re.search(r'\b(?:API|DB|SQL|FTS|BM25|CPU|RAM|OOM|GC|LRU|PID|hook|chunk|cache|mutex|thread|kernel|patch|commit|git|docker|nginx|redis)\b', s, re.I),
+        # 数字度量
+        re.search(r'\d+(?:\.\d+)?(?:%|ms|s|MB|GB|KB|次|条|个|行)', s),
+        # 技术中文术语
+        re.search(r'(?:迭代|配置|数据库|索引|缓存|线程|进程|部署|编译|调试|接口|模块|组件|框架|架构|算法|延迟|吞吐|并发|性能|内存|磁盘|网络|协议)', s),
+    )
+    has_tech = any(_TECH_SIGNALS)
+    if not has_tech:
+        # 检测生活域信号
+        _LIFE_KEYWORDS = re.search(
+            r'(?:餐厅|美食|旅行|旅游|酒店|外卖|快递|购物|淘宝|京东|抖音|微信|朋友圈|'
+            r'榴莲|水果|蔬菜|做饭|烹饪|食谱|减肥|健身|瑜伽|'
+            r'恋爱|约会|相亲|结婚|离婚|浪漫|表白|暧昧|社恐|'
+            r'影楼|自拍|拍照|婚纱|化妆|穿搭|服装|'
+            r'电影|综艺|追剧|明星|歌手|演唱会|KTV|'
+            r'宠物|猫咪|狗狗|萌宠|'
+            r'天气|下雨|晴天|出门|散步|逛街|'
+            r'磕巴|笑场|面对服务员|纪念日|周年)',
+            s
+        )
+        if _LIFE_KEYWORDS:
+            return False
     return True
 
 
