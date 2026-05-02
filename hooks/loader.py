@@ -90,7 +90,7 @@ def _load_working_set_from_checkpoint(project: str) -> tuple:
                 base_score = _unified_ws_score(c["importance"], c["last_accessed"])
                 score = base_score + restore_boost  # checkpoint 命中加权
                 prefix = _TYPE_PREFIX.get(c["chunk_type"], "")
-                scored.append((score, c["chunk_type"], c["summary"]))
+                scored.append((score, c["chunk_type"], c["summary"], c.get("id", "")))
             scored.sort(key=lambda x: x[0], reverse=True)
             top_k = _sysctl("loader.working_set_top_k")
             conn.commit()  # commit consumed 状态
@@ -128,7 +128,7 @@ def _load_working_set(project: str) -> list:
     scored = []
     for c in chunks:
         score = _unified_ws_score(c["importance"], c["last_accessed"])
-        scored.append((score, c["chunk_type"], c["summary"]))
+        scored.append((score, c["chunk_type"], c["summary"], c.get("id", "")))
 
     scored.sort(key=lambda x: x[0], reverse=True)
     return scored[:_sysctl("loader.working_set_top_k")]
@@ -357,6 +357,11 @@ def main():
         # fallback：泛化 Top-K（迭代18 原有逻辑）
         working_set = _load_working_set(project)
 
+    # ── iter526: vm_flags — 收集 loader 注入的 chunk IDs，写入 page table ──
+    # OS 类比：/proc/PID/smaps vm_flags — 公开已映射 VMA 信息，
+    # 供其他子系统（retriever）避免重复映射同一虚拟地址区间。
+    _loader_injected_ids = []
+
     if working_set:
         _TYPE_PREFIX = {
             "decision": "[决策]",
@@ -367,9 +372,13 @@ def main():
         }
         ws_label = "【项目工作集】" if not checkpoint_info else "【项目工作集·CRIU恢复】"
         lines.append(ws_label)
-        for score, chunk_type, summary in working_set:
+        for item in working_set:
+            score, chunk_type, summary = item[0], item[1], item[2]
+            chunk_id = item[3] if len(item) > 3 else ""
             prefix = _TYPE_PREFIX.get(chunk_type, "")
             lines.append(f"- {prefix} {summary}".strip())
+            if chunk_id:
+                _loader_injected_ids.append(chunk_id)
 
     # ── iter378: Persistent Working Set Restoration ──────────────────────────
     # OS 类比：CRIU restore — 从磁盘反序列化上次进程的工作集页面，恢复到 warm cache 状态。
@@ -1211,6 +1220,22 @@ def main():
             context_text = _sem_text + "\n\n" + context_text
     except Exception:
         pass  # 语义层预热失败不影响 SessionStart
+
+    # ── iter526: vm_flags — Write Loader Page Table ──────────────────────────
+    # 将 loader 注入的 chunk IDs 写入 .loader_page_table.json，
+    # retriever 读取后排除这些 IDs，避免同一 chunk 被 SessionStart + UserPromptSubmit 双重注入。
+    # OS 类比：/proc/PID/smaps vm_flags 公开 VMA 映射信息，防止重复 mmap。
+    if _loader_injected_ids:
+        try:
+            _pt_path = MEMORY_OS_DIR / ".loader_page_table.json"
+            _pt_data = {
+                "injected_ids": _loader_injected_ids,
+                "project": project,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            }
+            _pt_path.write_text(json.dumps(_pt_data, ensure_ascii=False), encoding="utf-8")
+        except Exception:
+            pass  # page table 写入失败不影响 SessionStart
 
     output = {
         "hookSpecificOutput": {

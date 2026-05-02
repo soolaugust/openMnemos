@@ -1668,10 +1668,33 @@ def main():
         # 读取 sysctl 可控倍数（默认 3，延迟压力下 retriever_governor 可写为 2）
         _oversample_factor = _sysctl("retriever.oversample_factor") or 3
         _oversample_factor = max(2, min(4, int(_oversample_factor)))  # 钳制 [2, 4]
+        # ── iter526: vm_flags — 读取 Loader Page Table，排除已注入 chunk IDs ──
+        # OS 类比：find_vma() 检查目标地址是否已被映射，防止 MAP_FIXED 重叠
+        _loader_exclude_ids: set = set()
+        try:
+            _pt_path = os.path.join(MEMORY_OS_DIR, ".loader_page_table.json")
+            if os.path.exists(_pt_path):
+                with open(_pt_path, encoding="utf-8") as _ptf:
+                    _pt_data = json.loads(_ptf.read())
+                # 只排除同 project 的 loader 注入（跨 project 不影响）
+                if _pt_data.get("project") == project:
+                    _loader_exclude_ids = set(_pt_data.get("injected_ids", []))
+        except Exception:
+            pass  # page table 读取失败不影响检索
+
         # ── FTS5 索引召回（迭代23 ext3 htree）──
         try:
             fts_results = fts_search(conn, query, project, top_k=effective_top_k * _oversample_factor,
                                      chunk_types=_retrieve_types)
+            # iter526: 排除 loader 已注入的 chunk IDs（避免双重映射）
+            if _loader_exclude_ids and fts_results:
+                _pre_filter = len(fts_results)
+                fts_results = [r for r in fts_results if r.get("id") not in _loader_exclude_ids]
+                _vm_flags_filtered = _pre_filter - len(fts_results)
+                if _vm_flags_filtered > 0:
+                    _deferred.log(DMESG_DEBUG, "retriever",
+                              f"iter526 vm_flags: excluded {_vm_flags_filtered} loader-injected chunks",
+                              session_id=session_id, project=project)
             use_fts = bool(fts_results)
         except Exception as _fts_err:
             fts_results = []
@@ -2228,7 +2251,9 @@ def main():
                     if _check_deadline("pre_hybrid_bm25"):
                         raise Exception("deadline_skip_hybrid_bm25")
                     _all_chunks = store_get_chunks(conn, project, chunk_types=_retrieve_types)
-                    _extra_chunks = [c for c in _all_chunks if c.get("id", "") not in fts_ids]
+                    # iter526: vm_flags — 也排除 loader 已注入 IDs
+                    _exclude_all = fts_ids | _loader_exclude_ids
+                    _extra_chunks = [c for c in _all_chunks if c.get("id", "") not in _exclude_all]
                     if _extra_chunks:
                         _extra_texts = [f"{c['summary']} {c['content']}" for c in _extra_chunks]
                         _extra_raw = bm25_scores_cached(query, _extra_texts, chunk_version=read_chunk_version())
@@ -2410,6 +2435,9 @@ def main():
             if not use_fts:
                 # iter425: use_fts=False → BM25 full-table scan (TOT did not activate)
                 chunks = store_get_chunks(conn, project, chunk_types=_retrieve_types)
+                # iter526: vm_flags — 排除 loader 已注入的 chunk IDs
+                if _loader_exclude_ids and chunks:
+                    chunks = [c for c in chunks if c.get("id") not in _loader_exclude_ids]
                 if not chunks:
                     sys.exit(0)
                 candidates_count = len(chunks)
