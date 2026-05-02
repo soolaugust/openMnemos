@@ -3487,6 +3487,17 @@ _REGISTRY: dict = {
     "place_entity.min_active_chunks": (5, int, 2, 20, None,
         "活跃 chunk 最少需要 N 个才建立 min_vruntime（冷启动保护）"),
 
+    "shmem_link.enabled": (True, bool, None, None, None,
+        "是否启用 entity co-occurrence 共享内存激活（spreading_activate 补充路径）"),
+    "shmem_link.max_results": (5, int, 1, 20, None,
+        "co-occurrence 激活最多返回的 chunk 数"),
+    "shmem_link.min_shared_entities": (2, int, 1, 10, None,
+        "门控：至少共享 N 个 entity 才激活（防 false sharing 噪声）"),
+    "shmem_link.activation_score": (0.25, float, 0.05, 0.5, None,
+        "co-occurrence 激活最高分（归一化上限）"),
+    "shmem_link.entity_idf_weight": (True, bool, None, None, None,
+        "是否启用 entity IDF 加权（稀有 entity 共享权重更高）"),
+
     "bdi_writeback.enabled": (True, bool, None, None, None,
         "是否启用 boot-time 内容质量审计"),
     "bdi_writeback.max_per_scan": (30, int, 5, 100, None,

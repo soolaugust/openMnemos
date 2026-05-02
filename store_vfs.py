@@ -7257,6 +7257,175 @@ def spreading_activate(
     return activation
 
 
+# ── iter577: shmem_link — Shared Memory Co-occurrence Activation ──────────────
+# OS 类比：Linux shmem/tmpfs (Christoph Lameter, 2002, mm/shmem.c)
+#   多个进程无需 pipe/socket 显式通信，通过 mmap 映射同一物理页隐式共享数据。
+#   process A 写入共享页 → process B 读取时立即可见（无需 IPC message passing）。
+#   共享内存是最快的 IPC 机制——消除了数据复制和内核态切换。
+#
+# 认知科学：Encoding Overlap Principle (Tulving & Thomson, 1973)
+#   两个记忆共享的编码特征越多（encoding overlap），互相提示召回的概率越高。
+#   entity co-occurrence = encoding overlap：两个 chunk 共享同一 entity_name，
+#   说明它们在编码时涉及相同概念，即使没有显式关联（entity_edge），也有隐式语义连接。
+#
+# 根因：
+#   spreading_activate 只走 entity_edges（99 条边），但 entity_map 中 95.3% 实体孤立。
+#   多个 chunk 映射到同一 entity_name（co-occurrence）= 隐式共享内存页，
+#   但 spreading_activate 看不到这条路径。
+#
+# 解决：
+#   从 FTS5 命中的 chunk 出发 → 查 entity_map 获取其 entities →
+#   再查 entity_map 找到共享同一 entity 的其他 chunk（不经 entity_edges）。
+#   类比：通过共享页的 page frame 找到所有映射了该页的进程（rmap reverse mapping）。
+#   配合 min_shared_entities 门控：只有共享 ≥N 个 entity 的 chunk 才激活，
+#   避免单个通用 entity（如"决策"）造成无差别激活噪声（类似 huge page 的 false sharing）。
+#
+def shmem_link(
+    conn,
+    hit_chunk_ids: list,
+    project: str = None,
+    existing_ids: set = None,
+    max_results: int = None,
+    min_shared_entities: int = None,
+    activation_score: float = None,
+    entity_idf_weight: bool = None,
+) -> dict:
+    """
+    iter577: 从 FTS5 命中 chunk 出发，通过 entity co-occurrence 发现隐式关联 chunk。
+
+    算法：
+      1. hit_chunk_ids → entity_map 获取 seed entities
+      2. seed entities → entity_map 反查共享同 entity 的其他 chunk（co-occurrence）
+      3. 按共享 entity 数量排序，>= min_shared_entities 门控
+      4. IDF 加权：稀有 entity（出现在少数 chunk）的共享权重更高
+      5. 返回 {chunk_id: activation_score}
+
+    Returns:
+      {chunk_id: float} — co-occurrence 激活的邻居 chunk（不含 hit_chunk_ids）
+    """
+    from config import get as _cfg
+
+    if existing_ids is None:
+        existing_ids = set()
+    hit_set = set(hit_chunk_ids) | existing_ids
+
+    if not hit_chunk_ids:
+        return {}
+
+    # ── 参数读取（调用者可覆盖，否则从 sysctl 读）──
+    if max_results is None:
+        max_results = int(_cfg("shmem_link.max_results") or 5)
+    if min_shared_entities is None:
+        min_shared_entities = int(_cfg("shmem_link.min_shared_entities") or 2)
+    if activation_score is None:
+        activation_score = float(_cfg("shmem_link.activation_score") or 0.25)
+    if entity_idf_weight is None:
+        entity_idf_weight = bool(_cfg("shmem_link.entity_idf_weight"))
+
+    if not _cfg("shmem_link.enabled"):
+        return {}
+
+    # ── Step 1: hit chunks → seed entities ──
+    # 类比：shmem attach — 进程通过 shmat() 映射到共享内存段，
+    # 需要跨 namespace 可见（project + global）才能发现共享页
+    ph = ",".join("?" * len(hit_chunk_ids))
+    cross_proj_filter = "AND project IN (?, 'global')" if project else ""
+    cross_proj_params = [project] if project else []
+    try:
+        seed_rows = conn.execute(
+            f"SELECT entity_name, chunk_id FROM entity_map "
+            f"WHERE chunk_id IN ({ph}) {cross_proj_filter}",
+            list(hit_chunk_ids) + cross_proj_params,
+        ).fetchall()
+    except Exception:
+        return {}
+
+    if not seed_rows:
+        return {}
+
+    seed_entities = set(row[0] for row in seed_rows)
+
+    # ── Step 2: IDF computation — 每个 entity 出现在多少 chunk 中 ──
+    # 类比：shmem 的 page refcount — mapcount 越高的页越"通用"（如 libc），
+    #        mapcount 低的页是"专用"共享（如两个协作进程的 shared segment）
+    # 跨 project 计算（entity_map PK = entity_name+project → 同 entity 在不同 project 各一行）
+    entity_chunk_count: dict = {}  # entity → total chunk count in DB
+    if entity_idf_weight:
+        ent_ph = ",".join("?" * len(seed_entities))
+        try:
+            idf_rows = conn.execute(
+                f"SELECT entity_name, COUNT(DISTINCT chunk_id) as cnt "
+                f"FROM entity_map WHERE entity_name IN ({ent_ph}) "
+                f"GROUP BY entity_name",
+                list(seed_entities),
+            ).fetchall()
+            entity_chunk_count = {r[0]: r[1] for r in idf_rows}
+        except Exception:
+            pass
+
+    # ── Step 3: 反查共享同 entity 的其他 chunk（co-occurrence lookup）──
+    # 类比：rmap (reverse mapping) — 从物理页找到所有映射它的 VMA/进程
+    # 跨 project 查询：entity_map PK=(entity_name, project) 意味着同一 entity
+    # 在不同 project 映射到不同 chunk — 必须去掉 project 限制才能发现跨 project 共现
+    ent_ph = ",".join("?" * len(seed_entities))
+    try:
+        cooccur_rows = conn.execute(
+            f"SELECT chunk_id, entity_name FROM entity_map "
+            f"WHERE entity_name IN ({ent_ph})",
+            list(seed_entities),
+        ).fetchall()
+    except Exception:
+        return {}
+
+    # ── Step 4: 聚合 — 每个 candidate chunk 共享了哪些 entity ──
+    import math as _math
+    candidate_scores: dict = {}  # chunk_id → weighted score
+    candidate_shared: dict = {}  # chunk_id → shared entity count
+
+    total_chunks_est = max(len(hit_chunk_ids) + 10, 50)  # IDF denominator estimate
+
+    for cid, ent_name in cooccur_rows:
+        if cid in hit_set:
+            continue
+        if cid not in candidate_shared:
+            candidate_shared[cid] = 0
+            candidate_scores[cid] = 0.0
+        candidate_shared[cid] += 1
+
+        # IDF weight: log(N / (1 + df)) — 稀有 entity 权重更高
+        if entity_idf_weight and ent_name in entity_chunk_count:
+            df = entity_chunk_count[ent_name]
+            idf = _math.log(total_chunks_est / (1.0 + df)) if df > 0 else 1.0
+            idf = max(0.1, idf)  # floor
+            candidate_scores[cid] += idf
+        else:
+            candidate_scores[cid] += 1.0
+
+    # ── Step 5: 门控 + 排序 + 截断 ──
+    # 类比：shmem 的 shmem_fallocate — 只分配满足最小对齐的页，过小的不分配
+    filtered = [
+        (cid, candidate_scores[cid])
+        for cid, cnt in candidate_shared.items()
+        if cnt >= min_shared_entities
+    ]
+
+    if not filtered:
+        return {}
+
+    # 按加权分数降序排序
+    filtered.sort(key=lambda x: x[1], reverse=True)
+    filtered = filtered[:max_results]
+
+    # 归一化到 [0, activation_score]
+    max_raw = filtered[0][1] if filtered else 1.0
+    result = {}
+    for cid, raw_score in filtered:
+        normalized = (raw_score / max_raw) * activation_score if max_raw > 0 else 0.0
+        result[cid] = round(normalized, 4)
+
+    return result
+
+
 # ── iter380：Schema Anchoring — Bartlett (1932) Schema Theory ────────────────
 #
 # 认知科学：Bartlett (1932) Schema Theory — 人的记忆不是存储原始事实，

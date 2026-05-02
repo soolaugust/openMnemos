@@ -2200,6 +2200,40 @@ def main():
                 except Exception:
                     pass  # spreading activation 失败不阻塞主流程
 
+            # ── iter577：shmem_link — Shared Memory Co-occurrence Activation ──────
+            # OS 类比：shmem/tmpfs — 多进程通过映射同一物理页隐式共享，无需 IPC。
+            # spreading_activate 只走 entity_edges（显式连接），但 95%+ entity 无 edge。
+            # shmem_link 通过 entity co-occurrence 发现隐式关联（共享同一 entity 的 chunk）。
+            if not _check_deadline("shmem_link"):
+                try:
+                    from store_vfs import shmem_link as _shmem
+                    _shmem_result = _shmem(
+                        conn, list(fts_ids), project=project,
+                        existing_ids=fts_ids,
+                    )
+                    if _shmem_result:
+                        _sh_ids = list(_shmem_result.keys())
+                        _sh_ph = ",".join("?" * len(_sh_ids))
+                        _sh_rows = conn.execute(
+                            f"SELECT id, summary, content, chunk_type, importance, "
+                            f"last_accessed, access_count, created_at, project, "
+                            f"info_class, lru_gen "
+                            f"FROM memory_chunks WHERE id IN ({_sh_ph})",
+                            _sh_ids,
+                        ).fetchall()
+                        _sh_col = ("id","summary","content","chunk_type","importance",
+                                   "last_accessed","access_count","created_at","project",
+                                   "info_class","lru_gen")
+                        for row in _sh_rows:
+                            c = dict(zip(_sh_col, row))
+                            shmem_bonus = _shmem_result.get(c["id"], 0.0)
+                            base_score = _score_chunk(c, relevance=0.15)
+                            final.append((base_score + shmem_bonus, c))
+                            fts_ids.add(c["id"])
+                        candidates_count += len(_sh_rows)
+                except Exception:
+                    pass  # shmem_link 失败不阻塞主流程
+
             # ── iter380：Schema Spreading Activation — Bartlett (1932) Schema Theory ──
             # OS 类比：SLUB allocator partial list — 命中 chunk 所在 kmem_cache，
             # 同 slab 的相邻对象自动成为候选（schema-level prefetch）。
