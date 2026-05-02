@@ -1562,6 +1562,116 @@ def _detect_prospective_intent(text: str) -> str:
     return None
 
 
+def _sqe_validate_importance(importance: float, summary: str, chunk_type: str) -> float:
+    """
+    iter534: io_uring SQE flags validation — 写入时内容密度验证。
+
+    OS 类比：Linux io_uring SQE flags validation (Jens Axboe, 2019)
+    提交 I/O 请求到 submission queue 前验证 SQE flags，拒绝畸形请求浪费 ring buffer。
+
+    只在 importance >= 0.85 时验证（高价值声称需要高密度证明）。
+    检查 summary（剥离 [tag] 前缀后）的信息密度：
+
+    密度信号（至少满足 2/5 才视为合格）：
+    1. 唯一实体数 >= 2（文件路径/代码标识符/技术术语）
+    2. 可操作动词存在
+    3. 因果/条件关系存在
+    4. 内容长度 >= 40 字符（剥离标签后）
+    5. 具体量化数据（带单位的数字，排除编号如 "3."）
+
+    不合格：importance = min(importance, cap)
+    """
+    import re as _re_sqe
+
+    # 只验证高 importance（>= 0.85）—— 低值不需要证明
+    if importance < 0.85:
+        return importance
+
+    # 快速路径：excluded_path/prompt_context 不需要高信息密度
+    if chunk_type in ("excluded_path", "prompt_context", "conversation_summary"):
+        return importance
+
+    # 可通过 sysctl 禁用
+    try:
+        from config import get as _cfg534
+        if not _cfg534("extractor.sqe_validate_enabled"):
+            return importance
+    except Exception:
+        pass
+
+    s = summary.strip() if summary else ""
+    # 剥离 [tag] 前缀（如 [decisions]、[memory-os/iter76]）
+    s_clean = _re_sqe.sub(r'^\[.*?\]\s*', '', s).strip()
+
+    # ── 快速拒绝：明显碎片模式 ──────────────────────────────────────
+    # 编号列表项开头（"3. xxx"、"Q1. xxx"）且剥离后内容短 → 直接降级
+    if _re_sqe.match(r'^(?:\d+\.|Q\d+\.)\s', s_clean) and len(s_clean) < 60:
+        try:
+            from config import get as _cfg534c
+            _cap = float(_cfg534c("extractor.sqe_low_density_cap") or 0.60)
+        except Exception:
+            _cap = 0.60
+        return min(importance, _cap)
+
+    # ── 5 个密度信号 ────────────────────────────────────────────────
+    density_signals = 0
+
+    # 1. 唯一实体数 >= 2（文件路径/代码标识符/技术术语/函数名）
+    _entities = set()
+    _entities.update(_re_sqe.findall(r'[a-zA-Z_][\w/\-]*\.(?:py|js|ts|rs|go|c|h|yaml|json|toml|sh)', s_clean))
+    _entities.update(_re_sqe.findall(r'`([^`]{2,40})`', s_clean))
+    _entities.update(_re_sqe.findall(r'\b[A-Z][a-z]+[A-Z]\w+\b', s_clean))  # CamelCase
+    _entities.update(_re_sqe.findall(r'\b[a-z][a-z]+_[a-z_]+\b', s_clean))   # snake_case (tighter)
+    # 点分标识符（p->scx.sched, obj.method）
+    _entities.update(_re_sqe.findall(r'\b[a-z_]\w*(?:->|\.)[a-z_]\w*\b', s_clean))
+    if len(_entities) >= 2:
+        density_signals += 1
+
+    # 2. 可操作动词（中/英文）
+    _ACTION_VERBS = ('选择', '决定', '采用', '替代', '修复', '新增', '移除', '设置',
+                     '改为', '替换', '禁止', '必须', '使用', '避免', '删除', '添加',
+                     '实现', '配置', '调整', '优化', '迁移', '升级', '拆分', '合并',
+                     '验证', '确认', '检查', '触发', '注入', '排除', '覆盖',
+                     '不能', '不得',
+                     'use', 'add', 'remove', 'fix', 'replace', 'set', 'avoid',
+                     'require', 'implement', 'configure', 'migrate', 'must')
+    if any(v in s_clean for v in _ACTION_VERBS):
+        density_signals += 1
+
+    # 3. 因果/条件/约束关系
+    _CAUSAL = ('因为', '所以', '导致', '避免', '如果', '否则', '由于', '根因',
+               '原因', '为了', '防止', '确保', '以免', '除非', '须',
+               'because', 'since', 'when', 'unless', 'to avoid', 'to prevent',
+               'otherwise', '→', '——', '—')
+    if any(c in s_clean for c in _CAUSAL):
+        density_signals += 1
+
+    # 4. 足够长度（剥离标签后仍有实质内容）
+    if len(s_clean) >= 40:
+        density_signals += 1
+
+    # 5. 具体量化数据（带单位的数字，排除纯编号 "3." 开头和纯日期）
+    # 匹配：N ms, N%, N MB, N 次, N→M, N/M (分数) 等
+    _quant = _re_sqe.findall(r'\d+(?:\.\d+)?(?:ms|%|MB|GB|KB|次|条|个|轮|层|步)', s_clean)
+    _quant += _re_sqe.findall(r'\d+→\d+', s_clean)  # 变化量
+    # 比率（排除纯日期 2026-05-02 和编号 3.）
+    _ratios = _re_sqe.findall(r'(?<!\d{4}-)\d+/\d+', s_clean)
+    _quant += _ratios
+    if len(_quant) >= 1:
+        density_signals += 1
+
+    # ── 判定：信号 < 2/5 → 低密度 → 降级 ──────────────────────────
+    if density_signals < 2:
+        try:
+            from config import get as _cfg534b
+            _cap = float(_cfg534b("extractor.sqe_low_density_cap") or 0.60)
+        except Exception:
+            _cap = 0.60
+        return min(importance, _cap)
+
+    return importance
+
+
 def _calculate_confidence(chunk_type: str, summary: str) -> float:
     """
     迭代100：ECC 初始置信度评估 — 从提取特征自动推断。
@@ -1629,6 +1739,16 @@ def _write_chunk(chunk_type: str, summary: str, project: str, session_id: str,
         "procedure": 0.85,              # 可复用操作步骤/协议（wiki import 来源）
     }
     importance = importance_override if importance_override is not None else importance_map.get(chunk_type, 0.70)
+
+    # ── iter534: io_uring SQE validation — 写入时内容密度验证 ──────────────────
+    # OS 类比：Linux io_uring SQE flags validation (Jens Axboe, 2019) — 提交到 SQ 前
+    # 验证 SQE flags 合法性，拒绝畸形请求浪费 ring buffer 槽位。
+    # 根因：importance 按 chunk_type 分配（quantitative_evidence=0.90, design_constraint=0.95），
+    # 但碎片内容（编号列表项、审计笔记、模糊短语）因含数字/技术词通过结构检查，
+    # 获得高 importance + MLOCK_ONFAULT(-200) → 占据 Top-K 但永远不被检索命中。
+    # 修复：在 importance 赋值后、写入前验证 summary 的信息密度，密度不足则降级。
+    importance = _sqe_validate_importance(importance, summary, chunk_type)
+
     retrievability = 0.2 if chunk_type in ("reasoning_chain", "causal_chain") else 0.35
 
     tags = [chunk_type, project]

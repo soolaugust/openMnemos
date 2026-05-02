@@ -1817,14 +1817,80 @@ def get_chunks(conn: sqlite3.Connection, project: str,
         })
     return result
 
+
+# ── iter533: vfs_write_protect — LSM Mandatory Access Control at VFS Layer ──
+# OS 类比：Linux LSM (Linux Security Module) security_inode_create()
+#   Chris Wright & James Morris (2001) — 不管哪条 syscall 路径到达 VFS，
+#   都必须通过 LSM hook 的强制完整性校验。
+# 设计：最小化检查（O(1) regex），只拦截明显碎片，不做语义判断。
+# 语义判断留给上层（extractor/_is_quality_chunk），VFS 层只做"物理完整性"。
+import re as _re_vfs
+
+def _vfs_write_protect(summary: str) -> bool:
+    """
+    iter533: VFS 层写保护 — 返回 True 表示拒绝写入。
+
+    最小化检查（仅物理完整性，不做语义判断）：
+    1. 空/极短 summary（< 8 字符）
+    2. 以管道符/括号/符号开头（截断碎片）
+    3. 管道符 >= 2（markdown 表格行）
+    4. 以冒号结尾（标题碎片）
+    5. 纯数字/符号行（数据行）
+
+    不检查的（留给上层）：
+    - 语义质量（决策动词、技术锚点）
+    - 重复去重（KSM）
+    - 配额/反压
+
+    可通过 sysctl vfs.write_protect_enabled=false 禁用（测试/迁移场景）。
+    """
+    try:
+        from config import get as _cfg
+        if not _cfg("vfs.write_protect_enabled"):
+            return False
+    except Exception:
+        pass  # config 不可用时默认启用保护
+
+    if not summary or len(summary.strip()) < 8:
+        return True
+    s = summary.strip()
+    # 以截断符号开头
+    if s[0] in ('|', ')', ']', '}', '>', '+', '=', '：', '）', '】', '》',
+                ',', '，', '、', ';', '；'):
+        return True
+    # markdown 表格行（>= 2 个管道符）
+    if s.count('|') >= 2:
+        return True
+    # 以冒号结尾（标题碎片）
+    if s.rstrip().endswith(':') or s.rstrip().endswith('：'):
+        return True
+    # 纯数字/符号行
+    if _re_vfs.match(r'^[\d\s.,:;/×\-+=%]+$', s):
+        return True
+    return False
+
+
 def insert_chunk(conn: sqlite3.Connection, chunk_dict: dict) -> None:
     """
     插入或替换一条 chunk。
     OS 类比：VFS 的 write() — 统一写入接口。
 
     迭代97：同步维护 FTS5 索引（非 content-sync 模式，手动写入预处理文本）。
+    iter533：VFS 层写保护 — security_inode_create() 强制完整性校验。
     """
     d = chunk_dict
+    # ── iter533: vfs_write_protect — LSM mandatory write check ──────────────
+    # OS 类比：Linux LSM security_inode_create() (2001) — VFS 层强制访问控制，
+    # 无论哪条 syscall 路径（open/creat/mknod）到达 VFS，都必须过安全检查。
+    # 根因：多条写入路径（extractor/_write_chunk/writer/pool/effects）各自做质量检查，
+    # 遗漏路径导致碎片写入生产 DB。在最低层加不可绕过的完整性密封。
+    if _vfs_write_protect(d.get("summary", "")):
+        try:
+            dmesg_log(conn, DMESG_WARN, "vfs",
+                      f"write_protect REJECTED: '{d.get('summary', '')[:60]}'")
+        except Exception:
+            pass
+        return  # 静默拒绝，不抛异常（与 LSM deny 语义一致）
     tags = json.dumps(d["tags"], ensure_ascii=False) if isinstance(d.get("tags"), list) else d.get("tags", "[]")
     # 如果已存在（REPLACE 路径），先从 FTS5 删除旧记录
     existing_rowid = conn.execute(

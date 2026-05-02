@@ -3145,6 +3145,16 @@ _REGISTRY: dict = {
         "同时最多隔离的 chunk 数（防止过度隔离导致信息真空）"),
     "cpuset.min_traces": (10, int, 5, 50, None,
         "触发判定所需最低 recall_traces 数（样本不足时跳过）"),
+
+    # ── iter533: vfs_write_protect — LSM Mandatory Write Check ──
+    "vfs.write_protect_enabled": (True, bool, None, None, None,
+        "VFS 层写保护开关（默认 True：拦截碎片写入）。测试/迁移时可设为 False 绕过"),
+
+    # ── iter534: io_uring SQE validation — 写入时内容密度验证 ──
+    "extractor.sqe_validate_enabled": (True, bool, None, None, None,
+        "SQE 内容密度验证开关（默认 True）。验证 summary 信息密度，低密度降级 importance"),
+    "extractor.sqe_low_density_cap": (0.60, float, 0.20, 0.90, None,
+        "低密度内容的 importance 上限（默认 0.60）。信号不足的 chunk 不超过此值"),
 }
 
 # ── 磁盘配置缓存（进程内只读一次）──
