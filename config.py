@@ -3192,6 +3192,17 @@ _REGISTRY: dict = {
         "min_score_threshold 自动调节上限（防止阈值过高导致无结果注入）"),
     "perf.threshold_min": (0.20, float, 0.05, 0.40, None,
         "min_score_threshold 自动调节下限（保证最低过滤标准）"),
+
+    # ── iter543: refault_distance — Constraint Force-Injection Relevance Gate ──
+    # OS 类比：Linux workingset.c refault_distance (Johannes Weiner, 2018, kernel 4.18)
+    # 页面 refault 时，只有 refault_distance < working_set_size 才 promote 到 active list。
+    # 否则视为 streaming/scanning access，保持 inactive 防止 cache pollution。
+    # memory-os 等价：design_constraint 强制注入时，只有 query-Jaccard >= min_relevance 才注入，
+    # 否则视为"不在工作集内"的无关约束，跳过以防止 Top-K 被同一约束跨 query 垄断。
+    "retriever.constraint_min_relevance": (0.05, float, 0.0, 0.5, None,
+        "design_constraint 强制注入的最低 Jaccard 相关性门槛（iter543：低于此值视为 refault_distance 过远，不注入）"),
+    "retriever.constraint_thrash_max_pct": (0.40, float, 0.1, 0.8, None,
+        "design_constraint 跨 query 出现率超此比例时触发 thrash dampener，降低注入优先级（iter543）"),
 }
 
 # ── 磁盘配置缓存（进程内只读一次）──

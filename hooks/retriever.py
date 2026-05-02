@@ -2960,6 +2960,28 @@ def main():
                 return len(_query_words & s_words) / len(_query_words | s_words)
             _extra_constraints.sort(key=_constraint_relevance, reverse=True)
 
+            # ── iter543: refault_distance — Relevance Gate for Force-Injection ──
+            # OS 类比：Linux workingset.c refault_distance (Johannes Weiner, 2018)
+            # 页面 refault 时只有 distance < working_set_size 才 promote 到 active list，
+            # 否则视为 streaming access 保持 inactive 防止 cache pollution。
+            # 等价：constraint 的 query-Jaccard < min_relevance → 不在当前"工作集"内 → 不注入。
+            _constraint_min_rel = _sysctl("retriever.constraint_min_relevance")
+            _thrash_max_pct = _sysctl("retriever.constraint_thrash_max_pct")
+            # Thrash detection: 用 recall_counts 作为 cross-query presence 的近似
+            # recall_count/window > thrash_max_pct → 该 constraint 是 cache polluter
+            _bw_window = _sysctl("scorer.bw_window") or 30
+            _pre_gate_count = len(_extra_constraints)
+            _extra_constraints = [
+                c for c in _extra_constraints
+                if _constraint_relevance(c) >= _constraint_min_rel
+                and (_recall_counts.get(c.get("id", ""), 0) / max(_bw_window, 1)) <= _thrash_max_pct
+            ]
+            _gated_count = _pre_gate_count - len(_extra_constraints)
+            if _gated_count > 0:
+                _deferred.log(DMESG_DEBUG, "retriever",
+                              f"refault_distance: gated={_gated_count} (min_rel={_constraint_min_rel} thrash_max={_thrash_max_pct})",
+                              session_id=session_id, project=project)
+
             # ── 迭代337：Jaccard 内容重叠过滤 ──
             # 若约束 summary 与 top_k 中任一 chunk 的 Jaccard 相似度 ≥ 0.5，
             # 表示内容已被覆盖，再注入是纯冗余 → 跳过。
