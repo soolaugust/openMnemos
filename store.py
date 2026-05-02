@@ -128,6 +128,7 @@ from store_mm import (  # noqa: F401
     mem_scrub,
     mmu_notifier_invalidate,
     checkpoint_gc,
+    free_pages_ok,
     autotune,
     context_pressure_governor,
     GOV_LOW,

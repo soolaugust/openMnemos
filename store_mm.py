@@ -5647,3 +5647,120 @@ def checkpoint_gc(conn: "sqlite3.Connection") -> dict:
 
     result["total_after"] = result["total_before"] - result["deleted"]
     return result
+
+
+# ── iter521: free_pages_ok — Dead Page Frame Final Reclaim ────────────────────
+def free_pages_ok(conn: "sqlite3.Connection", project: str = None) -> dict:
+    """
+    iter521: free_pages_ok — 统一最终回收器，清理所有已判死但未释放的 zombie chunks。
+
+    OS 类比：Linux __free_pages_ok() (Linus Torvalds, 1991)
+      当页面引用计数通过 put_page() 降至 0 时，__free_pages_ok() 将页面归还
+      buddy allocator 的 free list。不管是哪条路径（swap out、munmap、OOM kill、
+      page_idle scan）把 refcount 降到 0，最终都经过同一个释放路径。
+
+    根因：29 个 importance < 0.2 的 chunks 仍然存活。多个回收器
+      （shrink_dcache/oom_reaper/page_idle/overcommit_kill）将它们降级，但：
+      - 各回收器的 delete_threshold 不同（0.2/0.35/...）
+      - 有些回收器只降级不删除（设计为分步收敛）
+      - 没有统一的最终清理者 → zombie chunks 长期占空间
+
+    策略（简洁、零误删）：
+      - importance < dead_threshold AND access_count = 0：直接删除
+      - importance < dead_threshold AND access_count > 0：保留（曾被验证有价值）
+      - 保护：oom_adj <= -500 (mlock)、pinned、task_state 豁免
+
+    参数：
+      conn — DB 连接
+      project — 限定项目（None = 扫描全部）
+
+    返回：
+      freed — 删除的 chunk 数
+      skipped_accessed — 因有访问记录而保留的 chunk 数
+      skipped_protected — 因保护而跳过的 chunk 数
+      total_dead — 满足 importance < threshold 的总数
+      duration_ms — 执行时间
+    """
+    import time as _t
+    t0 = _t.time()
+
+    try:
+        from config import get as _cfg
+    except Exception:
+        return {"freed": 0, "skipped_accessed": 0, "skipped_protected": 0,
+                "total_dead": 0, "duration_ms": 0}
+
+    dead_threshold = _cfg("free_pages.dead_threshold")
+    max_free_per_scan = _cfg("free_pages.max_per_scan")
+
+    # 查询所有 importance < threshold 的 chunks
+    where_clause = "WHERE importance < ?"
+    params = [dead_threshold]
+    if project:
+        where_clause += " AND project = ?"
+        params.append(project)
+
+    rows = conn.execute(
+        f"""SELECT id, access_count, oom_adj, chunk_type
+            FROM memory_chunks
+            {where_clause}
+            ORDER BY importance ASC, oom_adj DESC
+            LIMIT ?""",
+        params + [max_free_per_scan * 3],  # 多查一些，过滤后可能不够
+    ).fetchall()
+
+    total_dead = len(rows)
+    to_delete = []
+    skipped_accessed = 0
+    skipped_protected = 0
+
+    # 获取 pinned IDs（如果可用）
+    pinned_ids = set()
+    try:
+        from store_vfs import get_pinned_ids as _get_pinned
+        pinned_ids = set(_get_pinned(conn, project)) if project else set(_get_pinned(conn))
+    except Exception:
+        pass
+
+    for chunk_id, access_count, oom_adj, chunk_type in rows:
+        # 保护：mlock (oom_adj <= -500)
+        if oom_adj is not None and oom_adj <= -500:
+            skipped_protected += 1
+            continue
+        # 保护：pinned
+        if chunk_id in pinned_ids:
+            skipped_protected += 1
+            continue
+        # 保护：task_state 不删
+        if chunk_type == "task_state":
+            skipped_protected += 1
+            continue
+        # 核心判定：有访问记录的保留（曾被实战验证过）
+        if access_count and access_count > 0:
+            skipped_accessed += 1
+            continue
+        # 可回收
+        to_delete.append(chunk_id)
+        if len(to_delete) >= max_free_per_scan:
+            break
+
+    # 执行删除
+    freed = 0
+    if to_delete:
+        freed = delete_chunks(conn, to_delete)
+        try:
+            dmesg_log(conn, DMESG_INFO, "free_pages_ok",
+                      f"freed={freed} dead={total_dead} "
+                      f"skip_acc={skipped_accessed} skip_prot={skipped_protected}",
+                      project=project or "all")
+        except Exception:
+            pass
+
+    duration_ms = (_t.time() - t0) * 1000
+    return {
+        "freed": freed,
+        "skipped_accessed": skipped_accessed,
+        "skipped_protected": skipped_protected,
+        "total_dead": total_dead,
+        "duration_ms": round(duration_ms, 2),
+    }

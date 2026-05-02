@@ -3078,6 +3078,12 @@ _REGISTRY: dict = {
     # OS 类比：Linux mmu_notifier (Andrea Arcangeli, 2008) — page unmap 时同步清理 secondary TLB
     "criu.max_global_checkpoints": (10, int, 3, 50, None,
         "全局 checkpoint 上限：所有 session 合计不超过此数，防止 per-session 隔离导致全局膨胀"),
+
+    # ── iter521: free_pages_ok — Dead Page Frame Final Reclaim ──
+    "free_pages.dead_threshold": (0.20, float, 0.05, 0.5, None,
+        "importance 低于此值视为 dead page frame（默认 0.2）"),
+    "free_pages.max_per_scan": (40, int, 5, 200, None,
+        "每次 SessionStart 最多释放 N 个 dead chunks（默认 40）"),
 }
 
 # ── 磁盘配置缓存（进程内只读一次）──

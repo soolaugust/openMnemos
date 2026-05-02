@@ -917,6 +917,23 @@ def main():
         except Exception:
             pass
 
+        # ── iter521：free_pages_ok — Dead Page Frame Final Reclaim ──
+        # OS 类比：Linux __free_pages_ok() (Linus Torvalds, 1991) — refcount=0 归还 buddy
+        # 统一最终回收：所有降级器（shrink/reaper/page_idle/overcommit）跑完后，
+        # 清理 importance < 0.2 + access_count = 0 的 zombie chunks
+        try:
+            from store_mm import free_pages_ok
+            fp_result = free_pages_ok(_log_conn, project)
+            if fp_result["freed"] > 0:
+                dmesg_log(_log_conn, DMESG_INFO, "free_pages_ok",
+                          f"freed={fp_result['freed']} dead={fp_result['total_dead']} "
+                          f"skip_acc={fp_result['skipped_accessed']} "
+                          f"skip_prot={fp_result['skipped_protected']} "
+                          f"{fp_result['duration_ms']:.1f}ms",
+                          session_id=_session_id, project=project)
+        except Exception:
+            pass
+
         # ── iter514：ksm_scan — 同页合并扫描（去除版本化重复） ──
         # OS 类比：Linux KSM (Andrea Arcangeli, 2009) — ksmd 扫描相同页面合并为 COW 共享页
         try:
