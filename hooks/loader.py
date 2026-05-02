@@ -1370,6 +1370,27 @@ def main():
         except Exception:
             pass
 
+        # ── iter548：logrotate — Metadata Table Lifecycle Rotation ──
+        # OS 类比：logrotate (Red Hat, 1997) — 元数据/日志表无 chunk 外键，
+        # 不能被 fstrim 清理。logrotate 按 per-table policy 轮转过期记录。
+        logrotate_result = {"total_rotated": 0, "rotated": {}}
+        try:
+            if not _defer_reclaim:  # iter535: deferred_initcall gate
+                from config import get as _cfg548
+                if _cfg548("logrotate.enabled"):
+                    from store_mm import logrotate
+                    logrotate_result = logrotate(_log_conn)
+                    if logrotate_result["total_rotated"] > 0:
+                        parts = [f"{k}={v}" for k, v in logrotate_result["rotated"].items() if v > 0]
+                        dmesg_log(_log_conn, DMESG_INFO, "logrotate",
+                                  f"rotated={logrotate_result['total_rotated']} "
+                                  f"({' '.join(parts)}) "
+                                  f"{logrotate_result['duration_ms']:.1f}ms",
+                                  session_id=_session_id, project=project)
+                        _log_conn.commit()
+        except Exception:
+            pass
+
         # ── 迭代146：Swap GC — 孤儿 project 清理 ──
         # OS 类比：process exit → free anonymous swap pages (do_exit → exit_mmap)
         # 消亡 project（主表已无 chunk）的 swap 条目永久占位，不会被 swap_in，
@@ -1444,8 +1465,12 @@ def main():
         if fstrim_result.get("total_trimmed", 0) > 0:
             fstrim_summary = f" fstrim={fstrim_result['total_trimmed']}trimmed"
 
+        logrotate_summary = ""
+        if logrotate_result.get("total_rotated", 0) > 0:
+            logrotate_summary = f" logrotate={logrotate_result['total_rotated']}rotated"
+
         dmesg_log(_log_conn, DMESG_INFO, "loader",
-                  f"session_start latest={'Y' if has_latest else 'N'} working_set={len(working_set)} ctx_len={len(context_text)} watchdog={wd_status}{autotune_summary}{criu_summary}{damon_summary}{mglru_summary}{gc_summary}{rmap_summary}{gc_swap_summary}{slab_summary}{fstrim_summary}{consolidation_summary}",
+                  f"session_start latest={'Y' if has_latest else 'N'} working_set={len(working_set)} ctx_len={len(context_text)} watchdog={wd_status}{autotune_summary}{criu_summary}{damon_summary}{mglru_summary}{gc_summary}{rmap_summary}{gc_swap_summary}{slab_summary}{fstrim_summary}{logrotate_summary}{consolidation_summary}",
                   session_id=_session_id, project=project)
         _log_conn.commit()
         _log_conn.close()

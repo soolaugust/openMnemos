@@ -7666,3 +7666,167 @@ def fstrim(conn: sqlite3.Connection) -> dict:
         "total_trimmed": total,
         "duration_ms": round((_time.time() - t0) * 1000, 2),
     }
+
+
+# ── iter548: logrotate — Metadata Table Lifecycle Rotation ──────────────────
+
+def logrotate(conn: sqlite3.Connection) -> dict:
+    """
+    iter548: logrotate — 元数据表生命周期轮转。
+    OS 类比：Linux logrotate (Red Hat, 1997) — /etc/logrotate.d/ 配置每个日志文件的
+      轮转策略（maxsize/maxage/rotate count）。logrotate 由 cron.daily 触发，
+      按策略 truncate/rotate/compress/remove 过期日志。
+      没有 logrotate → /var/log 无限膨胀，inode 耗尽，journald 写满整盘。
+
+    根因：
+      fstrim(iter547) 清理辅助表中引用已删除 chunk 的 stale records，
+      但 6 张元数据/日志表没有 chunk 外键，无法通过 stale ref 检测——
+      它们只是随时间单调增长的日志/状态表：
+        - ipc_msgq: 424 条 CONSUMED 消息（全部已消费，无保留价值）
+        - hook_txn_log: 470 条事务日志（仅审计用，保留最近 N 条即可）
+        - session_focus: 103 条 session 焦点（旧 session 数据无召回价值）
+        - priming_state: 1656 条实体 priming（无上限，按 project 线性增长）
+        - tool_patterns: 639 条工具模式（低频模式无价值，保留 Top-N 即可）
+        - entity_edges: 507 条（98.4% orphaned，NULL source_chunk_id 无法被 fstrim 清理）
+
+    策略：per-table rotation policy，每表独立 try/except（fault isolation）：
+      Phase 1: ipc_msgq — 清除 CONSUMED 且超过 max_age 的消息
+      Phase 2: hook_txn_log — 保留最新 max_entries，删除最旧
+      Phase 3: session_focus — 清除超过 max_age 的旧 session 焦点
+      Phase 4: priming_state — per-project 保留 top-N（按 prime_strength DESC）
+      Phase 5: tool_patterns — 保留高频/近期使用的，清除低频旧模式
+      Phase 6: entity_edges — 清除 orphaned edges（NULL source + entity 不在任何 active chunk 中）
+
+    运行频率：SessionStart，fstrim 之后，受 deferred_initcall 门控。
+    """
+    try:
+        from config import get as _cfg
+    except Exception:
+        return {"rotated": {}, "total_rotated": 0, "duration_ms": 0}
+
+    t0 = _time.time()
+    rotated = {}
+
+    # ── Phase 1: ipc_msgq — 清除已消费的旧消息 ──
+    # logrotate policy: status=CONSUMED + age > max_age_hours → delete
+    try:
+        max_age_h = int(_cfg("logrotate.ipc_msgq_max_age_hours"))
+        cutoff = (datetime.now(timezone.utc) - timedelta(hours=max_age_h)).isoformat()
+        r = conn.execute(
+            """DELETE FROM ipc_msgq
+               WHERE status = 'CONSUMED'
+                 AND created_at < ?""",
+            (cutoff,)
+        )
+        rotated["ipc_msgq"] = r.rowcount
+    except Exception:
+        rotated["ipc_msgq"] = 0
+
+    # ── Phase 2: hook_txn_log — 保留最新 N 条 ──
+    # logrotate policy: rotate count = max_entries, 超出按 started_at ASC 删除
+    try:
+        max_entries = int(_cfg("logrotate.hook_txn_log_max_entries"))
+        count = conn.execute("SELECT COUNT(*) FROM hook_txn_log").fetchone()[0]
+        if count > max_entries:
+            overflow = count - max_entries
+            conn.execute(
+                "DELETE FROM hook_txn_log WHERE rowid IN "
+                "(SELECT rowid FROM hook_txn_log ORDER BY started_at ASC LIMIT ?)",
+                (overflow,)
+            )
+            rotated["hook_txn_log"] = overflow
+        else:
+            rotated["hook_txn_log"] = 0
+    except Exception:
+        rotated["hook_txn_log"] = 0
+
+    # ── Phase 3: session_focus — 清除超龄 session 焦点 ──
+    # logrotate policy: maxage = max_age_hours
+    try:
+        max_age_h = int(_cfg("logrotate.session_focus_max_age_hours"))
+        cutoff = (datetime.now(timezone.utc) - timedelta(hours=max_age_h)).isoformat()
+        r = conn.execute(
+            "DELETE FROM session_focus WHERE updated_at < ?",
+            (cutoff,)
+        )
+        rotated["session_focus"] = r.rowcount
+    except Exception:
+        rotated["session_focus"] = 0
+
+    # ── Phase 4: priming_state — per-project 保留 Top-N ──
+    # logrotate policy: maxsize per-project = max_per_project
+    try:
+        max_per_project = int(_cfg("logrotate.priming_max_per_project"))
+        # 找出超额 project
+        proj_counts = conn.execute(
+            "SELECT project, COUNT(*) as cnt FROM priming_state "
+            "GROUP BY project HAVING cnt > ?",
+            (max_per_project,)
+        ).fetchall()
+        total_pruned = 0
+        for proj, cnt in proj_counts:
+            overflow = cnt - max_per_project
+            # 保留 prime_strength 最高的（降序），删除最弱的
+            conn.execute(
+                """DELETE FROM priming_state WHERE rowid IN (
+                    SELECT rowid FROM priming_state
+                    WHERE project = ?
+                    ORDER BY prime_strength ASC, primed_at ASC
+                    LIMIT ?
+                )""",
+                (proj, overflow)
+            )
+            total_pruned += overflow
+        rotated["priming_state"] = total_pruned
+    except Exception:
+        rotated["priming_state"] = 0
+
+    # ── Phase 5: tool_patterns — 清除低频旧模式 ──
+    # logrotate policy: 保留 max_entries，按 frequency*recency 排序淘汰
+    try:
+        max_entries = int(_cfg("logrotate.tool_patterns_max_entries"))
+        count = conn.execute("SELECT COUNT(*) FROM tool_patterns").fetchone()[0]
+        if count > max_entries:
+            overflow = count - max_entries
+            # 淘汰 frequency 最低 + last_seen 最旧的
+            conn.execute(
+                """DELETE FROM tool_patterns WHERE rowid IN (
+                    SELECT rowid FROM tool_patterns
+                    ORDER BY frequency ASC, last_seen ASC
+                    LIMIT ?
+                )""",
+                (overflow,)
+            )
+            rotated["tool_patterns"] = overflow
+        else:
+            rotated["tool_patterns"] = 0
+    except Exception:
+        rotated["tool_patterns"] = 0
+
+    # ── Phase 6: entity_edges — 清除 orphaned edges ──
+    # fstrim 只清理有 source_chunk_id 的 stale edges。
+    # logrotate 补充清理：source_chunk_id IS NULL + 超龄（created_at 过旧）
+    # 这些是 entity graph 早期版本遗留的无锚 edges，无法关联到任何 chunk。
+    try:
+        max_age_h = int(_cfg("logrotate.entity_edges_orphan_max_age_hours"))
+        cutoff = (datetime.now(timezone.utc) - timedelta(hours=max_age_h)).isoformat()
+        r = conn.execute(
+            """DELETE FROM entity_edges
+               WHERE (source_chunk_id IS NULL OR source_chunk_id = '')
+                 AND created_at < ?""",
+            (cutoff,)
+        )
+        rotated["entity_edges"] = r.rowcount
+    except Exception:
+        rotated["entity_edges"] = 0
+
+    total = sum(rotated.values())
+
+    if total > 0:
+        conn.commit()
+
+    return {
+        "rotated": rotated,
+        "total_rotated": total,
+        "duration_ms": round((_time.time() - t0) * 1000, 2),
+    }

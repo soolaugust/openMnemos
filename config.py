@@ -3235,6 +3235,22 @@ _REGISTRY: dict = {
     # ── iter547: fstrim — Auxiliary Table Dead Block TRIM ──
     "fstrim.enabled": (True, bool, None, None, None,
         "是否启用 fstrim 辅助表死块清理"),
+
+    # ── iter548: logrotate — Metadata Table Lifecycle Rotation ──
+    "logrotate.enabled": (True, bool, None, None, None,
+        "是否启用 logrotate 元数据表生命周期轮转"),
+    "logrotate.ipc_msgq_max_age_hours": (48, int, 1, 720, None,
+        "ipc_msgq 已消费消息的最大保留时间（小时）"),
+    "logrotate.hook_txn_log_max_entries": (200, int, 50, 2000, None,
+        "hook_txn_log 最大保留条数（FIFO 淘汰最旧）"),
+    "logrotate.session_focus_max_age_hours": (72, int, 1, 720, None,
+        "session_focus 过期时间（小时）"),
+    "logrotate.priming_max_per_project": (100, int, 10, 1000, None,
+        "priming_state 每个 project 最大条数（按 prime_strength 淘汰最弱）"),
+    "logrotate.tool_patterns_max_entries": (300, int, 50, 2000, None,
+        "tool_patterns 最大保留条数（按 frequency+recency 淘汰）"),
+    "logrotate.entity_edges_orphan_max_age_hours": (72, int, 1, 720, None,
+        "entity_edges 无 source_chunk_id 的 orphan edges 最大保留时间（小时）"),
 }
 
 # ── 磁盘配置缓存（进程内只读一次）──
