@@ -3222,6 +3222,15 @@ _REGISTRY: dict = {
         "dark page 降级 oom_adj 值（越高越容易被回收）"),
     "vmstat.max_demote_per_scan": (5, int, 1, 20, None,
         "单次扫描最大降级 dark page 数（渐进式，避免误杀）"),
+
+    # ── iter546: shrink_slab — Periodic Slab Object Reaper ──
+    # OS 类比：do_shrink_slab() (Dave Chinner, 2013, mm/vmscan.c)
+    "shrink.min_adj": (400, int, 200, 800, None,
+        "触发 slab 回收的最低 oom_adj 阈值（>=此值+零访问才回收）"),
+    "shrink.max_scan_per_run": (5, int, 1, 20, None,
+        "单次扫描最大回收数（渐进式，防止单次大量 swap_out）"),
+    "shrink.grace_sessions": (3, int, 1, 10, None,
+        "新创建 chunk 的宽限 session 数（最近 N session 内创建的跳过）"),
 }
 
 # ── 磁盘配置缓存（进程内只读一次）──

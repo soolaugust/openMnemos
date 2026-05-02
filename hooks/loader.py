@@ -1329,6 +1329,24 @@ def main():
         except Exception:
             pass
 
+        # ── iter546：shrink_slab — Watermark-Independent Slab Object Reaper ──
+        # OS 类比：do_shrink_slab() (Dave Chinner, 2013, mm/vmscan.c)
+        # 回收高 oom_adj + 零访问的 zombie chunks，不依赖 kswapd 水位线
+        slab_result = {"freeable": 0, "reclaimed": 0, "skipped_grace": 0}
+        try:
+            if not _defer_reclaim:  # iter535: deferred_initcall gate
+                from store_mm import shrink_slab
+                slab_result = shrink_slab(_log_conn, project)
+                if slab_result["reclaimed"] > 0:
+                    dmesg_log(_log_conn, DMESG_INFO, "shrink_slab",
+                              f"freeable={slab_result['freeable']} reclaimed={slab_result['reclaimed']} "
+                              f"skip_grace={slab_result['skipped_grace']} "
+                              f"{slab_result['duration_ms']:.1f}ms",
+                              session_id=_session_id, project=project)
+                    _log_conn.commit()
+        except Exception:
+            pass
+
         # ── 迭代146：Swap GC — 孤儿 project 清理 ──
         # OS 类比：process exit → free anonymous swap pages (do_exit → exit_mmap)
         # 消亡 project（主表已无 chunk）的 swap 条目永久占位，不会被 swap_in，
@@ -1395,8 +1413,12 @@ def main():
         if consolidation_result.get("consolidated", 0) > 0:
             consolidation_summary = f" sleep_consol={consolidation_result['consolidated']}chunks"
 
+        slab_summary = ""
+        if slab_result.get("reclaimed", 0) > 0:
+            slab_summary = f" shrink_slab={slab_result['reclaimed']}recl/{slab_result['freeable']}free"
+
         dmesg_log(_log_conn, DMESG_INFO, "loader",
-                  f"session_start latest={'Y' if has_latest else 'N'} working_set={len(working_set)} ctx_len={len(context_text)} watchdog={wd_status}{autotune_summary}{criu_summary}{damon_summary}{mglru_summary}{gc_summary}{rmap_summary}{gc_swap_summary}{consolidation_summary}",
+                  f"session_start latest={'Y' if has_latest else 'N'} working_set={len(working_set)} ctx_len={len(context_text)} watchdog={wd_status}{autotune_summary}{criu_summary}{damon_summary}{mglru_summary}{gc_summary}{rmap_summary}{gc_swap_summary}{slab_summary}{consolidation_summary}",
                   session_id=_session_id, project=project)
         _log_conn.commit()
         _log_conn.close()

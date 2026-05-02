@@ -7338,3 +7338,140 @@ def vmstat_scan(conn: sqlite3.Connection, project: str = None) -> dict:
     result["duration_ms"] = round((_time.time() - t0) * 1000, 2)
 
     return result
+
+
+# ── iter546: shrink_slab — Periodic Slab Object Reaper ──────────────────
+
+def shrink_slab(conn: sqlite3.Connection, project: str = None) -> dict:
+    """
+    iter546: shrink_slab — Watermark-Independent Slab Object Reaper.
+
+    OS 类比：Linux do_shrink_slab() (Dave Chinner, 2013, mm/vmscan.c kernel 3.12)
+      内核为 inode cache/dentry cache/buffer_head 等注册 struct shrinker。
+      每次内存回收扫描时，vmscan 调用 shrinker->count_objects() 获取可回收对象数，
+      shrinker->scan_objects(nr_to_scan) 释放它们。
+      关键：shrinkers 不依赖 kswapd 水位线——即使系统在 ZONE_OK 也会被调用，
+      只要存在 "freeable" 对象（LRU 尾部、引用计数=0 的 slab 对象）。
+
+    根因：
+      vmstat_scan(iter545) 将 dark pages 降级到 oom_adj=400，
+      page_idle(iter530) 将多轮 idle 后进一步降级到 oom_adj=600。
+      但没有任何机制最终回收这些高 oom_adj 的 zombie chunks：
+        - kswapd: 需要 watermark >= pages_low_pct (75%) 才唤醒，当前 75/200 = 37.5%
+        - _reclaim_stale_chunks: 只在 kswapd 内部被调用
+      结果：11 个 oom_adj >= 400 的 zombie chunks 永久存活，
+      占总量 75 的 14.7%，零价值但永远不被清理。
+
+    设计：
+      shrink_slab 不关心水位线，只关心对象自身的状态：
+        1. count_objects: 扫描 oom_adj >= shrink_min_adj(400) + access_count=0
+        2. scan_objects: 按 oom_adj DESC + importance ASC 排序，取 Top-N swap_out
+        3. 保护: importance >= 0.9 或 oom_adj < 0 不回收（已受保护）
+        4. 宽限期: 最近 shrink_grace_sessions 内创建的 chunk 跳过（避免误杀新知识）
+
+    参数：
+      conn — 数据库连接
+      project — 项目 ID (None = 全局扫描)
+
+    返回 dict:
+      freeable: int — 可回收对象总数 (count_objects)
+      scanned: int — 本次扫描数
+      reclaimed: int — 实际回收数 (swap_out)
+      skipped_grace: int — 宽限期内跳过数
+      duration_ms: float
+    """
+    from config import get as _cfg
+
+    t0 = _time.time()
+
+    shrink_min_adj = int(_cfg("shrink.min_adj"))
+    max_scan_per_run = int(_cfg("shrink.max_scan_per_run"))
+    grace_sessions = int(_cfg("shrink.grace_sessions"))
+
+    result = {
+        "freeable": 0,
+        "scanned": 0,
+        "reclaimed": 0,
+        "skipped_grace": 0,
+        "duration_ms": 0.0,
+    }
+
+    # ── Phase 1: count_objects — 统计可回收对象 ──
+    if project:
+        freeable_rows = conn.execute(
+            """SELECT id, oom_adj, importance, access_count, created_at
+               FROM memory_chunks
+               WHERE project IN (?, 'global')
+                 AND COALESCE(oom_adj, 0) >= ?
+                 AND COALESCE(access_count, 0) = 0
+                 AND chunk_state = 'ACTIVE'
+               ORDER BY oom_adj DESC, importance ASC""",
+            (project, shrink_min_adj)
+        ).fetchall()
+    else:
+        freeable_rows = conn.execute(
+            """SELECT id, oom_adj, importance, access_count, created_at
+               FROM memory_chunks
+               WHERE COALESCE(oom_adj, 0) >= ?
+                 AND COALESCE(access_count, 0) = 0
+                 AND chunk_state = 'ACTIVE'
+               ORDER BY oom_adj DESC, importance ASC""",
+            (shrink_min_adj,)
+        ).fetchall()
+
+    result["freeable"] = len(freeable_rows)
+
+    if not freeable_rows:
+        result["duration_ms"] = round((_time.time() - t0) * 1000, 2)
+        return result
+
+    # ── Phase 2: scan_objects — 宽限期过滤 + 回收 ──
+    # 宽限期：计算最近 N 个 session 的时间范围
+    grace_cutoff = None
+    if grace_sessions > 0:
+        try:
+            # 用 dmesg loader 条目作为 session 边界标记
+            session_rows = conn.execute(
+                "SELECT DISTINCT timestamp FROM dmesg "
+                "WHERE subsystem='loader' AND message LIKE 'session_start%' "
+                "ORDER BY timestamp DESC LIMIT ?",
+                (grace_sessions,)
+            ).fetchall()
+            if len(session_rows) >= grace_sessions:
+                grace_cutoff = session_rows[-1][0]
+        except Exception:
+            pass
+
+    to_reclaim = []
+    skipped_grace = 0
+
+    for chunk_id, oom_adj, importance, access_count, created_at in freeable_rows:
+        if len(to_reclaim) >= max_scan_per_run:
+            break
+
+        # 保护高重要性（额外防护层，SQL 已过滤 access_count=0 但 importance 可能高）
+        if importance is not None and importance >= 0.9:
+            continue
+
+        # 宽限期检查：最近 N 个 session 内创建的跳过
+        if grace_cutoff and created_at and created_at >= grace_cutoff:
+            skipped_grace += 1
+            continue
+
+        to_reclaim.append(chunk_id)
+
+    result["scanned"] = len(to_reclaim) + skipped_grace
+    result["skipped_grace"] = skipped_grace
+
+    # ── Phase 3: 回收（swap_out）──
+    if to_reclaim:
+        try:
+            swap_out(conn, to_reclaim)
+            conn.commit()
+            bump_chunk_version()
+            result["reclaimed"] = len(to_reclaim)
+        except Exception:
+            result["reclaimed"] = 0
+
+    result["duration_ms"] = round((_time.time() - t0) * 1000, 2)
+    return result
