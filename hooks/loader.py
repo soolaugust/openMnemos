@@ -1716,6 +1716,25 @@ def main():
             except Exception:
                 pass
 
+        # ── iter570：populate_pte — Entity Edge Target PTE Population ──
+        if _ict_enabled: _ict_milestones.append(("populate_pte", _ict_time.time()))
+        # OS 类比：Linux populate_pte() / vmalloc_fault() — 为 entity_edges 中无 entity_map
+        # 映射的目标实体建立 PTE，修复 spreading_activate 72.8% 死路
+        if not _defer_reclaim and not _ts_skip("populate_pte"):
+            try:
+                from store_mm import populate_pte
+                _pte_result = populate_pte(_log_conn, project)
+                if _pte_result["populated"] > 0:
+                    dmesg_log(_log_conn, DMESG_INFO, "populate_pte",
+                              f"populated={_pte_result['populated']} "
+                              f"mappings={_pte_result['mappings_created']} "
+                              f"unmapped={_pte_result['unmapped_found']} "
+                              f"{_pte_result['duration_ms']:.1f}ms",
+                              session_id=_session_id, project=project)
+                _ts_report("populate_pte", _pte_result.get("populated", 0) > 0)
+            except Exception:
+                pass
+
         # ── iter549：vacuum — Database File Compaction ──
         # OS 类比：SSD Background GC / Firmware Compaction — fstrim 通知 SSD 哪些 LBA
         # 空闲，但物理回收需要 SSD 内部 GC 搬迁有效 pages 合并 erase blocks。

@@ -3286,6 +3286,14 @@ _REGISTRY: dict = {
     "anon_vma_prepare.min_entities": (3, int, 1, 10, None,
         "chunk 提取实体数低于此值时跳过（内容太少无法建立有效连接）"),
 
+    # ── iter570: populate_pte — Entity Edge Target PTE Population ──
+    "populate_pte.enabled": (True, bool, None, None, None,
+        "是否启用 entity_edges 目标实体 PTE 回填（修复 spreading_activate 72.8% 死路）"),
+    "populate_pte.max_populate": (50, int, 10, 200, None,
+        "单次最多建立 PTE 的实体数量（防止 boot 延迟过长）"),
+    "populate_pte.min_entity_len": (3, int, 2, 10, None,
+        "实体名最小长度（过滤噪声短词）"),
+
     # ── iter549: vacuum — Database File Compaction ──
     "vacuum.enabled": (True, bool, None, None, None,
         "是否启用 VACUUM（DB 文件物理收缩）"),

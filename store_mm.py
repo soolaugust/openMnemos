@@ -10703,3 +10703,143 @@ def anon_vma_prepare(conn: sqlite3.Connection, project: str = None) -> dict:
         "skipped_low_entity": skipped_low_entity,
         "duration_ms": round((_time.time() - t0) * 1000, 2),
     }
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# iter570: populate_pte — Entity Edge Target PTE Population
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+def populate_pte(conn: sqlite3.Connection, project: str = None) -> dict:
+    """
+    iter570: Entity Edge Target PTE Population.
+
+    OS 类比：Linux populate_pte() / vmalloc_fault() (Linus Torvalds, 2001, mm/vmalloc.c)
+      当内核 vmalloc 分配虚拟地址后，PTE（页表项）可能尚未填充。
+      首次访问触发 page fault，vmalloc_fault() 从 init_mm 复制 PTE 到进程页表，
+      建立虚拟地址→物理页帧的映射。没有 PTE 的虚拟地址虽然在 vm_struct 中注册，
+      但 CPU MMU 无法翻译——每次访问都 fault，永远无法到达物理内存。
+
+    根因：entity_edges 中 72.8% 的 to_entity 在 entity_map 中没有对应条目。
+      spreading_activate() 的路径：
+        chunk → entity_map → entity_name → entity_edges → to_entity → entity_map → chunk
+      当 to_entity 在 entity_map 中不存在时，BFS 到达该节点后无法映射回 chunk_id，
+      等同于页表中有虚拟地址（entity_edges 注册的路径）但无 PTE（entity_map 映射）。
+      结果：spreading_activate 78.7% 的扩散路径是死路。
+
+    实现：
+      1. 找出 entity_edges.to_entity 中不在 entity_map 的实体（unmapped PTE）
+      2. 对每个 unmapped entity，在 memory_chunks.summary 中搜索包含该实体的 chunk
+      3. 为匹配的 chunk 建立 entity_map 条目（populate PTE）
+      4. 同样处理 entity_edges.from_entity（双向补全）
+      5. max_populate 限制单次处理量
+
+    保护机制：
+      - 幂等：已在 entity_map 中的 entity+project 不重复写入（INSERT OR IGNORE）
+      - max_populate 限制单次建立的 PTE 数
+      - 实体长度 >= 3 字符（过滤噪声短词）
+      - 只映射 importance > 0 的 chunk（跳过 ghost page）
+
+    参数：
+      conn — 数据库连接
+      project — 项目 ID（None 时全局扫描）
+
+    返回 dict:
+      populated: int — 成功建立 PTE 的 entity 数
+      mappings_created: int — 新建 entity_map 条目总数
+      unmapped_found: int — 发现的无 PTE 实体数
+      duration_ms: float
+    """
+    from config import get as _cfg
+    t0 = _time.time()
+
+    enabled = _cfg("populate_pte.enabled")
+    if not enabled:
+        return {"populated": 0, "mappings_created": 0, "unmapped_found": 0,
+                "duration_ms": 0.0}
+
+    max_populate = int(_cfg("populate_pte.max_populate"))
+    min_entity_len = int(_cfg("populate_pte.min_entity_len"))
+
+    # Phase 1: 找出 entity_edges 中不在 entity_map 的实体（unmapped PTE）
+    # 收集 from_entity + to_entity 的并集
+    edge_entities = set()
+    for row in conn.execute(
+        "SELECT DISTINCT from_entity FROM entity_edges "
+        "UNION SELECT DISTINCT to_entity FROM entity_edges"
+    ).fetchall():
+        ent = row[0]
+        if ent and len(ent) >= min_entity_len:
+            edge_entities.add(ent)
+
+    # 找出已在 entity_map 中的实体
+    mapped_entities = set()
+    for row in conn.execute("SELECT DISTINCT entity_name FROM entity_map").fetchall():
+        mapped_entities.add(row[0])
+
+    # Unmapped = 在 entity_edges 中注册但在 entity_map 中无 PTE
+    unmapped = edge_entities - mapped_entities
+    unmapped_found = len(unmapped)
+
+    if not unmapped:
+        return {"populated": 0, "mappings_created": 0,
+                "unmapped_found": 0, "duration_ms": round((_time.time() - t0) * 1000, 2)}
+
+    # Phase 2: 加载所有活跃 chunk 的 summary 用于匹配
+    proj_filter = "AND (project = ? OR project = 'global')" if project else ""
+    proj_params = [project] if project else []
+    chunk_rows = conn.execute(
+        f"SELECT id, summary, project FROM memory_chunks "
+        f"WHERE importance > 0 {proj_filter}",
+        proj_params,
+    ).fetchall()
+
+    # 构建 chunk_id → (summary_lower, project) 索引
+    chunk_index = [(cid, (summ or "").lower(), cproj or "global")
+                   for cid, summ, cproj in chunk_rows]
+
+    # Phase 3: 对每个 unmapped entity，找包含它的 chunk 并建立 PTE
+    populated = 0
+    mappings_created = 0
+    now_iso = datetime.now(timezone.utc).isoformat()
+
+    for entity_name in sorted(unmapped):  # sorted 保证确定性
+        if populated >= max_populate:
+            break
+
+        entity_lower = entity_name.lower()
+        matched = False
+
+        for chunk_id, summ_lower, chunk_proj in chunk_index:
+            if entity_lower in summ_lower:
+                # 建立 PTE: entity → chunk 映射
+                try:
+                    before = conn.total_changes
+                    conn.execute(
+                        """INSERT OR IGNORE INTO entity_map
+                           (entity_name, chunk_id, project, updated_at)
+                           VALUES (?, ?, ?, ?)""",
+                        (entity_name, chunk_id, chunk_proj, now_iso),
+                    )
+                    if conn.total_changes > before:
+                        mappings_created += 1
+                        matched = True
+                        break  # PK=(entity_name, project)，一个 entity+project 只需 1 条
+                except Exception:
+                    pass
+
+        if matched:
+            populated += 1
+
+    if mappings_created > 0:
+        try:
+            conn.commit()
+        except Exception:
+            pass
+
+    return {
+        "populated": populated,
+        "mappings_created": mappings_created,
+        "unmapped_found": unmapped_found,
+        "duration_ms": round((_time.time() - t0) * 1000, 2),
+    }
