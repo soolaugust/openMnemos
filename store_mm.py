@@ -9850,3 +9850,284 @@ def fair_clock(conn: "sqlite3.Connection", project: str = None) -> dict:
 
     result["duration_ms"] = round((_time.time() - t0) * 1000, 2)
     return result
+
+
+# ── place_entity — Fair Initial Importance for New Chunks（iter561）──
+
+def place_entity(conn: "sqlite3.Connection", project: str = None) -> dict:
+    """
+    iter561: place_entity — CFS 公平初始化新 chunk importance。
+
+    OS 类比：Linux CFS place_entity() (Ingo Molnár, 2007, kernel 2.6.23,
+    kernel/sched/fair.c)
+      当新 task 被 fork() 或 wake_up() 时，CFS 不将其 vruntime 设为 0
+      （否则新 task 会无限抢占直到追上 min_vruntime）。也不设为 max_vruntime
+      （否则永远排到最后无法执行）。
+      place_entity() 设置：se->vruntime = max(se->vruntime, cfs_rq->min_vruntime)
+      效果：新 task 从"公平起点"开始竞争，既不饥饿也不抢占。
+
+      kernel 3.12 添加了 START_DEBIT（sysctl_sched_child_runs_first=0 时
+      新 task vruntime += sched_vslice(cfs_rq, se) 即一个调度周期的虚拟时间片），
+      保证父进程有短暂执行优先权。
+
+    memory-os 等价问题：
+      - 批量导入 chunk（iter515 userfaultfd 等）初始 importance=0.15
+      - 知识库平均 importance ~0.60，min importance ~0.40（活跃 chunk）
+      - imp=0.15 的 chunk 在 retrieval_score 中被 importance_with_decay 乘法
+        放大劣势：score ∝ 0.15×0.55 = 0.083 vs 0.60×0.55 = 0.33（4倍差距）
+      - starvation_boost(0.30) 无法弥补（需要 BM25 relevance 命中才生效）
+      - 结果：42.2% chunks 零访问，永远无法被召回 → 知识浪费
+
+    解决：
+      Phase 1: 计算当前知识库的 "min_vruntime" — 活跃 chunk importance 的 P25
+      Phase 2: 扫描 imp < min_vruntime 且 access_count=0 的 chunk
+      Phase 3: place_entity — 提升 importance 到 min_vruntime（公平起点）
+      保护：
+        - 宽限期（grace_days）：只对存在超过 N 天的 chunk 执行（避免刚写入立即改）
+        - oom_adj >= 500 的 chunk 不提升（明确标记为低优先级的不动）
+        - max_per_scan 限制单次扫描量（防止大批量导入时一次性全提升）
+
+    返回:
+      placed: int — 已提升数量
+      min_vruntime: float — 计算出的公平起点 importance
+      eligible: int — 符合提升条件的 chunk 数
+      duration_ms: float
+    """
+    from config import get as _cfg
+
+    t0 = _time.time()
+    result = {
+        "placed": 0,
+        "min_vruntime": 0.0,
+        "eligible": 0,
+        "duration_ms": 0.0,
+    }
+
+    if not _cfg("place_entity.enabled"):
+        return result
+
+    grace_days = _cfg("place_entity.grace_days")
+    max_per_scan = _cfg("place_entity.max_per_scan")
+    floor_percentile = _cfg("place_entity.floor_percentile")  # P25 by default
+    min_active_chunks = _cfg("place_entity.min_active_chunks")
+
+    # ── Phase 1: 计算 min_vruntime ──
+    # OS 类比：update_min_vruntime(cfs_rq) — 从所有活跃 entity 中取最小 vruntime
+    # 我们取活跃 chunk（access_count > 0）的 importance P25 作为公平起点
+    try:
+        proj_filter = "AND project IN (?, 'global')" if project else ""
+        params = [project] if project else []
+
+        # 获取活跃 chunk 的 importance 分布
+        active_imps = conn.execute(
+            f"""SELECT importance FROM memory_chunks
+                WHERE access_count > 0
+                  AND COALESCE(oom_adj, 0) < 500
+                  {proj_filter}
+                ORDER BY importance ASC""",
+            params
+        ).fetchall()
+
+        if len(active_imps) < min_active_chunks:
+            # 活跃 chunk 太少，无法建立可靠的 min_vruntime
+            result["duration_ms"] = round((_time.time() - t0) * 1000, 2)
+            return result
+
+        # 计算 P25（floor_percentile）
+        idx = max(0, int(len(active_imps) * floor_percentile / 100.0) - 1)
+        min_vruntime = active_imps[idx][0]
+
+        # Clamp: min_vruntime 不低于 0.30（太低无意义）也不高于 0.60（不过度提升）
+        min_vruntime = max(0.30, min(0.60, min_vruntime))
+        result["min_vruntime"] = min_vruntime
+
+    except Exception:
+        result["duration_ms"] = round((_time.time() - t0) * 1000, 2)
+        return result
+
+    # ── Phase 2: 扫描需要 place_entity 的 chunk ──
+    # 条件：importance < min_vruntime, access_count=0, 存在超过 grace_days
+    now = datetime.now(timezone.utc)
+    cutoff = (now - timedelta(days=grace_days)).isoformat()
+
+    try:
+        eligible_chunks = conn.execute(
+            f"""SELECT id, importance FROM memory_chunks
+                WHERE importance < ?
+                  AND access_count = 0
+                  AND created_at < ?
+                  AND COALESCE(oom_adj, 0) < 500
+                  AND chunk_type NOT IN ('task_state')
+                  {proj_filter}
+                ORDER BY created_at ASC
+                LIMIT ?""",
+            [min_vruntime, cutoff] + params + [max_per_scan]
+        ).fetchall()
+
+        result["eligible"] = len(eligible_chunks)
+
+    except Exception:
+        result["duration_ms"] = round((_time.time() - t0) * 1000, 2)
+        return result
+
+    # ── Phase 3: place_entity — 提升 importance 到 min_vruntime ──
+    # OS 类比：se->vruntime = max(se->vruntime, cfs_rq->min_vruntime)
+    placed = 0
+    for (cid, cur_imp) in eligible_chunks:
+        try:
+            new_imp = min_vruntime  # 直接设为公平起点
+            conn.execute(
+                "UPDATE memory_chunks SET importance = ?, last_accessed = ? WHERE id = ?",
+                (new_imp, now.isoformat(), cid)
+            )
+            placed += 1
+        except Exception:
+            continue
+
+    if placed > 0:
+        conn.commit()
+
+    result["placed"] = placed
+    result["duration_ms"] = round((_time.time() - t0) * 1000, 2)
+    return result
+
+
+# ── iter563: prune_icache_sb — Metadata Table Proportional Reclaim ──────────
+# OS 类比：Linux dentry_lru_isolate() + prune_icache_sb()
+#   (Dave Chinner / Al Viro, 2012, kernel 3.12, fs/dcache.c + fs/inode.c)
+#
+#   dcache/icache 是内核文件系统元数据缓存。当元数据缓存膨胀到占用过多内存时，
+#   shrinker 回调 dentry_lru_isolate() 遍历 LRU list，对每个 dentry 做结构化检查：
+#     - d_count == 0 (无引用)? → 回收
+#     - 是 negative dentry (lookup miss 缓存)? → 超时后回收
+#     - 子目录数 == 0? → 回收
+#   prune_icache_sb() 做 per-superblock inode LRU 扫描，按 i_count/i_state 判断。
+#
+#   关键区别于 logrotate(iter548)：
+#     - logrotate = 时间/数量轮转（类似 cron + maxage policy）
+#     - prune_icache_sb = 引用/质量检查（类似 shrinker isolate callback）
+#   logrotate 处理"过期"；prune_icache_sb 处理"无效"——即使是新创建的也会被清除。
+#
+# 根因：
+#   生产 DB 99 chunks，但 priming_state 1053 条（10.6x 比例），其中：
+#     - 1040 条无 entity_map 链接（98.8% orphaned，从未被实际关联到 chunk）
+#     - 212 条 ≤2 字符（"pp", "ms"——无意义 token）
+#     - 111 条 3 字符（"决策", "原因"——中文 stopword）
+#   ipc_msgq 337 条全部 CONSUMED，但 <48h 所以 logrotate 未清理。
+#   hook_txn_log 200 条（已达 max_entries 但 logrotate 按 FIFO 保持恰好 200）。
+#
+#   问题不是"过期"而是"无效"：
+#     - priming 噪声 token 永远不会因为 prime_strength 下降而被轮转（全部 0.30 相等）
+#     - consumed IPC 消息无论多新都没有保留价值
+#     - entity_edges 引用已删除的 chunk 是结构性 orphan
+
+def prune_icache_sb(conn: sqlite3.Connection, project: str = None) -> dict:
+    """
+    iter563: prune_icache_sb — Metadata Table Proportional Reclaim.
+
+    对元数据表进行引用/质量检查式清理（不同于 logrotate 的时间/数量轮转）：
+      Phase 1: priming_state — 清除无 entity_map 链接 + 短 token（dcache negative dentry）
+      Phase 2: ipc_msgq — 清除 ALL consumed（i_count=0，无保留理由）
+      Phase 3: entity_edges — 清除引用已删除 chunk 的 edges（orphaned inode）
+      Phase 4: hook_txn_log — 更激进的 cap（只保留 max_keep，不考虑 age）
+
+    Returns: {pruned_priming, pruned_ipc, pruned_edges, pruned_txn, total_pruned, duration_ms}
+    """
+    from config import get as _cfg
+
+    t0 = _time.time()
+    result = {
+        "pruned_priming": 0,
+        "pruned_ipc": 0,
+        "pruned_edges": 0,
+        "pruned_txn": 0,
+        "total_pruned": 0,
+        "duration_ms": 0.0,
+    }
+
+    if not _cfg("prune_icache_sb.enabled"):
+        return result
+
+    min_entity_len = _cfg("prune_icache_sb.min_entity_len")
+    max_txn_keep = _cfg("prune_icache_sb.max_txn_keep")
+
+    # ── Phase 1: priming_state — Negative Dentry Eviction ──
+    # OS 类比：negative dentry = lookup 失败的缓存。priming entries 未链接到
+    # 任何 entity_map 记录 = lookup miss 缓存，应被清除。
+    # 同时清除过短 token（d_name 长度 < threshold = 无法构成有效文件名）
+    try:
+        # 1a: 清除过短 token（无意义 noise）
+        r1 = conn.execute(
+            "DELETE FROM priming_state WHERE LENGTH(entity_name) < ?",
+            (min_entity_len,)
+        )
+        short_pruned = r1.rowcount
+
+        # 1b: 清除无 entity_map 链接的条目（negative dentry — lookup never hit）
+        r2 = conn.execute(
+            """DELETE FROM priming_state
+               WHERE entity_name NOT IN (
+                   SELECT DISTINCT entity_name FROM entity_map
+               )"""
+        )
+        orphan_pruned = r2.rowcount
+
+        result["pruned_priming"] = short_pruned + orphan_pruned
+    except Exception:
+        result["pruned_priming"] = 0
+
+    # ── Phase 2: ipc_msgq — Zero-Refcount Inode Reclaim ──
+    # OS 类比：inode with i_count=0 → 可立即回收，不需要等 LRU aging。
+    # CONSUMED 消息 = 引用计数归零的 inode，无论年龄都应回收。
+    try:
+        r = conn.execute("DELETE FROM ipc_msgq WHERE status = 'CONSUMED'")
+        result["pruned_ipc"] = r.rowcount
+    except Exception:
+        result["pruned_ipc"] = 0
+
+    # ── Phase 3: entity_edges — Orphaned Inode Cleanup ──
+    # OS 类比：inode 指向的 block 已被释放（chunk 删除）但 inode 本身还在 icache。
+    # 清除 source_chunk_id 指向不存在的 chunk 的 edges。
+    try:
+        r = conn.execute(
+            """DELETE FROM entity_edges
+               WHERE source_chunk_id IS NOT NULL
+                 AND source_chunk_id != ''
+                 AND source_chunk_id NOT IN (SELECT id FROM memory_chunks)"""
+        )
+        result["pruned_edges"] = r.rowcount
+    except Exception:
+        result["pruned_edges"] = 0
+
+    # ── Phase 4: hook_txn_log — Aggressive FIFO Cap ──
+    # OS 类比：printk ring buffer — 固定大小，旧消息被覆盖。
+    # logrotate 保持恰好 max_entries(200)。prune_icache_sb 进一步收紧到
+    # max_txn_keep（100），因为审计价值随时间指数衰减。
+    try:
+        count = conn.execute("SELECT COUNT(*) FROM hook_txn_log").fetchone()[0]
+        if count > max_txn_keep:
+            overflow = count - max_txn_keep
+            conn.execute(
+                """DELETE FROM hook_txn_log WHERE rowid IN (
+                    SELECT rowid FROM hook_txn_log
+                    ORDER BY started_at ASC
+                    LIMIT ?
+                )""",
+                (overflow,)
+            )
+            result["pruned_txn"] = overflow
+    except Exception:
+        result["pruned_txn"] = 0
+
+    total = (result["pruned_priming"] + result["pruned_ipc"]
+             + result["pruned_edges"] + result["pruned_txn"])
+    result["total_pruned"] = total
+
+    if total > 0:
+        try:
+            conn.commit()
+        except Exception:
+            pass
+
+    result["duration_ms"] = round((_time.time() - t0) * 1000, 2)
+    return result

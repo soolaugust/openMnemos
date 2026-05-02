@@ -1336,6 +1336,26 @@ def main():
             except Exception:
                 pass
 
+        # ── iter561：place_entity — CFS Fair Initial Importance ──
+        if _ict_enabled: _ict_milestones.append(("place_entity", _ict_time.time()))
+        # OS 类比：Linux CFS place_entity() (Ingo Molnár, 2007, kernel 2.6.23)
+        # 新 chunk（bulk import imp=0.15）无法与 avg imp=0.60 竞争 → 永远零访问
+        # place_entity 提升到 min_vruntime（活跃 chunk P25 importance）公平起点
+        if not _defer_reclaim and not _ts_skip("place_entity"):
+            try:
+                from store_mm import place_entity
+                pe_result = place_entity(_log_conn, project)
+                if pe_result["placed"] > 0:
+                    dmesg_log(_log_conn, DMESG_INFO, "place_entity",
+                              f"placed={pe_result['placed']} "
+                              f"eligible={pe_result['eligible']} "
+                              f"min_vruntime={pe_result['min_vruntime']:.2f} "
+                              f"{pe_result['duration_ms']:.1f}ms",
+                              session_id=_session_id, project=project)
+                _ts_report("place_entity", pe_result.get("placed", 0) > 0)
+            except Exception:
+                pass
+
         # ── iter524：mincore — Memory Residency Validation ──
         if _ict_enabled: _ict_milestones.append(("mincore", _ict_time.time()))
         # OS 类比：Linux mincore() (Linus Torvalds, 1994) — 查询哪些页面真实驻留在物理内存
@@ -1600,6 +1620,37 @@ def main():
             except Exception:
                 pass
 
+        # ── iter563：prune_icache_sb — Metadata Table Proportional Reclaim ──
+        # OS 类比：Linux dentry_lru_isolate() + prune_icache_sb() (Dave Chinner, 2012)
+        # 不同于 logrotate（时间/数量轮转），prune_icache_sb 做引用/质量检查：
+        # 清除无链接 priming、已消费 IPC、orphaned edges、过剩 txn log
+        prune_result = {"total_pruned": 0}
+        if not _defer_reclaim and not _ts_skip("prune_icache_sb"):
+            try:
+                from config import get as _cfg563
+                if _cfg563("prune_icache_sb.enabled"):
+                    from store_mm import prune_icache_sb
+                    prune_result = prune_icache_sb(_log_conn, project)
+                    if prune_result["total_pruned"] > 0:
+                        parts = []
+                        if prune_result["pruned_priming"] > 0:
+                            parts.append(f"priming={prune_result['pruned_priming']}")
+                        if prune_result["pruned_ipc"] > 0:
+                            parts.append(f"ipc={prune_result['pruned_ipc']}")
+                        if prune_result["pruned_edges"] > 0:
+                            parts.append(f"edges={prune_result['pruned_edges']}")
+                        if prune_result["pruned_txn"] > 0:
+                            parts.append(f"txn={prune_result['pruned_txn']}")
+                        dmesg_log(_log_conn, DMESG_INFO, "prune_icache_sb",
+                                  f"pruned={prune_result['total_pruned']} "
+                                  f"({' '.join(parts)}) "
+                                  f"{prune_result['duration_ms']:.1f}ms",
+                                  session_id=_session_id, project=project)
+                        _log_conn.commit()
+                    _ts_report("prune_icache_sb", prune_result.get("total_pruned", 0) > 0)
+            except Exception:
+                pass
+
         # ── iter549：vacuum — Database File Compaction ──
         # OS 类比：SSD Background GC / Firmware Compaction — fstrim 通知 SSD 哪些 LBA
         # 空闲，但物理回收需要 SSD 内部 GC 搬迁有效 pages 合并 erase blocks。
@@ -1855,6 +1906,10 @@ def main():
         if logrotate_result.get("total_rotated", 0) > 0:
             logrotate_summary = f" logrotate={logrotate_result['total_rotated']}rotated"
 
+        prune_summary = ""
+        if prune_result.get("total_pruned", 0) > 0:
+            prune_summary = f" prune_icache={prune_result['total_pruned']}pruned"
+
         vacuum_summary = ""
         if vacuum_result.get("vacuumed"):
             vacuum_summary = f" vacuum={vacuum_result['freed_kb']:.0f}KB({vacuum_result['freed_pct']:.1f}%)"
@@ -1868,7 +1923,7 @@ def main():
             cgroup_summary = f" cgroup_throttled={len(_cg_throttled_subsystems)}"
 
         dmesg_log(_log_conn, DMESG_INFO, "loader",
-                  f"session_start latest={'Y' if has_latest else 'N'} working_set={len(working_set)} ctx_len={len(context_text)} watchdog={wd_status}{autotune_summary}{criu_summary}{damon_summary}{mglru_summary}{gc_summary}{rmap_summary}{gc_swap_summary}{slab_summary}{fstrim_summary}{logrotate_summary}{vacuum_summary}{release_task_summary}{consolidation_summary}{cgroup_summary}",
+                  f"session_start latest={'Y' if has_latest else 'N'} working_set={len(working_set)} ctx_len={len(context_text)} watchdog={wd_status}{autotune_summary}{criu_summary}{damon_summary}{mglru_summary}{gc_summary}{rmap_summary}{gc_swap_summary}{slab_summary}{fstrim_summary}{logrotate_summary}{prune_summary}{vacuum_summary}{release_task_summary}{consolidation_summary}{cgroup_summary}",
                   session_id=_session_id, project=project)
         _log_conn.commit()
         _log_conn.close()

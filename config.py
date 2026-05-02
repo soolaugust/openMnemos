@@ -3252,6 +3252,14 @@ _REGISTRY: dict = {
     "logrotate.entity_edges_orphan_max_age_hours": (72, int, 1, 720, None,
         "entity_edges 无 source_chunk_id 的 orphan edges 最大保留时间（小时）"),
 
+    # ── iter563: prune_icache_sb — Metadata Table Proportional Reclaim ──
+    "prune_icache_sb.enabled": (True, bool, None, None, None,
+        "是否启用 prune_icache_sb 元数据引用/质量检查式清理"),
+    "prune_icache_sb.min_entity_len": (4, int, 2, 10, None,
+        "priming_state 实体名称最小长度（短于此值视为噪声 token 直接清除）"),
+    "prune_icache_sb.max_txn_keep": (100, int, 20, 500, None,
+        "hook_txn_log 最大保留条数（比 logrotate 更激进的 cap）"),
+
     # ── iter549: vacuum — Database File Compaction ──
     "vacuum.enabled": (True, bool, None, None, None,
         "是否启用 VACUUM（DB 文件物理收缩）"),
@@ -3372,6 +3380,18 @@ _REGISTRY: dict = {
         "超额时的乘法降权因子（score *= factor），越小惩罚越重"),
     "cfs_bandwidth.overflow_decay": (0.85, float, 0.50, 0.99, None,
         "超额越多 throttle 越重：factor *= decay^(rc - quota)，渐进压制"),
+
+    # ── iter561: place_entity — CFS 公平初始化 ──
+    "place_entity.enabled": (True, bool, None, None, None,
+        "是否启用新 chunk importance 公平初始化（bulk import 低 imp 提升到 min_vruntime）"),
+    "place_entity.grace_days": (1, int, 0, 7, None,
+        "宽限期天数：只对存在超过 N 天的 chunk 执行 place_entity"),
+    "place_entity.max_per_scan": (30, int, 5, 100, None,
+        "单次扫描最多提升的 chunk 数"),
+    "place_entity.floor_percentile": (25, int, 10, 50, None,
+        "取活跃 chunk importance 的 P-N 作为 min_vruntime（公平起点）"),
+    "place_entity.min_active_chunks": (5, int, 2, 20, None,
+        "活跃 chunk 最少需要 N 个才建立 min_vruntime（冷启动保护）"),
 
     "bdi_writeback.enabled": (True, bool, None, None, None,
         "是否启用 boot-time 内容质量审计"),
