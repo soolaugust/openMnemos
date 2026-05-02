@@ -3391,6 +3391,12 @@ _REGISTRY: dict = {
     "cfs_bandwidth.overflow_decay": (0.85, float, 0.50, 0.99, None,
         "超额越多 throttle 越重：factor *= decay^(rc - quota)，渐进压制"),
 
+    # ── iter566: memcg_stat — Cross-Project Recall Accounting ──
+    "memcg_stat.enabled": (True, bool, None, None, None,
+        "是否启用 global chunk 跨项目召回计数聚合（anti-monopoly 跨 namespace 生效）"),
+    "memcg_stat.window": (60, int, 20, 200, None,
+        "跨项目 recall_traces 回溯窗口大小（覆盖更大时间范围以反映系统级压力）"),
+
     # ── iter561: place_entity — CFS 公平初始化 ──
     "place_entity.enabled": (True, bool, None, None, None,
         "是否启用新 chunk importance 公平初始化（bulk import 低 imp 提升到 min_vruntime）"),

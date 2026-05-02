@@ -372,6 +372,64 @@ def chunk_recall_counts(conn: 'sqlite3.Connection', project: str,
         return {}
 
 
+def chunk_recall_counts_memcg(conn: 'sqlite3.Connection', project: str,
+                              window: int = 60) -> dict:
+    """
+    iter566: memcg_stat — Cross-Project Recall Accounting for Global Chunks.
+
+    OS 类比：Linux memory.stat in cgroup v2 (Tejun Heo, 2012, kernel 3.16,
+    mm/memcontrol.c) — 单个 cgroup 内的 memory.current 只反映本 cgroup 开销，
+    但 memory.stat 提供 hierarchical 视图，包含子 cgroup 的累计值。
+    对于共享页面（shared memory / tmpfs），每个 cgroup 各自计数无法反映真实
+    系统级资源压力 — 需要 cross-cgroup 聚合统计。
+
+    问题（数据驱动）：
+      chunk_recall_counts() 使用 WHERE project=? 只统计当前项目的召回次数。
+      global 层 chunk（如 design_constraint）被多个项目共享召回，
+      但每个项目独立计数：
+        - project A: recall_count=6, project B: recall_count=8, project C: recall_count=0
+        - 从 project C 访问时 recall_count=0 → anti-monopoly 全部短路
+        - 实际该 chunk 系统级已被召回 14 次（应触发强力 throttle）
+      等价于：shared page 在多个 cgroup 中被访问，每个 cgroup 独立的
+      memory.current 无法反映全局内存压力。
+
+    解决：
+      对 global 项目的 chunk，额外查询 ALL projects 的 recall_traces 聚合计数，
+      取 max(per_project_count, cross_project_count) 作为有效 recall_count。
+      仅对 project='global' 的 chunk 执行跨项目聚合（非 global chunk 无此问题）。
+
+    Args:
+        conn: 数据库连接
+        project: 当前项目 ID（用于识别"非本项目"的跨项目 traces）
+        window: 回溯的 trace 条数（跨项目，默认 60 — 覆盖更大时间窗口）
+
+    Returns:
+        dict: {chunk_id: cross_project_recall_count} — 仅包含 global chunk 的跨项目计数
+    """
+    try:
+        # 查询所有项目的最近 traces（排除当前项目，当前项目已由 chunk_recall_counts 覆盖）
+        cur = conn.execute(
+            "SELECT top_k_json FROM recall_traces "
+            "WHERE project != ? AND injected=1 "
+            "ORDER BY rowid DESC LIMIT ?",
+            (project, window)
+        )
+        counts = {}
+        for (top_k_json,) in cur.fetchall():
+            try:
+                top_k = json.loads(top_k_json) if isinstance(top_k_json, str) else top_k_json
+                if isinstance(top_k, list):
+                    for item in top_k:
+                        if isinstance(item, dict) and "id" in item:
+                            cid = item["id"]
+                            counts[cid] = counts.get(cid, 0) + 1
+            except Exception:
+                continue
+        return counts
+    except Exception:
+        return {}
+
+
 def chunk_session_recall_counts(conn: 'sqlite3.Connection', project: str,
                                  session_id: str, window: int = 100) -> dict:
     """

@@ -142,7 +142,8 @@ def _load_modules():
                        psi_stats as _psi_stats, mglru_promote as _mglru_promote,
                        readahead_pairs as _readahead_pairs,
                        context_pressure_governor as _context_pressure_governor,
-                       chunk_recall_counts as _chunk_recall_counts)
+                       chunk_recall_counts as _chunk_recall_counts,
+                       chunk_recall_counts_memcg as _chunk_recall_counts_memcg)
     from store import DMESG_INFO as _DMESG_INFO, DMESG_WARN as _DMESG_WARN, DMESG_DEBUG as _DMESG_DEBUG
     from bm25 import hybrid_tokenize as _hybrid_tokenize, bm25_scores as _bm25_scores, normalize as _normalize, bm25_scores_cached as _bm25_scores_cached
     from store_vfs import read_chunk_version as _read_chunk_version
@@ -202,6 +203,7 @@ def _load_modules():
     g['readahead_pairs'] = _readahead_pairs
     g['context_pressure_governor'] = _context_pressure_governor
     g['chunk_recall_counts'] = _chunk_recall_counts
+    g['chunk_recall_counts_memcg'] = _chunk_recall_counts_memcg
     g['hybrid_tokenize'] = _hybrid_tokenize
     g['bm25_scores'] = _bm25_scores
     g['normalize'] = _normalize
@@ -1562,6 +1564,19 @@ def main():
             import sqlite3 as _rc_sql
             _rc_conn = _rc_sql.connect(str(STORE_DB))
             _recall_counts = chunk_recall_counts(_rc_conn, project, window=30)
+            # ── iter566: memcg_stat — Cross-Project Recall Accounting ──
+            # OS 类比：cgroup v2 memory.stat hierarchical aggregation — 共享页面的
+            # 跨 cgroup 访问计数聚合，反映真实系统级资源压力。
+            # global chunk 被多项目共享召回，per-project 计数无法反映全局垄断程度。
+            # 解决：取 max(per_project, cross_project) 确保 anti-monopoly 生效。
+            if _sysctl("memcg_stat.enabled") is not False:
+                _memcg_window = _sysctl("memcg_stat.window") or 60
+                _memcg_counts = chunk_recall_counts_memcg(_rc_conn, project, window=_memcg_window)
+                if _memcg_counts:
+                    for _mcid, _mcnt in _memcg_counts.items():
+                        _existing = _recall_counts.get(_mcid, 0)
+                        if _mcnt > _existing:
+                            _recall_counts[_mcid] = _mcnt
             _rc_conn.close()
         except Exception:
             pass  # 统计失败不影响主流程
