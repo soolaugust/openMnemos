@@ -6274,3 +6274,100 @@ def mincore(conn: "sqlite3.Connection", project: str = None) -> dict:
         "anomaly_detected": anomaly_detected,
         "duration_ms": round(duration_ms, 2),
     }
+
+
+# ── iter529: sched_rt_bandwidth — Working Set Recall Bandwidth Cap ───────────
+
+def sched_rt_bandwidth(conn: "sqlite3.Connection", project: str,
+                       candidate_ids: list) -> dict:
+    """
+    iter529: sched_rt_bandwidth — 工作集召回带宽限制器。
+
+    OS 类比：Linux sched_rt_runtime_us (Ingo Molnár, 2008)
+      /proc/sys/kernel/sched_rt_runtime_us = 950000 (95% of 1s period)
+      即使是最高优先级的 RT-FIFO 任务，也不能消耗超过 95% 的 CPU 带宽。
+      超过带宽上限后任务被 throttled 直到下一个周期。
+      这防止了一个失控 RT 线程饿死所有其他任务（包括 kthreadd、migration、ksoftirqd 等）。
+
+    根因：loader working_set 按 importance × recency 排序选 Top-K，
+      不考虑 chunk 的 recall 频率。高频 chunk（如 acc=89 的垄断 chunk，
+      出现在 45% 的 recall_traces 中）每次 SessionStart 都占据 Top-K 槽位。
+      retriever 的 bandwidth_throttle (iter527) 在检索路径生效，
+      但 loader 路径绕过 → 垄断 chunk 仍通过 working_set 注入上下文。
+      其他有价值但低频的 chunk 被挤出，无法获得曝光。
+
+    策略：
+      1. 从 recall_traces 统计每个 candidate 的召回频率（window 内占比）
+      2. 超过 rt_bandwidth_pct 的 chunk 标记为 throttled
+      3. 返回 throttled set，供 loader 在 Top-K 选择时排除
+
+    与 scorer.bandwidth_throttle (iter527) 的关系：
+      - bandwidth_throttle: 检索路径（retriever），对 score 做 ×0.15 乘法削减
+      - sched_rt_bandwidth: 注入路径（loader），直接从候选集排除
+      - 两者互补：loader 排除 + retriever 削减 = 全路径覆盖
+
+    参数：
+      conn — DB 连接
+      project — 项目 ID
+      candidate_ids — 候选 chunk ID 列表
+
+    返回：
+      throttled_ids — 应被排除的 chunk ID set
+      recall_rates — {chunk_id: recall_rate} 诊断信息
+      window_size — 实际使用的 trace 窗口大小
+    """
+    try:
+        from config import get as _cfg
+    except Exception:
+        return {"throttled_ids": set(), "recall_rates": {}, "window_size": 0}
+
+    rt_bandwidth_pct = _cfg("loader.rt_bandwidth_pct")
+    rt_window = _cfg("loader.rt_bandwidth_window")
+
+    if not candidate_ids:
+        return {"throttled_ids": set(), "recall_rates": {}, "window_size": 0}
+
+    # 统计最近 window 条 injected traces 中每个 candidate 出现的次数
+    candidate_set = set(candidate_ids)
+    try:
+        rows = conn.execute(
+            "SELECT top_k_json FROM recall_traces "
+            "WHERE project=? AND injected=1 "
+            "ORDER BY rowid DESC LIMIT ?",
+            (project, rt_window)
+        ).fetchall()
+    except Exception:
+        return {"throttled_ids": set(), "recall_rates": {}, "window_size": 0}
+
+    window_size = len(rows)
+    if window_size == 0:
+        return {"throttled_ids": set(), "recall_rates": {}, "window_size": 0}
+
+    counts: dict = {}
+    for (top_k_json,) in rows:
+        try:
+            top_k = json.loads(top_k_json) if isinstance(top_k_json, str) else top_k_json
+            if isinstance(top_k, list):
+                for item in top_k:
+                    if isinstance(item, dict) and "id" in item:
+                        cid = item["id"]
+                        if cid in candidate_set:
+                            counts[cid] = counts.get(cid, 0) + 1
+        except Exception:
+            continue
+
+    # 计算召回率并判断是否超过带宽上限
+    throttled_ids = set()
+    recall_rates = {}
+    for cid in candidate_ids:
+        cnt = counts.get(cid, 0)
+        rate = cnt / window_size
+        recall_rates[cid] = round(rate, 3)
+        if rate > rt_bandwidth_pct:
+            throttled_ids.add(cid)
+
+    return {
+        "throttled_ids": throttled_ids,
+        "recall_rates": recall_rates,
+        "window_size": window_size,
+    }

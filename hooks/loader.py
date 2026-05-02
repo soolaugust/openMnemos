@@ -93,6 +93,19 @@ def _load_working_set_from_checkpoint(project: str) -> tuple:
                 scored.append((score, c["chunk_type"], c["summary"], c.get("id", "")))
             scored.sort(key=lambda x: x[0], reverse=True)
             top_k = _sysctl("loader.working_set_top_k")
+
+            # ── iter529: sched_rt_bandwidth — CRIU 路径同样排除垄断 chunk ──
+            try:
+                from store_mm import sched_rt_bandwidth
+                candidate_ids = [item[3] for item in scored if len(item) > 3 and item[3]]
+                if candidate_ids:
+                    bw_result = sched_rt_bandwidth(conn, project, candidate_ids)
+                    throttled = bw_result.get("throttled_ids", set())
+                    if throttled:
+                        scored = [item for item in scored if (len(item) <= 3 or item[3] not in throttled)]
+            except Exception:
+                pass  # bandwidth check 失败不影响主流程
+
             conn.commit()  # commit consumed 状态
             conn.close()
             return scored[:top_k], ckpt
@@ -107,9 +120,11 @@ def _load_working_set(project: str) -> list:
     从 store.db 加载当前项目的工作集：Top-K 高权值 chunk。
     v3 迭代21：委托 store.py VFS 统一数据访问层。
     v4 迭代49：优先从 CRIU checkpoint 恢复精确工作集。
+    v5 iter529：sched_rt_bandwidth — 排除超过召回带宽上限的垄断 chunk。
 
     OS 类比：working set = 最近频繁访问的页面集。
     进程重新调度时，OS 预加载 working set 避免大量缺页中断。
+    iter529：sched_rt_runtime_us — RT 带宽限制，防止单个高优先级任务垄断 CPU。
     """
     if not STORE_DB.exists():
         return []
@@ -117,11 +132,14 @@ def _load_working_set(project: str) -> list:
         conn = open_db()
         ensure_schema(conn)
         chunks = store_get_chunks(conn, project, chunk_types=WORKING_SET_TYPES)
-        conn.close()
     except Exception:
         return []
 
     if not chunks:
+        try:
+            conn.close()
+        except Exception:
+            pass
         return []
 
     # 评分：Unified Scorer working_set_score（迭代20 CFS 统一评分）
@@ -131,6 +149,24 @@ def _load_working_set(project: str) -> list:
         scored.append((score, c["chunk_type"], c["summary"], c.get("id", "")))
 
     scored.sort(key=lambda x: x[0], reverse=True)
+
+    # ── iter529: sched_rt_bandwidth — 排除超过带宽上限的 chunk ──
+    # OS 类比：sched_rt_runtime_us 限制 RT 任务带宽，防止 CPU 垄断
+    try:
+        from store_mm import sched_rt_bandwidth
+        candidate_ids = [item[3] for item in scored if len(item) > 3 and item[3]]
+        if candidate_ids:
+            bw_result = sched_rt_bandwidth(conn, project, candidate_ids)
+            throttled = bw_result.get("throttled_ids", set())
+            if throttled:
+                scored = [item for item in scored if (len(item) <= 3 or item[3] not in throttled)]
+    except Exception:
+        pass  # bandwidth check 失败不影响主流程
+
+    try:
+        conn.close()
+    except Exception:
+        pass
     return scored[:_sysctl("loader.working_set_top_k")]
 
 

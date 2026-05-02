@@ -118,6 +118,10 @@ _REGISTRY: dict = {
         "iter378: 是否在 SessionStart 时恢复持久化工作集（.ws_{project}.json）"),
     "loader.ws_max_restore": (20, int, 5, 100, None,
         "iter378: 从 .ws_{project}.json 最多恢复多少个 chunk（按 access_count 排序）"),
+    "loader.rt_bandwidth_pct": (0.40, float, 0.1, 1.0, None,
+        "iter529: RT 带宽上限 — chunk 在 recall_traces 中出现频率超过此比例时从 working_set 排除"),
+    "loader.rt_bandwidth_window": (30, int, 10, 200, None,
+        "iter529: 带宽计算窗口大小 — 回溯最近 N 条 injected traces"),
 
     # ── knowledge_router ──
     "router.top_k_per_source": (3, int, 1, 20, None,
