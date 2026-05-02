@@ -2567,6 +2567,25 @@ def main():
                     _af_ratio = _sysctl("retriever.adaptive_floor_ratio")
                     _adaptive_floor = _top1_score * _af_ratio
                     _min_thresh = min(_min_thresh, max(_adaptive_floor, 0.10))
+            # iter579: copy_page_range — hard deadline 路径也应用 gap bridging
+            if (len(final) >= 3 and _sysctl("retriever.gap_bridge_enabled")
+                    and not _is_generic_knowledge_query(query)):
+                _gb_top1 = final[0][0]
+                _gb_top2 = final[1][0] if final[1][0] > 0 else 0.001
+                _gb_min_ratio = _sysctl("retriever.gap_bridge_min_ratio")
+                if _gb_top1 / _gb_top2 >= _gb_min_ratio:
+                    _gb_cluster_ratio = _sysctl("retriever.gap_bridge_cluster_ratio")
+                    _gb_min_cluster = _sysctl("retriever.gap_bridge_min_cluster")
+                    _gb_cluster_top = final[1][0]
+                    _gb_cluster_floor = _gb_cluster_top * _gb_cluster_ratio
+                    _gb_cluster_size = sum(
+                        1 for s, _ in final[1:]
+                        if s >= _gb_cluster_floor
+                    )
+                    if _gb_cluster_size >= _gb_min_cluster:
+                        _gb_new_thresh = max(_gb_cluster_floor, 0.05)
+                        if _gb_new_thresh < _min_thresh:
+                            _min_thresh = _gb_new_thresh
             positive = [(s, c) for s, c in final if s >= _min_thresh]
             if _sysctl("retriever.drr_enabled") and len(positive) > effective_top_k:
                 top_k = _drr_select(positive, effective_top_k)
@@ -2959,6 +2978,39 @@ def main():
                 _af_ratio = _sysctl("retriever.adaptive_floor_ratio")
                 _adaptive_floor = _top1_score * _af_ratio
                 _min_thresh = min(_min_thresh, max(_adaptive_floor, 0.10))
+        # ── iter579: copy_page_range — Score Gap Bridging ─────────────────
+        # OS 类比：Linux copy_page_range() (Andrea Arcangeli, 2004, mm/memory.c)
+        #   fork() 复制父进程地址空间时，大 VMA 间的 gap 不阻止复制下一个有效 VMA。
+        #   内核遍历 page table 各层级，跳过 unmapped region，复制下一个有效 PTE。
+        #   没有 gap bridging，阈值将 gap > threshold 视为"有效数据终止"。
+        # 问题：top1=0.99（精确关键词命中）vs top2=0.15（语义相关但词汇不匹配）
+        #   adaptive_floor=0.247 过滤全部 top2+ 候选 → 永远只注入 1 个结果
+        # 解法：检测 top1/top2 > gap_ratio（score gap），若 gap 后存在内聚 cluster
+        #   （成员分数彼此在 cluster_ratio 内），将 threshold 降至 cluster_top × cluster_ratio
+        if (len(final) >= 3 and _sysctl("retriever.gap_bridge_enabled")
+                and not _is_generic_knowledge_query(query)):
+            _gb_top1 = final[0][0]
+            _gb_top2 = final[1][0] if final[1][0] > 0 else 0.001
+            _gb_min_ratio = _sysctl("retriever.gap_bridge_min_ratio")
+            if _gb_top1 / _gb_top2 >= _gb_min_ratio:
+                # Gap detected — find cluster below the gap
+                _gb_cluster_ratio = _sysctl("retriever.gap_bridge_cluster_ratio")
+                _gb_min_cluster = _sysctl("retriever.gap_bridge_min_cluster")
+                _gb_cluster_top = final[1][0]  # top of the lower cluster
+                _gb_cluster_floor = _gb_cluster_top * _gb_cluster_ratio
+                _gb_cluster_size = sum(
+                    1 for s, _ in final[1:]
+                    if s >= _gb_cluster_floor
+                )
+                if _gb_cluster_size >= _gb_min_cluster:
+                    _gb_new_thresh = max(_gb_cluster_floor, 0.05)
+                    if _gb_new_thresh < _min_thresh:
+                        _min_thresh = _gb_new_thresh
+                        _deferred.log(DMESG_DEBUG, "retriever",
+                                      f"gap_bridge: top1={_gb_top1:.3f} top2={_gb_top2:.3f} "
+                                      f"ratio={_gb_top1/_gb_top2:.1f} cluster={_gb_cluster_size} "
+                                      f"new_thresh={_gb_new_thresh:.3f}",
+                                      session_id=session_id, project=project)
         positive = [(s, c) for s, c in final if s >= _min_thresh]
 
         # ── 迭代334：IWCSI — Importance-Weighted Cold-Start Injection ───────

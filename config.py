@@ -98,6 +98,14 @@ _REGISTRY: dict = {
         "自适应地板 = top1_score × ratio（iter578: 当 top1=0.99 时地板=0.25）"),
     "retriever.adaptive_floor_min_top1": (0.5, float, 0.1, 1.0, None,
         "Top-1 score 低于此值时不启用自适应地板（防止低质量结果泛滥）"),
+    "retriever.gap_bridge_enabled": (True, bool, None, None, None,
+        "启用 score gap bridging（iter579: copy_page_range）"),
+    "retriever.gap_bridge_min_ratio": (3.0, float, 1.5, 20.0, None,
+        "top1/top2 比值超过此值视为 score gap（触发 bridging）"),
+    "retriever.gap_bridge_cluster_ratio": (0.4, float, 0.1, 0.9, None,
+        "cluster 内 score 相对 cluster_top 的最低比率（>= ratio 视为同一 cluster）"),
+    "retriever.gap_bridge_min_cluster": (2, int, 1, 10, None,
+        "cluster 最小成员数才启用 bridging（防止单个噪音穿透）"),
 
     # ── writer ──
     "writer.debounce_secs": (300, int, 0, 3600, None,
