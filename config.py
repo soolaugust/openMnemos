@@ -3322,6 +3322,16 @@ _REGISTRY: dict = {
     "mmap_populate.exclude_types": ("prompt_context,conversation_summary", str, None, None, None,
         "排除的 chunk_type（逗号分隔）：这些类型不适合强制曝光"),
 
+    # ── iter582: scan_unevictable — Round-Robin Dark Page Batch Exposure ──
+    "scan_unevictable.enabled": (True, bool, None, None, None,
+        "是否启用 round-robin dark page 批量曝光（每次 FULL 召回注入额外 diversity slots）"),
+    "scan_unevictable.max_inject": (2, int, 1, 5, None,
+        "每次 FULL 召回注入的 dark page 数量（额外 slot，不替换现有 top_k）"),
+    "scan_unevictable.imp_threshold": (0.5, float, 0.2, 1.0, None,
+        "dark page 最低 importance 门槛（只曝光有价值的 dark pages）"),
+    "scan_unevictable.exclude_types": ("prompt_context,conversation_summary", str, None, None, None,
+        "排除的 chunk_type（逗号分隔）：这些类型不适合强制曝光"),
+
     # ── iter572: kcompactd — Proactive Dead Page Reclaim ──
     # ── iter581: ksoftirqd — Runtime Reclaim Trigger ──
     "ksoftirqd.enabled": (True, bool, None, None, None,

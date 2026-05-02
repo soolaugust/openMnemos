@@ -11707,3 +11707,145 @@ def consume_softirq() -> dict:
         except Exception:
             pass
         return {"pending": False}
+
+
+# ── iter582: scan_unevictable — Round-Robin Dark Page Batch Exposure ──────────
+#
+# OS 类比：Linux scan_unevictable_pages() (Lee Schermerhorn, 2008, kernel 2.6.28,
+#   mm/vmscan.c) — unevictable LRU 上的页面因 mlock()/MAP_LOCKED 被锁定，
+#   vmscan 无法回收也不会扫描。scan_unevictable_pages() 在
+#   sysctl vm.scan_unevictable_pages=1 时强制审计 unevictable list，
+#   用 round-robin 逐批释放不再需要锁定的页面回 evictable LRU。
+#
+# Memory-OS 等价问题：
+#   88% dark page rate — 53/60 alive chunks 从未进入 top_k。
+#   FTS5 词汇匹配只命中少数 chunk，其余在检索空间中"不可见"（unevictable）。
+#   mmap_populate(iter571) 每 interval(3) 次 FULL 替换 1 个 slot，
+#   覆盖 53 dark pages 需 159+ 次 FULL 召回（极慢）。
+#
+# 与 mmap_populate 的区别：
+#   mmap_populate: 每 interval 次替换 top_k 最低 slot（1 个），取 imp 最高者
+#   scan_unevictable: 每次 FULL 注入 max_inject(2) 到额外 diversity slots，
+#     round-robin cursor 保证公平轮转（不总是取最高 imp），覆盖速度 ×6+
+#
+_SCAN_CURSOR_FILE = MEMORY_OS_DIR / ".scan_unevictable_cursor.json"
+
+
+def scan_unevictable(conn: sqlite3.Connection, project: str,
+                     top_k_ids: set) -> list:
+    """
+    iter582: Round-Robin Dark Page Batch Exposure.
+
+    从 DB 中按 round-robin cursor 选取多个 dark pages 作为 diversity slots 注入候选。
+    cursor 持久化到文件，确保每个 dark page 最终被轮到。
+
+    参数:
+      conn — 只读 DB 连接
+      project — 当前项目 ID
+      top_k_ids — 当前 top_k 中已有的 chunk ID 集合（排除避免重复）
+
+    返回:
+      list[dict] — 待注入的 dark page chunks（0 到 max_inject 个）
+
+    与 mmap_populate 互补：
+      mmap_populate: imp 最高的 1 个 dark page（贪心策略）
+      scan_unevictable: round-robin 批量多个（公平策略）
+    """
+    from config import get as _cfg
+
+    if not _cfg("scan_unevictable.enabled"):
+        return []
+
+    max_inject = _cfg("scan_unevictable.max_inject")
+    imp_threshold = _cfg("scan_unevictable.imp_threshold")
+    exclude_types = set(
+        t.strip() for t in (_cfg("scan_unevictable.exclude_types") or "").split(",")
+        if t.strip()
+    )
+
+    # Phase 1: 加载 cursor（上次轮到的位置）
+    cursor_offset = 0
+    try:
+        if _SCAN_CURSOR_FILE.exists():
+            _cdata = json.loads(_SCAN_CURSOR_FILE.read_text(encoding="utf-8"))
+            cursor_offset = _cdata.get("offset", 0)
+    except Exception:
+        cursor_offset = 0
+
+    # Phase 2: 查询所有 eligible dark pages（zero-access, imp >= threshold, alive）
+    params = [imp_threshold, project]
+    sql = (
+        "SELECT id, summary, chunk_type, importance, content, project, "
+        "access_count, last_accessed, created_at, oom_adj "
+        "FROM memory_chunks "
+        "WHERE access_count = 0 "
+        "AND importance >= ? "
+        "AND importance > 0 "
+        "AND (project = ? OR project = 'global') "
+    )
+
+    if top_k_ids:
+        sql += f"AND id NOT IN ({','.join('?' * len(top_k_ids))}) "
+        params.extend(sorted(top_k_ids))
+
+    if exclude_types:
+        for et in exclude_types:
+            sql += "AND chunk_type != ? "
+            params.append(et)
+
+    # 排除 oom_adj >= 300 dead chunks（它们不值得曝光）
+    sql += "AND oom_adj < 300 "
+    # 按 created_at 排序实现稳定的 round-robin 顺序
+    sql += "ORDER BY created_at ASC"
+
+    _cols = ("id", "summary", "chunk_type", "importance", "content",
+             "project", "access_count", "last_accessed", "created_at", "oom_adj")
+    try:
+        raw_rows = conn.execute(sql, params).fetchall()
+        # 统一转为 dict（兼容 sqlite3.Row / tuple / 测试 DB）
+        rows = []
+        for row in raw_rows:
+            if hasattr(row, 'keys'):
+                rows.append({k: row[k] for k in row.keys()})
+            elif isinstance(row, dict):
+                rows.append(row)
+            else:
+                rows.append(dict(zip(_cols, row)))
+    except Exception:
+        return []
+
+    if not rows:
+        # 无 eligible dark pages → 重置 cursor
+        _save_cursor(0)
+        return []
+
+    total = len(rows)
+
+    # Phase 3: Round-robin — 从 cursor_offset 开始取 max_inject 个
+    # cursor 超出范围时 wrap around
+    if cursor_offset >= total:
+        cursor_offset = 0
+
+    # 取 min(max_inject, total) 去重（避免 total < max_inject 时重复选取同一 chunk）
+    count = min(max_inject, total)
+    selected = []
+    for i in range(count):
+        idx = (cursor_offset + i) % total
+        selected.append(rows[idx])
+
+    # Phase 4: 推进 cursor
+    next_offset = (cursor_offset + count) % total
+    _save_cursor(next_offset)
+
+    return selected
+
+
+def _save_cursor(offset: int):
+    """持久化 scan_unevictable cursor."""
+    try:
+        _SCAN_CURSOR_FILE.write_text(
+            json.dumps({"offset": offset, "ts": datetime.now(timezone.utc).isoformat()}),
+            encoding="utf-8"
+        )
+    except Exception:
+        pass

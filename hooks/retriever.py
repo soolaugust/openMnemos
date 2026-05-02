@@ -3400,6 +3400,29 @@ def main():
             except Exception:
                 pass  # mmap_populate 失败不阻塞主流程
 
+        # ── iter582: scan_unevictable — Round-Robin Dark Page Batch Exposure ──
+        # OS 类比：Linux scan_unevictable_pages() (Lee Schermerhorn, 2008)
+        # mmap_populate 每 interval(3) 次替换 1 个 slot → 覆盖慢；
+        # scan_unevictable 每次 FULL 注入 max_inject(2) 到额外 diversity slots，
+        # round-robin cursor 保证所有 dark pages 公平轮转。
+        if (priority == "FULL"
+                and _sysctl("scan_unevictable.enabled")
+                and not _check_deadline("scan_unevictable")):
+            try:
+                from store_mm import scan_unevictable as _scan_unevictable
+                _existing_ids = {c.get("id", "") for _, c in top_k}
+                _dark_pages = _scan_unevictable(conn, project, _existing_ids)
+                for _dp in _dark_pages:
+                    _dp_score = float(_dp.get("importance", 0.5))
+                    top_k.append((_dp_score, _dp))
+                if _dark_pages:
+                    _deferred.log(DMESG_INFO, "retriever",
+                                  f"scan_unevictable: injected {len(_dark_pages)} dark pages "
+                                  f"types={','.join(d.get('chunk_type','?') for d in _dark_pages)}",
+                                  session_id=session_id, project=project)
+            except Exception:
+                pass  # scan_unevictable 失败不阻塞主流程
+
         top_k_ids = sorted([c["id"] for _, c in top_k])
         current_hash = hashlib.md5("|".join(top_k_ids).encode()).hexdigest()[:8]
 
