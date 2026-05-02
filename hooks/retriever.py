@@ -1549,16 +1549,30 @@ def main():
 
         # ── 迭代62：Anti-Starvation — 加载 chunk 召回计数 ──
         # OS 类比：/proc/PID/sched nr_switches — 统计进程调度次数
+        # ── iter565: rcu_dereference — Recall Counts Visibility Barrier ──
+        # 根因：主连接是 immutable=1（不读 WAL），recall_traces 新记录在 WAL 中，
+        #   导致 _recall_counts 为空 → bandwidth_throttle/cfs_bandwidth_throttle 失效
+        #   → 垄断 chunk score 永远 ~0.99，anti-monopoly 机制全部短路。
+        # OS 类比：rcu_dereference() (Paul McKenney, 2002) — RCU 读者必须通过
+        #   memory barrier 看到 writer 的最新更新，否则读到 stale 数据。
+        #   immutable=1 等价于缺失 read barrier 的 RCU reader。
+        # 修复：用独立的标准 WAL 连接加载 recall_counts，确保看到最新 traces。
         _recall_counts = {}
         try:
-            _recall_counts = chunk_recall_counts(conn, project, window=30)
+            import sqlite3 as _rc_sql
+            _rc_conn = _rc_sql.connect(str(STORE_DB))
+            _recall_counts = chunk_recall_counts(_rc_conn, project, window=30)
+            _rc_conn.close()
         except Exception:
             pass  # 统计失败不影响主流程
         # 迭代312：Session-scoped recall counts
         _session_recall_counts = {}
         try:
             from store_criu import chunk_session_recall_counts
-            _session_recall_counts = chunk_session_recall_counts(conn, project, session_id, window=100)
+            import sqlite3 as _sc_sql
+            _sc_conn = _sc_sql.connect(str(STORE_DB))
+            _session_recall_counts = chunk_session_recall_counts(_sc_conn, project, session_id, window=100)
+            _sc_conn.close()
         except Exception:
             pass  # session 计数失败不影响主流程
         # 迭代333：Session Injection Counts — 本 session 每个 chunk 被注入的次数
