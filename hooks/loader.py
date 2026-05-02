@@ -23,7 +23,7 @@ sys.path.insert(0, str(_ROOT))
 from schema import MemoryChunk
 from utils import resolve_project_id
 from scorer import working_set_score as _unified_ws_score
-from store import open_db, ensure_schema, get_chunks as store_get_chunks, dmesg_log, DMESG_INFO, DMESG_WARN, watchdog_check, damon_scan, mglru_aging, checkpoint_restore, autotune, gc_traces, rmap_sweep, vma_merge, page_idle_scan, page_idle_mark, gc_orphan_swap
+from store import open_db, ensure_schema, get_chunks as store_get_chunks, dmesg_log, DMESG_INFO, DMESG_WARN, watchdog_check, damon_scan, mglru_aging, checkpoint_restore, autotune, gc_traces, rmap_sweep, vma_merge, page_idle_scan, page_idle_mark, gc_orphan_swap, gc_namespace
 from config import get as _sysctl  # 迭代27: sysctl Runtime Tunables
 
 MEMORY_OS_DIR = Path.home() / ".claude" / "memory-os"
@@ -858,6 +858,17 @@ def main():
             if reaper_result.get("triggered"):
                 dmesg_log(_log_conn, DMESG_INFO, "oom_reaper",
                           f"reap: ratio={reaper_result['zero_access_ratio']:.1%} reaped={reaper_result['reaped']} deleted={reaper_result['deleted']} {reaper_result.get('duration_ms', 0):.1f}ms",
+                          session_id=_session_id, project=project)
+        except Exception:
+            pass
+
+        # ── 迭代512：gc_namespace — 测试命名空间清理 ──
+        # OS 类比：Linux pid_ns_release_proc() — namespace 销毁时批量清理所有 artifacts
+        try:
+            ns_result = gc_namespace(_log_conn)
+            if ns_result["traces_deleted"] > 0 or ns_result["chunks_deleted"] > 0:
+                dmesg_log(_log_conn, DMESG_INFO, "gc",
+                          f"gc_namespace: projects={len(ns_result['test_projects'])} traces={ns_result['traces_deleted']} ckpts={ns_result['checkpoints_deleted']} chunks={ns_result['chunks_deleted']}",
                           session_id=_session_id, project=project)
         except Exception:
             pass

@@ -4283,6 +4283,151 @@ def page_idle_scan(conn: sqlite3.Connection, project: str) -> dict:
             "deleted": deleted, "max_idle_rounds": max_rounds}
 
 
+# ── gc_namespace — Process Namespace Cleanup（迭代512）───────────────
+
+# 测试 namespace 正则：匹配 test_*、test-*、perf_*、bench_* 前缀的 project ID
+_TEST_NS_RE = re.compile(
+    r'^(?:test[-_]|perf[-_]|bench[-_]|forktest|time-test|func-test)',
+    re.IGNORECASE
+)
+
+
+def gc_namespace(conn: sqlite3.Connection) -> dict:
+    """
+    迭代512：gc_namespace — 跨项目测试命名空间清理。
+    OS 类比：Linux pid_ns_release_proc() (Eric Biederman, 2006)
+      — PID namespace 销毁时清理所有命名空间内进程的 /proc 条目、
+        cgroup 关联和信号队列。内核不遍历全局进程表，
+        而是按 namespace 隔离域批量释放。
+
+    根因：
+      tmpfs 隔离（iter54）防止了 chunk 污染，但 recall_traces、
+      checkpoints、shadow_traces 等辅助表仍可被测试 session 写入
+      生产 DB（测试 project ID 如 test_psi_normal、test-swap-compat）。
+      gc_traces 只做时间/容量 GC，从不识别 test namespace。
+      这些 ghost traces 污染 readahead_pairs() 的共现计算。
+
+    策略：
+      1. 枚举 recall_traces/checkpoints/shadow_traces 中所有 project
+      2. 匹配 _TEST_NS_RE 的 project ID 视为"已销毁的 test namespace"
+      3. 批量清理这些 namespace 的所有 artifacts
+      4. 同时清理 memory_chunks 中匹配 test namespace 的残留（防御性）
+
+    保护：
+      - 只匹配明确的测试前缀模式（test_/test-/perf_/bench_/forktest/...）
+      - 不触碰真实 project（git:*/abspath:*/global/gitroot:*）
+      - 冷启动安全：空表直接跳过
+
+    返回 dict:
+      test_projects    — 发现的测试 project 列表
+      traces_deleted   — 删除的 recall_traces 条数
+      checkpoints_deleted — 删除的 checkpoints 条数
+      shadows_deleted  — 删除的 shadow_traces 条数
+      chunks_deleted   — 删除的 memory_chunks 条数（防御性）
+    """
+    result = {
+        "test_projects": [],
+        "traces_deleted": 0,
+        "checkpoints_deleted": 0,
+        "shadows_deleted": 0,
+        "chunks_deleted": 0,
+    }
+
+    # Phase 1: 发现所有 test namespace project IDs
+    test_projects = set()
+
+    # 扫描 recall_traces
+    try:
+        for (proj,) in conn.execute(
+            "SELECT DISTINCT project FROM recall_traces"
+        ).fetchall():
+            if proj and _TEST_NS_RE.match(proj):
+                test_projects.add(proj)
+    except Exception:
+        pass
+
+    # 扫描 checkpoints
+    try:
+        for (proj,) in conn.execute(
+            "SELECT DISTINCT project FROM checkpoints"
+        ).fetchall():
+            if proj and _TEST_NS_RE.match(proj):
+                test_projects.add(proj)
+    except Exception:
+        pass
+
+    # 扫描 shadow_traces
+    try:
+        for (proj,) in conn.execute(
+            "SELECT DISTINCT project FROM shadow_traces"
+        ).fetchall():
+            if proj and _TEST_NS_RE.match(proj):
+                test_projects.add(proj)
+    except Exception:
+        pass
+
+    # 扫描 memory_chunks（防御性 — tmpfs 应已隔离，但历史残留可能存在）
+    try:
+        for (proj,) in conn.execute(
+            "SELECT DISTINCT project FROM memory_chunks"
+        ).fetchall():
+            if proj and _TEST_NS_RE.match(proj):
+                test_projects.add(proj)
+    except Exception:
+        pass
+
+    if not test_projects:
+        return result
+
+    result["test_projects"] = sorted(test_projects)
+
+    # Phase 2: 批量清理每个 test namespace 的 artifacts
+    for proj in test_projects:
+        # recall_traces
+        try:
+            cur = conn.execute(
+                "DELETE FROM recall_traces WHERE project=?", (proj,))
+            result["traces_deleted"] += cur.rowcount
+        except Exception:
+            pass
+
+        # checkpoints
+        try:
+            cur = conn.execute(
+                "DELETE FROM checkpoints WHERE project=?", (proj,))
+            result["checkpoints_deleted"] += cur.rowcount
+        except Exception:
+            pass
+
+        # shadow_traces
+        try:
+            cur = conn.execute(
+                "DELETE FROM shadow_traces WHERE project=?", (proj,))
+            result["shadows_deleted"] += cur.rowcount
+        except Exception:
+            pass
+
+        # memory_chunks（防御性，含 FTS5 同步）
+        try:
+            chunk_ids = [
+                row[0] for row in conn.execute(
+                    "SELECT id FROM memory_chunks WHERE project=?", (proj,)
+                ).fetchall()
+            ]
+            if chunk_ids:
+                delete_chunks(conn, chunk_ids)
+                result["chunks_deleted"] += len(chunk_ids)
+        except Exception:
+            pass
+
+    try:
+        conn.commit()
+    except Exception:
+        pass
+
+    return result
+
+
 def _page_idle_load() -> dict:
     """加载 page_idle bitmap 文件。"""
     try:
