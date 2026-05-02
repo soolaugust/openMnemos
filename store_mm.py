@@ -7042,3 +7042,141 @@ def perf_counters(conn: "sqlite3.Connection", project: str,
         "type_concentration": round(hhi, 4),
         "top_type": top_type,
     }
+
+
+# ── iter544: trim_shadow_entries — Shadow Entry Expiry & Stale Ref Scrub ─────
+#
+# OS 类比：Linux shadow_lru_isolate() / workingset_eviction() (Johannes Weiner, 2013)
+#   mm/workingset.c 中，shadow entry 记录被淘汰页面的 eviction 信息（zone, recent, workingset）。
+#   当 shadow entry 数量超过 active page count 时，shadow_lru_isolate() 从 shadow LRU
+#   批量回收最老的 shadow entries，防止 inode radix tree 节点无限膨胀。
+#   shadow entry 只是用来检测 refault 的辅助数据——如果对应的物理页已被重新分配且
+#   shadow entry 从未触发 refault，则该 shadow 已失去价值，应该被回收。
+#
+# 问题：shadow_traces 表每个 session 写入一条记录但无 GC。
+#   543 条记录中 534 个 stale chunk ID 引用（指向已删除 chunks）。
+#   extractor.py 读取 shadow_traces 获取 top_k_ids 做反馈降级，
+#   stale refs 导致查找无效 + 表膨胀增加扫描时间。
+#
+def trim_shadow_entries(conn: sqlite3.Connection, project: str = None) -> dict:
+    """
+    迭代544: trim_shadow_entries — Shadow Entry Expiry & Stale Reference Scrub。
+
+    三阶段清理：
+      Phase 1 (expire): 超过 max_shadow_entries 时按 ROWID ASC 删除最老条目
+      Phase 2 (scrub):  清理存活条目中指向已删除 chunk 的 stale references
+      Phase 3 (purge):  清理后 top_k_ids 为空的条目（所有引用都 stale → 无价值）
+
+    Returns:
+        dict: expired/scrubbed/purged/remaining 统计
+    """
+    from config import get as sysctl_get
+
+    max_entries = int(sysctl_get("shadow.max_entries", 100))
+    max_expire_per_scan = int(sysctl_get("shadow.max_expire_per_scan", 200))
+
+    result = {
+        "expired": 0,
+        "scrubbed_refs": 0,
+        "scrubbed_traces": 0,
+        "purged": 0,
+        "remaining": 0,
+    }
+
+    # ── Phase 1: Expire oldest entries beyond capacity ──
+    # shadow_lru_isolate() 语义：超过 active page count 的 shadow 从 LRU 尾部回收
+    if project:
+        total = conn.execute(
+            "SELECT COUNT(*) FROM shadow_traces WHERE project=?", (project,)
+        ).fetchone()[0]
+    else:
+        total = conn.execute("SELECT COUNT(*) FROM shadow_traces").fetchone()[0]
+
+    if total > max_entries:
+        excess = min(total - max_entries, max_expire_per_scan)
+        if project:
+            # 按 ROWID 升序（最老优先）批量删除
+            conn.execute(
+                "DELETE FROM shadow_traces WHERE ROWID IN "
+                "(SELECT ROWID FROM shadow_traces WHERE project=? ORDER BY ROWID ASC LIMIT ?)",
+                (project, excess),
+            )
+        else:
+            conn.execute(
+                "DELETE FROM shadow_traces WHERE ROWID IN "
+                "(SELECT ROWID FROM shadow_traces ORDER BY ROWID ASC LIMIT ?)",
+                (excess,),
+            )
+        result["expired"] = excess
+
+    # ── Phase 2: Scrub stale references in surviving entries ──
+    # 类似 rmap_sweep 对 recall_traces 的 stale ref 清理，
+    # 但 shadow_traces 使用 top_k_ids JSON 数组（不含 score，只有 ID 列表）
+    live_ids = set(
+        r[0] for r in conn.execute("SELECT id FROM memory_chunks").fetchall()
+    )
+
+    if project:
+        rows = conn.execute(
+            "SELECT ROWID, top_k_ids FROM shadow_traces WHERE project=?", (project,)
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            "SELECT ROWID, top_k_ids FROM shadow_traces"
+        ).fetchall()
+
+    purge_rowids = []
+    for rowid, top_k_raw in rows:
+        if not top_k_raw:
+            purge_rowids.append(rowid)
+            continue
+        try:
+            ids = json.loads(top_k_raw)
+        except (json.JSONDecodeError, TypeError, ValueError):
+            purge_rowids.append(rowid)
+            continue
+
+        if not isinstance(ids, list) or not ids:
+            # 非列表或空列表 → purge（shadow 无引用 = 无价值）
+            purge_rowids.append(rowid)
+            continue
+
+        live = [i for i in ids if i in live_ids]
+        stale_count = len(ids) - len(live)
+        if stale_count > 0:
+            result["scrubbed_refs"] += stale_count
+            result["scrubbed_traces"] += 1
+            if not live:
+                # 所有引用都 stale → 标记 purge
+                purge_rowids.append(rowid)
+            else:
+                # 部分 stale → 更新保留有效引用
+                conn.execute(
+                    "UPDATE shadow_traces SET top_k_ids=? WHERE ROWID=?",
+                    (json.dumps(live), rowid),
+                )
+
+    # ── Phase 3: Purge empty entries ──
+    if purge_rowids:
+        # 分批删除，每批 500
+        for i in range(0, len(purge_rowids), 500):
+            batch = purge_rowids[i : i + 500]
+            placeholders = ",".join("?" * len(batch))
+            conn.execute(
+                f"DELETE FROM shadow_traces WHERE ROWID IN ({placeholders})", batch
+            )
+        result["purged"] = len(purge_rowids)
+
+    conn.commit()
+
+    # 统计最终剩余
+    if project:
+        result["remaining"] = conn.execute(
+            "SELECT COUNT(*) FROM shadow_traces WHERE project=?", (project,)
+        ).fetchone()[0]
+    else:
+        result["remaining"] = conn.execute(
+            "SELECT COUNT(*) FROM shadow_traces"
+        ).fetchone()[0]
+
+    return result

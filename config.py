@@ -3203,6 +3203,14 @@ _REGISTRY: dict = {
         "design_constraint 强制注入的最低 Jaccard 相关性门槛（iter543：低于此值视为 refault_distance 过远，不注入）"),
     "retriever.constraint_thrash_max_pct": (0.40, float, 0.1, 0.8, None,
         "design_constraint 跨 query 出现率超此比例时触发 thrash dampener，降低注入优先级（iter543）"),
+
+    # ── iter544: trim_shadow_entries — Shadow Entry Expiry & Stale Ref Scrub ──
+    # OS 类比：Linux shadow_lru_isolate() (Johannes Weiner, 2013, mm/workingset.c)
+    # shadow entry 超过 active page count 时从 LRU 尾部批量回收最老条目。
+    "shadow.max_entries": (100, int, 20, 1000, None,
+        "shadow_traces 最大保留条目数，超出从最老开始淘汰（iter544）"),
+    "shadow.max_expire_per_scan": (200, int, 10, 500, None,
+        "单次扫描最大淘汰条目数（iter544：防止单次 GC 时间过长）"),
 }
 
 # ── 磁盘配置缓存（进程内只读一次）──

@@ -1235,6 +1235,20 @@ def main():
         except Exception:
             pass
 
+        # ── iter544：trim_shadow_entries — shadow_traces expiry + stale ref scrub ──
+        # OS 类比：Linux shadow_lru_isolate() (Johannes Weiner, 2013, mm/workingset.c)
+        # shadow entry 超过 active page count 时从 LRU 尾部批量回收
+        try:
+            from store_mm import trim_shadow_entries
+            shadow_result = trim_shadow_entries(_log_conn, project)
+            if shadow_result["expired"] > 0 or shadow_result["purged"] > 0 or shadow_result["scrubbed_refs"] > 0:
+                dmesg_log(_log_conn, DMESG_INFO, "gc",
+                          f"trim_shadow: expired={shadow_result['expired']} purged={shadow_result['purged']} "
+                          f"scrubbed_refs={shadow_result['scrubbed_refs']} remaining={shadow_result['remaining']}",
+                          session_id=_session_id, project=project)
+        except Exception:
+            pass
+
         # ── 迭代511：page_idle — 空闲页面精确追踪 ──
         # OS 类比：Linux page_idle bitmap (Vladimir Davydov, 2015)
         # 先 scan（收割上轮 idle chunks）→ 再 mark（标记本轮）
