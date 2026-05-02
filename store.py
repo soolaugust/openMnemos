@@ -123,6 +123,7 @@ from store_mm import (  # noqa: F401
     overcommit_kill,
     ksm_scan,
     userfaultfd_promote,
+    madv_free_scan,
     autotune,
     context_pressure_governor,
     GOV_LOW,

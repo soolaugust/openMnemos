@@ -16459,6 +16459,12 @@ def shrink_dcache(conn: "sqlite3.Connection", project: str = None) -> dict:
 
     if to_delete:
         result["phase3_deleted"] = delete_chunks(conn, to_delete)
+        # iter517: 注册 import tombstones — 阻止 fork bomb 循环
+        try:
+            from tools.import_knowledge import register_import_tombstones
+            register_import_tombstones(to_delete)
+        except Exception:
+            pass
 
     conn.commit()
 
@@ -16588,6 +16594,12 @@ def oom_reaper(conn: "sqlite3.Connection", project: str = None) -> dict:
 
     if to_delete:
         result["deleted"] = delete_chunks(conn, to_delete)
+        # iter517: 注册 import tombstones — 阻止 fork bomb 循环
+        try:
+            from tools.import_knowledge import register_import_tombstones
+            register_import_tombstones(to_delete)
+        except Exception:
+            pass
 
     if reaped > 0:
         conn.commit()

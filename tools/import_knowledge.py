@@ -302,9 +302,52 @@ if __name__ == "__main__":
     main()
 
 
+def _load_tombstones() -> set:
+    """iter517: 加载 import tombstone 注册表。
+    OS 类比：Linux RLIMIT_NPROC check — fork() 前查进程计数表，
+    已被 reaper 回收的 PID 不允许再 fork 出来。"""
+    ts_file = Path.home() / ".claude" / "memory-os" / ".import_tombstones.json"
+    if ts_file.exists():
+        try:
+            return set(json.loads(ts_file.read_text(encoding="utf-8")))
+        except Exception:
+            pass
+    return set()
+
+
+def _save_tombstones(tombstones: set):
+    """iter517: 持久化 tombstone 注册表（最多保留 2000 条，LRU 淘汰）。"""
+    ts_file = Path.home() / ".claude" / "memory-os" / ".import_tombstones.json"
+    ts_file.parent.mkdir(parents=True, exist_ok=True)
+    # 超过 2000 条时只保留最近的（ID 排序取最后 2000）
+    entries = sorted(tombstones)[-2000:]
+    ts_file.write_text(json.dumps(entries, ensure_ascii=False), encoding="utf-8")
+
+
+def register_import_tombstones(deleted_ids: list):
+    """iter517: 外部调用 — 当 ksm_scan/overcommit_kill/oom_reaper 删除 import chunk 时注册 tombstone。
+    阻止 incremental_import 在下次 SessionStart 重新创建已被回收的 chunks。
+    OS 类比：exit_notify() → 父进程 wait() 后 PID 进入不可复用状态。"""
+    if not deleted_ids:
+        return
+    # 只注册 import- 前缀的 ID（有机 chunk 的删除不影响 import）
+    import_ids = [cid for cid in deleted_ids if cid.startswith("import-")]
+    if not import_ids:
+        return
+    tombstones = _load_tombstones()
+    tombstones.update(import_ids)
+    _save_tombstones(tombstones)
+
+
 def incremental_import():
     """增量导入：只在 wiki 文件有变化时执行。
-    通过 .last_import_ts 文件记录上次导入时间戳。"""
+    通过 .last_import_ts 文件记录上次导入时间戳。
+
+    iter517: RLIMIT_NPROC — 三级准入控制:
+      1. 文件 mtime 检查（无变更 → 跳过全部）
+      2. Tombstone 注册表（已被回收 → 永不重建）
+      3. ID 存在性检查（DB 中已有 → 跳过）
+    消除 import→ksm_scan→delete→re-import 无限循环。"""
     ts_file = Path.home() / ".claude" / "memory-os" / ".last_import_ts"
 
     last_ts = 0
@@ -332,9 +375,35 @@ def incremental_import():
     all_chunks = (extract_wiki_knowledge() + extract_corrections() +
                   extract_project_decisions() + extract_memory_rules())
 
+    # iter517: 三级准入控制
+    tombstones = _load_tombstones()
+    # 预查所有 import- ID 是否已存在于 DB（批量查询，避免 N+1）
+    candidate_ids = [c["id"] for c in all_chunks]
+    existing_ids = set()
+    for i in range(0, len(candidate_ids), 200):
+        batch = candidate_ids[i:i+200]
+        placeholders = ",".join("?" * len(batch))
+        rows = conn.execute(
+            f"SELECT id FROM memory_chunks WHERE id IN ({placeholders})", batch
+        ).fetchall()
+        existing_ids.update(r[0] for r in rows)
+
     imported = 0
+    skipped_tombstone = 0
+    skipped_exists = 0
     for chunk in all_chunks:
+        cid = chunk["id"]
+        # Level 1: tombstone check (已被回收的不重建)
+        if cid in tombstones:
+            skipped_tombstone += 1
+            continue
+        # Level 2: ID existence check (DB 中已有)
+        if cid in existing_ids:
+            skipped_exists += 1
+            continue
+        # Level 3: summary exact match (兼容旧逻辑)
         if already_exists(conn, chunk["summary"], chunk["chunk_type"]):
+            skipped_exists += 1
             continue
         insert_chunk(conn, chunk)
         imported += 1
@@ -348,4 +417,6 @@ def incremental_import():
     ts_file.parent.mkdir(parents=True, exist_ok=True)
     ts_file.write_text(str(time.time()))
 
-    return {"status": "imported", "count": imported}
+    return {"status": "imported", "count": imported,
+            "skipped_tombstone": skipped_tombstone,
+            "skipped_exists": skipped_exists}

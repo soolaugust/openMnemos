@@ -3049,6 +3049,16 @@ _REGISTRY: dict = {
         "首次检索命中 import chunk 时提升到的 importance（page fault 处理）"),
     "userfaultfd.promote_oom_adj": (0, int, -500, 300, None,
         "首次检索命中 import chunk 时设置的 oom_adj（0=默认保护级别）"),
+
+    # ── 迭代516：MADV_FREE — 惰性页面回收 ──
+    "madv_free.min_age_days": (7, int, 1, 30, None,
+        "最短曝光窗口（天）：import chunk 创建后 N 天内不处理，给予充足检索机会"),
+    "madv_free.delete_age_days": (21, int, 7, 90, None,
+        "超长期无用删除阈值（天）：超过 N 天仍未被命中则直接删除"),
+    "madv_free.lazy_threshold": (0.4, float, 0.1, 0.6, None,
+        "lazy 状态 importance 上限：低于此值视为未被 promote 的 lazy page"),
+    "madv_free.max_per_scan": (60, int, 10, 200, None,
+        "单次扫描最大处理数：防止一次性大量修改导致 WAL 膨胀"),
 }
 
 # ── 磁盘配置缓存（进程内只读一次）──

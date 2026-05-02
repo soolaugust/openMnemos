@@ -4554,6 +4554,12 @@ def overcommit_kill(conn: "sqlite3.Connection") -> dict:
                     conn.execute("DELETE FROM memory_chunks WHERE id = ?", (cid,))
                 except Exception:
                     pass
+        # iter517: 注册 import tombstones — 阻止 fork bomb 循环
+        try:
+            from tools.import_knowledge import register_import_tombstones
+            register_import_tombstones(to_delete)
+        except Exception:
+            pass
 
     result["reaped"] = reaped
     result["deleted"] = len(to_delete)
@@ -4679,6 +4685,7 @@ def ksm_scan(conn: "sqlite3.Connection", project: "Optional[str]" = None) -> dic
 
     total_deleted = 0
     survivors = []
+    _all_deleted_ids = []  # iter517: 收集所有被删除的 ID
 
     for fp, chunks in merge_candidates:
         if total_deleted >= max_merge_per_scan:
@@ -4723,6 +4730,7 @@ def ksm_scan(conn: "sqlite3.Connection", project: "Optional[str]" = None) -> dic
 
         # 删除被合并 chunks（先清 FTS5，再删主表）
         delete_ids = [c["id"] for c in to_delete]
+        _all_deleted_ids.extend(delete_ids)  # iter517: 记录
         for i in range(0, len(delete_ids), 100):
             batch = delete_ids[i:i+100]
             placeholders = ",".join("?" * len(batch))
@@ -4750,6 +4758,15 @@ def ksm_scan(conn: "sqlite3.Connection", project: "Optional[str]" = None) -> dic
             bump_chunk_version(conn)
     except Exception:
         pass
+
+    # iter517: 注册 import tombstones — 阻止 fork bomb 循环
+    # OS 类比：exit_notify() → 被 reaper 回收的 PID 进入不可 fork 状态
+    if _all_deleted_ids:
+        try:
+            from tools.import_knowledge import register_import_tombstones
+            register_import_tombstones(_all_deleted_ids)
+        except Exception:
+            pass
 
     result["chunks_deleted"] = result["chunks_merged"]
     result["survivors"] = survivors
@@ -4828,6 +4845,132 @@ def userfaultfd_promote(conn: "sqlite3.Connection",
                       f"ids={result['ids'][:3]} imp→{promote_imp} oom→{promote_oom}")
         except Exception:
             pass
+
+    return result
+
+
+# ── MADV_FREE — Lazy Page Reclaim + FTS5 Exclusion（迭代516）────────────
+
+def madv_free_scan(conn: "sqlite3.Connection", project: str = None) -> dict:
+    """
+    迭代516：MADV_FREE — 惰性页面回收与索引排除。
+    OS 类比：Linux madvise(MADV_FREE) (Minchan Kim, 2016) — 标记页面为"可释放"，
+    从 page table 移除 PTE mapping（MMU 不再 page walk 到这些页面），
+    物理页面保留但不计入 RSS，只在内存压力时被 page reclaim 回收。
+
+    Memory-OS 类比：
+      - import chunks 以 importance=0.15 写入（mapped but not present, iter515）
+      - 被首次检索命中时 userfaultfd_promote 提升 importance（page fault）
+      - 但大量 import chunks 永远不会被命中（搜索词不匹配），形成"死重"：
+        - FTS5 索引包含这些 chunks → 增加搜索扫描量（TLB miss + page walk）
+        - 永远排不到 Top-K → 不产出价值
+        - 不满足 oom_reaper/shrink_dcache 删除条件 → 不会被回收
+      - MADV_FREE 解决方案：
+        Phase 1 (unmap): 从 FTS5 移除（消除搜索噪声）→ 等价于移除 PTE mapping
+        Phase 2 (free): 超过 delete_age_days 仍未被直接 ID 访问 → 删除主表
+
+    触发条件：
+      - source_session LIKE 'import:%'（仅处理 import 来源）
+      - importance < madv_free.lazy_threshold（仍为 lazy 状态）
+      - access_count = 0（从未被检索命中 → 无 page fault 发生）
+      - age > madv_free.min_age_days（给予足够曝光窗口）
+
+    参数：
+      conn — 写连接
+      project — 限定 project（None=全局扫描）
+
+    返回 dict：
+      unmapped — 从 FTS5 移除的 chunk 数
+      freed — 删除的 chunk 数（超长期无用）
+      total_lazy — 符合条件的 lazy chunks 总数
+    """
+    result = {"unmapped": 0, "freed": 0, "total_lazy": 0, "skipped_protected": 0}
+
+    try:
+        from config import get as _cfg
+    except Exception:
+        return result
+
+    min_age_days = _cfg("madv_free.min_age_days")
+    lazy_threshold = _cfg("madv_free.lazy_threshold")
+    delete_age_days = _cfg("madv_free.delete_age_days")
+    max_per_scan = _cfg("madv_free.max_per_scan")
+
+    # 查找 lazy import chunks（从未被命中，超过最短曝光期）
+    age_cutoff = (datetime.now(timezone.utc) - timedelta(days=min_age_days)).isoformat()
+    delete_cutoff = (datetime.now(timezone.utc) - timedelta(days=delete_age_days)).isoformat()
+
+    where_clause = (
+        "source_session LIKE 'import:%' "
+        "AND importance < ? "
+        "AND access_count = 0 "
+        "AND created_at < ? "
+    )
+    params = [lazy_threshold, age_cutoff]
+
+    if project:
+        where_clause += "AND project = ? "
+        params.append(project)
+
+    # 排除受保护的 chunks
+    where_clause += "AND oom_adj > -500 "  # mlock 保护不处理
+
+    rows = conn.execute(
+        f"SELECT id, rowid, created_at, importance FROM memory_chunks "
+        f"WHERE {where_clause} "
+        f"ORDER BY created_at ASC LIMIT ?",
+        params + [max_per_scan],
+    ).fetchall()
+
+    result["total_lazy"] = len(rows)
+    if not rows:
+        return result
+
+    freed_ids = []
+    unmapped_ids = []
+
+    for chunk_id, rowid_val, created_at, imp in rows:
+        if created_at < delete_cutoff:
+            # Phase 2: 超长期无用 → 直接删除（free physical page）
+            # 先删 FTS5 再删主表
+            conn.execute(
+                "DELETE FROM memory_chunks_fts WHERE rowid_ref=?",
+                (str(rowid_val),),
+            )
+            conn.execute("DELETE FROM memory_chunks WHERE id=?", (chunk_id,))
+            freed_ids.append(chunk_id)
+        else:
+            # Phase 1: 从 FTS5 移除（unmap PTE）— 保留主表数据
+            # chunk 仍可通过 ID 直接访问（如 checkpoint restore），但 FTS5 搜索不再找到它
+            conn.execute(
+                "DELETE FROM memory_chunks_fts WHERE rowid_ref=?",
+                (str(rowid_val),),
+            )
+            unmapped_ids.append(chunk_id)
+
+    result["unmapped"] = len(unmapped_ids)
+    result["freed"] = len(freed_ids)
+
+    if freed_ids:
+        bump_chunk_version()
+        # iter517: 注册 import tombstones — 阻止 fork bomb 循环
+        try:
+            from tools.import_knowledge import register_import_tombstones
+            register_import_tombstones(freed_ids)
+        except Exception:
+            pass
+
+    try:
+        dmesg_log(conn, DMESG_INFO, "madv_free",
+                  f"scan: unmapped={result['unmapped']} freed={result['freed']} "
+                  f"total_lazy={result['total_lazy']}",
+                  extra=json.dumps({
+                      "unmapped_sample": unmapped_ids[:5],
+                      "freed_sample": freed_ids[:5],
+                      "project": project or "all",
+                  }))
+    except Exception:
+        pass
 
     return result
 

@@ -885,6 +885,18 @@ def main():
         except Exception:
             pass
 
+        # ── 迭代516：madv_free — 惰性页面回收与 FTS5 索引排除 ──
+        # OS 类比：Linux madvise(MADV_FREE) (Minchan Kim, 2016) — 标记页面可释放，移除 PTE mapping
+        try:
+            from store_mm import madv_free_scan
+            mf_result = madv_free_scan(_log_conn)
+            if mf_result["unmapped"] > 0 or mf_result["freed"] > 0:
+                dmesg_log(_log_conn, DMESG_INFO, "madv_free",
+                          f"madv_free: unmapped={mf_result['unmapped']} freed={mf_result['freed']} lazy={mf_result['total_lazy']}",
+                          session_id=_session_id, project=project)
+        except Exception:
+            pass
+
         # ── 迭代512：gc_namespace — 测试命名空间清理 ──
         # OS 类比：Linux pid_ns_release_proc() — namespace 销毁时批量清理所有 artifacts
         try:
