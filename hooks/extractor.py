@@ -1625,6 +1625,21 @@ def _write_chunk(chunk_type: str, summary: str, project: str, session_id: str,
     # 迭代306：raw_snippet 截断到 500 字
     raw_snippet = (raw_snippet or "")[:500]
 
+    # iter503: Writeback Pressure — 写入反压
+    # OS 类比：balance_dirty_pages_ratelimited() — 零访问率高时降级新 chunk importance
+    try:
+        from store_vfs import writeback_pressure as _writeback_pressure
+        _wb_conn = conn if conn is not None else open_db()
+        if conn is None:
+            ensure_schema(_wb_conn)
+        _wb = _writeback_pressure(_wb_conn, project, importance)
+        if _wb["pressure_level"] != "none":
+            importance = _wb["adjusted_importance"]
+        if conn is None:
+            _wb_conn.close()
+    except Exception:
+        pass
+
     # 迭代315：提取编码情境（Encoding Specificity, Tulving 1973）
     try:
         from store_vfs import extract_encoding_context as _extract_enc_ctx

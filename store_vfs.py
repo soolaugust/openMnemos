@@ -613,6 +613,10 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
     # 搜索 summary + content 两个字段
     _ensure_fts5(conn)
 
+    # ── 迭代504：FTS5 Journal Checkpoint（boot-time fsck）──
+    # OS 类比：ext4 mount 时 journal replay — 挂载时自动修复索引与数据不一致
+    fts5_checkpoint(conn)
+
 def _safe_add_column(conn: sqlite3.Connection, table: str, column: str, col_type: str) -> None:
     """幂等加列：已存在则静默跳过。"""
     try:
@@ -933,6 +937,96 @@ def _ensure_fts5(conn: sqlite3.Connection) -> None:
     _safe_add_column(conn, "entity_edges", "agent_id", "TEXT DEFAULT ''")
 
     conn.commit()
+
+
+# ── 迭代504：FTS5 Journal Checkpoint ────────────────────────────────────────
+# OS 类比：ext4 Journal Checkpoint (Theodore Ts'o, 1998) + e2fsck -y
+# 文件系统挂载时检查 journal 与 data block 一致性，不一致时自动修复。
+# FTS5 是独立索引表（非 content-sync），与主表可能因以下原因漂移：
+#   - merge_similar 更新 content 但旧版未同步 FTS5
+#   - 非 delete_chunks 路径直接 DELETE memory_chunks
+#   - 手动 DB 清理未同步 FTS5
+
+def _fts5_sync_chunk(conn: sqlite3.Connection, chunk_id: str,
+                     summary: str = None, content: str = None) -> None:
+    """
+    单 chunk FTS5 索引同步：删除旧条目 → 重新插入预处理后的文本。
+    OS 类比：ext4 journal commit for single inode — 单文件元数据更新后刷新索引。
+    """
+    row = conn.execute(
+        "SELECT rowid, summary, content FROM memory_chunks WHERE id=?", (chunk_id,)
+    ).fetchone()
+    if not row:
+        return
+    rowid_val, db_summary, db_content = row
+    # 使用传入值或 DB 现有值
+    final_summary = summary if summary is not None else (db_summary or "")
+    final_content = content if content is not None else (db_content or "")
+    if not final_summary and not final_content:
+        return
+    try:
+        conn.execute("DELETE FROM memory_chunks_fts WHERE rowid_ref=?", (str(rowid_val),))
+        conn.execute(
+            "INSERT INTO memory_chunks_fts(rowid_ref, summary, content) VALUES (?, ?, ?)",
+            (str(rowid_val),
+             _cjk_tokenize(_normalize_structured_summary(final_summary)),
+             _cjk_tokenize(_normalize_structured_summary(final_content)))
+        )
+    except Exception:
+        pass  # FTS5 表可能未就绪
+
+
+def fts5_checkpoint(conn: sqlite3.Connection) -> dict:
+    """
+    迭代504：FTS5 一致性校验与修复。
+    OS 类比：e2fsck Phase 1-3 — 扫描 inode→检查目录→修复不一致。
+
+    三阶段：
+      Phase 1 (orphan scan): FTS5 条目指向不存在的 chunk → 删除孤儿
+      Phase 2 (missing scan): chunk 存在但 FTS5 无条目 → 补建索引
+      Phase 3 (stats): 报告修复结果
+
+    返回: {"orphans_removed": N, "missing_rebuilt": N, "fts5_count": N, "chunks_count": N}
+    """
+    stats = {"orphans_removed": 0, "missing_rebuilt": 0}
+
+    # Phase 1: 删除孤儿（FTS5 rowid_ref 指向不存在的 chunk）
+    # OS 类比：e2fsck Phase 1 — 扫描并清除悬挂的 inode 引用
+    orphans = conn.execute("""
+        SELECT f.rowid, f.rowid_ref FROM memory_chunks_fts f
+        WHERE NOT EXISTS (
+            SELECT 1 FROM memory_chunks m WHERE m.rowid = CAST(f.rowid_ref AS INTEGER)
+        )
+    """).fetchall()
+    if orphans:
+        for fts_rowid, _ in orphans:
+            conn.execute("DELETE FROM memory_chunks_fts WHERE rowid=?", (fts_rowid,))
+        stats["orphans_removed"] = len(orphans)
+
+    # Phase 2: 补建缺失条目（chunk 存在但 FTS5 无记录）
+    # OS 类比：e2fsck Phase 3 — 重建缺失的目录条目
+    missing = conn.execute("""
+        SELECT m.rowid, m.summary, m.content FROM memory_chunks m
+        WHERE m.summary != '' AND NOT EXISTS (
+            SELECT 1 FROM memory_chunks_fts f WHERE CAST(f.rowid_ref AS INTEGER) = m.rowid
+        )
+    """).fetchall()
+    if missing:
+        for rowid_val, summary, content in missing:
+            try:
+                conn.execute(
+                    "INSERT INTO memory_chunks_fts(rowid_ref, summary, content) VALUES (?, ?, ?)",
+                    (str(rowid_val),
+                     _cjk_tokenize(_normalize_structured_summary(summary or "")),
+                     _cjk_tokenize(_normalize_structured_summary(content or "")))
+                )
+            except Exception:
+                pass
+        stats["missing_rebuilt"] = len(missing)
+
+    stats["fts5_count"] = conn.execute("SELECT count(*) FROM memory_chunks_fts").fetchone()[0]
+    stats["chunks_count"] = conn.execute("SELECT count(*) FROM memory_chunks").fetchone()[0]
+    return stats
 
 
 # ── iter390: trigger_conditions CRUD ────────────────────────────────────────
@@ -5969,6 +6063,9 @@ def merge_similar(conn: sqlite3.Connection, summary: str, chunk_type: str,
         "UPDATE memory_chunks SET importance=MAX(importance, ?), last_accessed=?, updated_at=?, content=? WHERE id=?",
         (importance, now_iso, now_iso, new_content, similar_id),
     )
+    # 迭代504：FTS5 Journal Checkpoint — merge 后同步更新 FTS5 索引
+    # OS 类比：ext4 journal commit — 数据变更后必须同步更新索引，否则索引过期
+    _fts5_sync_chunk(conn, similar_id, summary=None, content=new_content)
     return True
 
 def coalesce_small_chunks(
@@ -16162,3 +16259,202 @@ def apply_temporal_landmark_effect(
         return result
     except Exception:
         return result
+
+
+# iter503: Writeback Pressure — Zero-Access Ratio Admission Control
+# OS 类比：Linux dirty page writeback throttle (vm.dirty_ratio / vm.dirty_background_ratio)
+#   Jens Axboe (2007) — balance_dirty_pages_ratelimited()
+#   当 dirty page 比例超过 dirty_background_ratio (10%) 时，pdflush 开始后台刷盘；
+#   超过 dirty_ratio (20%) 时，写入进程被 throttle（IO_WAIT），直到脏页比例下降。
+#   这防止了 burst write 耗尽 page cache，导致系统颠簸。
+#
+# memory-os 等价：
+#   "脏页" = 写入后从未被检索命中的 chunk（zero-access）
+#   "dirty_ratio" = 零访问率阈值（默认 70%）
+#   "throttle" = 新写入 chunk 的 importance 乘以衰减因子
+#   效果：零访问率高 → 新 chunk importance 降级 → kswapd 优先回收 → 零访问率下降
+
+def writeback_pressure(
+    conn: "sqlite3.Connection",
+    project: str,
+    proposed_importance: float,
+) -> dict:
+    """iter503: 根据当前零访问率对新写入 importance 施加反压。
+
+    调用时机：insert_chunk 之前，extractor/_write_chunk/writer 写入路径。
+    返回 dict:
+      - adjusted_importance: 调整后的 importance（可能低于 proposed）
+      - pressure_level: "none" | "background" | "throttle"
+      - zero_access_ratio: 当前零访问率
+      - total_chunks: 当前 project chunk 总数
+    """
+    result = {
+        "adjusted_importance": proposed_importance,
+        "pressure_level": "none",
+        "zero_access_ratio": 0.0,
+        "total_chunks": 0,
+    }
+    try:
+        if not config.get("store_vfs.writeback_pressure_enabled"):
+            return result
+
+        min_chunks = int(config.get("store_vfs.writeback_min_chunks"))
+        dirty_ratio = float(config.get("store_vfs.writeback_dirty_ratio"))
+        dirty_bg_ratio = float(config.get("store_vfs.writeback_dirty_bg_ratio"))
+        throttle_factor = float(config.get("store_vfs.writeback_throttle_factor"))
+        bg_throttle_factor = float(config.get("store_vfs.writeback_bg_throttle_factor"))
+
+        # 统计当前 project 的零访问率
+        row = conn.execute(
+            "SELECT COUNT(*) FROM memory_chunks WHERE project=?", (project,)
+        ).fetchone()
+        total = row[0] if row else 0
+        result["total_chunks"] = total
+
+        if total < min_chunks:
+            return result
+
+        row_zero = conn.execute(
+            "SELECT COUNT(*) FROM memory_chunks WHERE project=? AND access_count=0",
+            (project,),
+        ).fetchone()
+        zero_count = row_zero[0] if row_zero else 0
+        ratio = zero_count / total
+        result["zero_access_ratio"] = round(ratio, 4)
+
+        if ratio >= dirty_ratio:
+            # 硬性 throttle：importance *= throttle_factor
+            result["adjusted_importance"] = round(proposed_importance * throttle_factor, 4)
+            result["pressure_level"] = "throttle"
+        elif ratio >= dirty_bg_ratio:
+            # 轻度 background 降级
+            result["adjusted_importance"] = round(proposed_importance * bg_throttle_factor, 4)
+            result["pressure_level"] = "background"
+
+        return result
+    except Exception:
+        return result
+
+
+def shrink_dcache(conn: "sqlite3.Connection", project: str = None) -> dict:
+    """iter505: shrink_dcache — Cross-Project Stale Object Reclaim.
+
+    OS 类比：Linux shrink_dcache_sb() (Al Viro, 2001)
+    ——超级块级别的 dentry cache 回收。不像 per-进程的 DAMON/LRU 回收只扫描单个
+    project，shrink_dcache 跨所有 project（含 global）扫描从未被引用的陈旧条目。
+
+    解决的问题：
+      - damon_scan 是 per-project，不扫描 global 层
+      - damon.dead_age_days=30 天门槛在短期数据中永远不触发
+      - 批量导入的高 importance 但零访问 chunks 不被回收
+      - 零访问率 82%+ 稀释 FTS5 搜索结果质量
+
+    策略（三阶段）：
+      Phase 1 — 扫描：跨所有 project 找到满足回收条件的 chunks
+      Phase 2 — 分级降权：高 importance 轻度降级，低 importance 重度降级+oom_adj
+      Phase 3 — 削减：极低价值条目直接删除
+
+    调用时机：loader.py SessionStart，在 damon_scan 之后。
+    """
+    import time as _time
+    _t0 = _time.time()
+
+    result = {
+        "phase1_candidates": 0,
+        "phase2_demoted": 0,
+        "phase3_deleted": 0,
+        "duration_ms": 0.0,
+    }
+
+    try:
+        min_age_days = int(config.get("shrink.min_age_days"))
+        max_reclaim = int(config.get("shrink.max_reclaim_per_scan"))
+        min_total = int(config.get("shrink.min_total_chunks"))
+        demote_high_factor = float(config.get("shrink.demote_high_factor"))
+        demote_low_factor = float(config.get("shrink.demote_low_factor"))
+        delete_threshold = float(config.get("shrink.delete_threshold"))
+    except Exception:
+        min_age_days = 3
+        max_reclaim = 50
+        min_total = 30
+        demote_high_factor = 0.6
+        demote_low_factor = 0.4
+        delete_threshold = 0.2
+
+    # 冷启动保护
+    total = conn.execute("SELECT COUNT(*) FROM memory_chunks").fetchone()[0]
+    if total < min_total:
+        result["duration_ms"] = round((_time.time() - _t0) * 1000, 2)
+        return result
+
+    # Phase 1: 跨项目扫描零访问 + 超龄 chunks
+    age_ts = f"-{min_age_days} days"
+    candidates = conn.execute(
+        """SELECT id, importance, project FROM memory_chunks
+           WHERE COALESCE(access_count, 0) = 0
+             AND datetime(created_at) < datetime('now', ?)
+             AND chunk_type NOT IN ('task_state')
+             AND COALESCE(oom_adj, 0) > -1000
+           ORDER BY importance ASC
+           LIMIT ?""",
+        (age_ts, max_reclaim),
+    ).fetchall()
+
+    result["phase1_candidates"] = len(candidates)
+
+    if not candidates:
+        result["duration_ms"] = round((_time.time() - _t0) * 1000, 2)
+        return result
+
+    # 排除 pinned chunks
+    pinned_ids = set()
+    try:
+        pin_rows = conn.execute(
+            "SELECT chunk_id FROM chunk_pins WHERE pin_type IN ('hard', 'soft')"
+        ).fetchall()
+        pinned_ids = {r[0] for r in pin_rows}
+    except Exception:
+        pass  # chunk_pins 表可能不存在
+
+    # Phase 2: 分级降权
+    demoted = 0
+    to_delete = []
+
+    for chunk_id, imp, _proj in candidates:
+        if chunk_id in pinned_ids:
+            continue
+
+        if imp >= 0.8:
+            new_imp = round(imp * demote_high_factor, 4)
+        else:
+            new_imp = round(imp * demote_low_factor, 4)
+            try:
+                conn.execute(
+                    "UPDATE memory_chunks SET oom_adj = MIN(COALESCE(oom_adj, 0) + 500, 1000) WHERE id = ?",
+                    (chunk_id,),
+                )
+            except Exception:
+                pass
+
+        conn.execute(
+            "UPDATE memory_chunks SET importance = ? WHERE id = ?",
+            (new_imp, chunk_id),
+        )
+        demoted += 1
+
+        # Phase 3: 极低价值直接删除
+        if new_imp < delete_threshold:
+            to_delete.append(chunk_id)
+
+    result["phase2_demoted"] = demoted
+
+    if to_delete:
+        result["phase3_deleted"] = delete_chunks(conn, to_delete)
+
+    conn.commit()
+
+    if demoted > 0 or to_delete:
+        bump_chunk_version()
+
+    result["duration_ms"] = round((_time.time() - _t0) * 1000, 2)
+    return result

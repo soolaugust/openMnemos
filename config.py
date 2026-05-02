@@ -2959,6 +2959,33 @@ _REGISTRY: dict = {
         "iter502: TLE 最大 stability 加成（默认 0.12 = 12%）"),
     "store_vfs.tle_min_importance": (0.20, float, 0.0, 1.0, None,
         "iter502: 触发 TLE 的最低 importance 阈值（默认 0.20）"),
+    # ── iter503: Writeback Pressure — Zero-Access Ratio Admission Control ──
+    "store_vfs.writeback_pressure_enabled": (True, bool, None, None, None,
+        "iter503: 是否启用写入反压（默认 True）"),
+    "store_vfs.writeback_dirty_ratio": (0.70, float, 0.0, 1.0, None,
+        "iter503: 零访问率超过此阈值时触发反压（默认 0.70 = 70%）"),
+    "store_vfs.writeback_dirty_bg_ratio": (0.50, float, 0.0, 1.0, None,
+        "iter503: 零访问率超过此阈值时轻度降级（默认 0.50 = 50%）"),
+    "store_vfs.writeback_throttle_factor": (0.6, float, 0.1, 1.0, None,
+        "iter503: 超过 dirty_ratio 时 importance 乘以此因子（默认 0.6）"),
+    "store_vfs.writeback_bg_throttle_factor": (0.85, float, 0.1, 1.0, None,
+        "iter503: 超过 dirty_bg_ratio 时 importance 乘以此因子（默认 0.85）"),
+    "store_vfs.writeback_min_chunks": (20, int, 1, 10000, None,
+        "iter503: 至少 N 个 chunks 后才启用反压（避免冷启动误判，默认 20）"),
+
+    # ── iter505: shrink_dcache — Cross-Project Stale Object Reclaim ──
+    "shrink.min_age_days": (3, int, 1, 90, None,
+        "iter505: 零访问 chunk 至少存活 N 天后才参与回收（默认 3）"),
+    "shrink.max_reclaim_per_scan": (50, int, 5, 500, None,
+        "iter505: 每次 SessionStart 最多回收 N 个 chunks（默认 50）"),
+    "shrink.min_total_chunks": (30, int, 5, 1000, None,
+        "iter505: 至少 N 个 chunks 后才启用 shrink（冷启动保护，默认 30）"),
+    "shrink.demote_high_factor": (0.6, float, 0.1, 1.0, None,
+        "iter505: importance >= 0.8 的 chunk 降级因子（默认 0.6）"),
+    "shrink.demote_low_factor": (0.4, float, 0.1, 1.0, None,
+        "iter505: importance < 0.8 的 chunk 降级因子（默认 0.4）"),
+    "shrink.delete_threshold": (0.2, float, 0.05, 0.5, None,
+        "iter505: 降级后 importance < 此值直接删除（默认 0.2）"),
 }
 
 # ── 磁盘配置缓存（进程内只读一次）──

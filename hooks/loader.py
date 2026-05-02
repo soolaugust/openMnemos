@@ -835,6 +835,20 @@ def main():
         except Exception:
             pass
 
+        # ── iter505：shrink_dcache — Cross-Project Stale Object Reclaim ──
+        # OS 类比：Linux shrink_dcache_sb() (Al Viro, 2001) — 超级块级 dentry cache 回收
+        # 跨所有 project 扫描零访问+超龄 chunks，分级降权/删除，解决 82%+ 零访问率
+        shrink_result = {"phase1_candidates": 0, "phase2_demoted": 0, "phase3_deleted": 0}
+        try:
+            from store_vfs import shrink_dcache
+            shrink_result = shrink_dcache(_log_conn, project)
+            if shrink_result.get("phase2_demoted", 0) > 0 or shrink_result.get("phase3_deleted", 0) > 0:
+                dmesg_log(_log_conn, DMESG_INFO, "shrink_dcache",
+                          f"reclaim: candidates={shrink_result['phase1_candidates']} demoted={shrink_result['phase2_demoted']} deleted={shrink_result['phase3_deleted']} {shrink_result.get('duration_ms', 0):.1f}ms",
+                          session_id=_session_id, project=project)
+        except Exception:
+            pass
+
         # ── 迭代63：Trace GC — recall_traces 生命周期管理 ──
         # OS 类比：logrotate — SessionStart 时清理过期日志
         gc_result = {"deleted_age": 0, "deleted_rows": 0, "remaining": 0}

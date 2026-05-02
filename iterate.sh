@@ -6,7 +6,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 FEISHU_DOC="${FEISHU_DOC:?'请设置环境变量 FEISHU_DOC=<飞书文档ID>'}"
 PROJECT_MD="${PROJECT_MD:-"$HOME/self-improving/projects/memory-os.md"}"
 WORKSPACE="${WORKSPACE:-"$(dirname "$(dirname "$(dirname "$SCRIPT_DIR")")")"}"
-MAX_ROUNDS=50
+MAX_ROUNDS=999999
 FAIL_COUNT=0
 MAX_FAILS=3
 
