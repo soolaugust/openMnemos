@@ -3260,6 +3260,16 @@ _REGISTRY: dict = {
     "prune_icache_sb.max_txn_keep": (100, int, 20, 500, None,
         "hook_txn_log 最大保留条数（比 logrotate 更激进的 cap）"),
 
+    # ── iter564: oom_score_adj_rebalance — Runtime OOM Score Recalibration ──
+    "oom_rebalance.enabled": (True, bool, None, None, None,
+        "是否启用 oom_score_adj_rebalance 运行时 OOM 分数重校准"),
+    "oom_rebalance.max_adjustments": (20, int, 1, 100, None,
+        "单次扫描最大调整 chunk 数"),
+    "oom_rebalance.dead_min_age_days": (7.0, float, 1.0, 30.0, None,
+        "R2 规则：零访问 chunk 必须超过此天数才升级 oom_adj（宽限期）"),
+    "oom_rebalance.hot_min_access": (10, int, 3, 50, None,
+        "R3 规则：access_count 达到此值才视为热 chunk 获 OOM 保护"),
+
     # ── iter549: vacuum — Database File Compaction ──
     "vacuum.enabled": (True, bool, None, None, None,
         "是否启用 VACUUM（DB 文件物理收缩）"),

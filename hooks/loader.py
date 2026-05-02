@@ -1651,6 +1651,32 @@ def main():
             except Exception:
                 pass
 
+        # ── iter564：oom_score_adj_rebalance — Runtime OOM Score Recalibration ──
+        if _ict_enabled: _ict_milestones.append(("oom_rebalance", _ict_time.time()))
+        # OS 类比：Linux oom_badness() — 综合静态 adj + 动态指标重算 OOM 分数
+        _oom_rb_result = {"adjusted": 0}
+        if not _defer_reclaim and not _ts_skip("oom_rebalance"):
+            try:
+                from store_mm import oom_score_adj_rebalance
+                _oom_rb_result = oom_score_adj_rebalance(_log_conn, project)
+                if _oom_rb_result["adjusted"] > 0:
+                    parts = []
+                    if _oom_rb_result["r1_demoted"]:
+                        parts.append(f"r1_demote={_oom_rb_result['r1_demoted']}")
+                    if _oom_rb_result["r2_promoted"]:
+                        parts.append(f"r2_promote={_oom_rb_result['r2_promoted']}")
+                    if _oom_rb_result["r3_protected"]:
+                        parts.append(f"r3_protect={_oom_rb_result['r3_protected']}")
+                    dmesg_log(_log_conn, DMESG_INFO, "oom_rebalance",
+                              f"adjusted={_oom_rb_result['adjusted']} "
+                              f"({' '.join(parts)}) "
+                              f"scanned={_oom_rb_result['scanned']} "
+                              f"{_oom_rb_result['duration_ms']:.1f}ms",
+                              session_id=_session_id, project=project)
+                _ts_report("oom_rebalance", _oom_rb_result.get("adjusted", 0) > 0)
+            except Exception:
+                pass
+
         # ── iter549：vacuum — Database File Compaction ──
         # OS 类比：SSD Background GC / Firmware Compaction — fstrim 通知 SSD 哪些 LBA
         # 空闲，但物理回收需要 SSD 内部 GC 搬迁有效 pages 合并 erase blocks。

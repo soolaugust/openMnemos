@@ -10131,3 +10131,145 @@ def prune_icache_sb(conn: sqlite3.Connection, project: str = None) -> dict:
 
     result["duration_ms"] = round((_time.time() - t0) * 1000, 2)
     return result
+
+
+# ── iter564: oom_score_adj_rebalance — Runtime OOM Score Recalibration ──────
+# OS 类比：Linux oom_badness() (Andrew Morton, 2006, kernel/mm/oom_kill.c)
+#   OOM killer 不依赖静态 oom_score_adj；oom_badness() 在每次 OOM 事件时
+#   综合计算 badness = oom_score_adj + RSS占比 + age。即使 oom_score_adj=0，
+#   高 RSS 进程仍然会被优先 kill。
+#   Memory-OS 等价：oom_adj 在写入时静态设定后从不更新，导致与运行时数据
+#   （access_count, recall_frequency, importance drift）不一致。
+#   oom_score_adj_rebalance 定期根据运行时指标重新校准 oom_adj。
+
+def oom_score_adj_rebalance(conn: sqlite3.Connection, project: str) -> dict:
+    """
+    iter564: 基于运行时指标重新校准 oom_adj。
+
+    OS 类比：Linux oom_badness() — 综合静态 adj + 动态 RSS/age 计算最终 OOM 分数。
+
+    三条规则：
+      R1 (demote_active_high_oom): oom_adj >= 500 但 access_count >= 3 → 降至 0
+         理由：活跃 chunk 被标记为"最先回收"是不一致的
+      R2 (promote_dead_low_oom): access_count=0 + age>7d + imp<0.3 + oom_adj<300 → 升至 300
+         理由：长期零访问的低价值 chunk 应标记为"优先回收"
+      R3 (protect_hot): access_count>=10 + importance>=0.7 + oom_adj>0 → 降至 -200
+         理由：高频高价值 chunk 应获 OOM 保护
+
+    保护机制：
+      - chunk_pins (mlock) 绝对不动
+      - oom_adj <= -500 不降级（用户显式保护）
+      - task_state 类型不动（控制面数据）
+      - max_adjustments 限制单次最大调整数
+
+    返回 dict:
+      adjusted: int — 实际调整的 chunk 数
+      r1_demoted: int, r2_promoted: int, r3_protected: int
+      scanned: int
+      duration_ms: float
+    """
+    from config import get as _cfg
+    t0 = _time.time()
+
+    enabled = _cfg("oom_rebalance.enabled")
+    if not enabled:
+        return {"adjusted": 0, "r1_demoted": 0, "r2_promoted": 0,
+                "r3_protected": 0, "scanned": 0, "duration_ms": 0.0}
+
+    max_adj = int(_cfg("oom_rebalance.max_adjustments"))
+    r2_min_age_days = float(_cfg("oom_rebalance.dead_min_age_days"))
+    r3_min_access = int(_cfg("oom_rebalance.hot_min_access"))
+
+    # 获取 pinned chunk IDs (mlock — 绝对不动)
+    pinned_ids = set()
+    try:
+        pin_rows = conn.execute(
+            "SELECT chunk_id FROM chunk_pins WHERE project IN (?, 'global')",
+            (project,)
+        ).fetchall()
+        pinned_ids = {r[0] for r in pin_rows}
+    except Exception:
+        pass
+
+    # 扫描所有相关 chunks
+    rows = conn.execute(
+        """SELECT id, chunk_type, importance, access_count,
+                  COALESCE(oom_adj, 0) as oom_adj, created_at, last_accessed
+           FROM memory_chunks
+           WHERE project IN (?, 'global')""",
+        (project,)
+    ).fetchall()
+
+    scanned = len(rows)
+    now = datetime.now(timezone.utc)
+    adjusted = 0
+    r1_demoted = 0
+    r2_promoted = 0
+    r3_protected = 0
+
+    for row in rows:
+        if adjusted >= max_adj:
+            break
+
+        cid, ctype, imp, acc, oom, created_at, last_acc = row
+
+        # 跳过 pinned（mlock）
+        if cid in pinned_ids:
+            continue
+        # 跳过 task_state（控制面）
+        if ctype == "task_state":
+            continue
+        # 跳过用户显式保护（oom_adj <= -500）
+        if oom <= -500:
+            continue
+
+        # R1: demote_active_high_oom
+        # 活跃 chunk 不应被标记为优先回收
+        if oom >= 500 and acc >= 3:
+            conn.execute(
+                "UPDATE memory_chunks SET oom_adj = 0 WHERE id = ?", (cid,))
+            r1_demoted += 1
+            adjusted += 1
+            continue
+
+        # R3: protect_hot (优先于 R2 检查)
+        # 高频高价值 chunk 应获保护
+        if acc >= r3_min_access and imp >= 0.7 and oom > 0:
+            conn.execute(
+                "UPDATE memory_chunks SET oom_adj = -200 WHERE id = ?", (cid,))
+            r3_protected += 1
+            adjusted += 1
+            continue
+
+        # R2: promote_dead_low_oom
+        # 长期零访问低价值 chunk 应标记为优先回收
+        if acc == 0 and imp < 0.3 and oom < 300:
+            # 检查年龄
+            try:
+                cr_dt = datetime.fromisoformat(
+                    created_at.replace("Z", "+00:00") if created_at else "")
+                age_days = (now - cr_dt).total_seconds() / 86400
+            except Exception:
+                age_days = 999
+            if age_days >= r2_min_age_days:
+                conn.execute(
+                    "UPDATE memory_chunks SET oom_adj = 300 WHERE id = ?",
+                    (cid,))
+                r2_promoted += 1
+                adjusted += 1
+                continue
+
+    if adjusted > 0:
+        try:
+            conn.commit()
+        except Exception:
+            pass
+
+    return {
+        "adjusted": adjusted,
+        "r1_demoted": r1_demoted,
+        "r2_promoted": r2_promoted,
+        "r3_protected": r3_protected,
+        "scanned": scanned,
+        "duration_ms": round((_time.time() - t0) * 1000, 2),
+    }
