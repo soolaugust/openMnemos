@@ -4567,6 +4567,196 @@ def overcommit_kill(conn: "sqlite3.Connection") -> dict:
     return result
 
 
+# ── iter514: ksm_scan — Kernel Same-page Merging Periodic Scanner ──────────────
+
+def ksm_scan(conn: "sqlite3.Connection", project: "Optional[str]" = None) -> dict:
+    """iter514: ksm_scan — 定期扫描并合并语义重复的 chunks。
+
+    OS 类比：Linux KSM (Kernel Same-page Merging, Andrea Arcangeli, 2009)
+    ——ksmd 后台线程周期性扫描物理页帧，通过内容哈希发现相同页面，
+    将多个相同页面合并为一个 copy-on-write 共享页，释放物理内存。
+
+    memory-os 问题：
+      - import_knowledge 批量导入产生同主题多版本 chunks
+        例如：[pe_analysis] PE 分析：task_queued... ×7, [sched_ext] EEVDF... ×8
+      - 这些是同一知识的不同迭代记录/不同细节面，而非独立知识
+      - 已有的 already_exists() 只检查精确匹配，compact_zone() 基于实体重叠
+      - 两者都无法处理"同主题前缀、不同内容后缀"的版本化重复
+
+    算法（三阶段）：
+      Phase 1: Topic Fingerprint — 提取每个 chunk 的结构化前缀作为 page hash
+        - [bracket_topic] + 前 20 字符 作为 fingerprint
+        - 相同 fingerprint = 同一 "物理页面" 的候选
+      Phase 2: Merge Selection — 每组保留最佳 chunk（survivor）
+        - 优先级：access_count DESC → importance DESC → created_at DESC
+        - survivor 继承被合并 chunks 的 access_count（cumulative）
+      Phase 3: Deduplicate & Delete — 删除被合并的 chunks
+        - survivor.content 追加 "[merged N chunks]" 标记
+        - bump_chunk_version 触发 TLB 失效
+
+    调用时机：loader.py SessionStart，在 overcommit_kill 之后。
+    """
+    _t0 = _time.time()
+
+    result = {
+        "triggered": False,
+        "groups_found": 0,
+        "chunks_merged": 0,
+        "chunks_deleted": 0,
+        "survivors": [],
+        "duration_ms": 0.0,
+    }
+
+    try:
+        from config import get as _cfg
+        min_group_size = int(_cfg("ksm_scan.min_group_size"))
+        max_merge_per_scan = int(_cfg("ksm_scan.max_merge_per_scan"))
+        prefix_chars = int(_cfg("ksm_scan.prefix_chars"))
+        protect_accessed = int(_cfg("ksm_scan.protect_min_access"))
+    except Exception:
+        min_group_size = 3
+        max_merge_per_scan = 60
+        prefix_chars = 20
+        protect_accessed = 2
+
+    # 加载所有非 task_state chunks（全库扫描，跨 project）
+    query = """
+        SELECT id, summary, content, importance, access_count, created_at,
+               project, chunk_type, oom_adj
+        FROM memory_chunks
+        WHERE chunk_type NOT IN ('task_state', 'prompt_context')
+          AND summary != ''
+    """
+    params = ()
+    if project:
+        query += " AND project = ?"
+        params = (project,)
+
+    rows = conn.execute(query, params).fetchall()
+    if len(rows) < min_group_size:
+        result["duration_ms"] = round((_time.time() - _t0) * 1000, 2)
+        return result
+
+    # ── Phase 1: Topic Fingerprint ──
+    # 提取 [bracket] + rest[:prefix_chars] 作为 fingerprint
+    _PREFIX_RE = re.compile(r'^\[([^\]]+)\]\s*(.*)', re.DOTALL)
+
+    def _fingerprint(summary: str) -> str:
+        m = _PREFIX_RE.match(summary)
+        if m:
+            topic = m.group(1)
+            rest = m.group(2)[:prefix_chars].strip()
+            return f"[{topic}] {rest}"
+        return ""  # 无 bracket 前缀的不参与 KSM
+
+    groups = defaultdict(list)
+    for row in rows:
+        rid, summary = row[0], row[1] or ""
+        fp = _fingerprint(summary)
+        if fp:
+            groups[fp].append({
+                "id": rid,
+                "summary": summary,
+                "content": row[2] or "",
+                "importance": row[3] if row[3] is not None else 0.5,
+                "access_count": row[4] or 0,
+                "created_at": row[5] or "",
+                "project": row[6] or "",
+                "chunk_type": row[7] or "",
+                "oom_adj": row[8] or 0,
+            })
+
+    # ── Phase 2: Merge Selection ──
+    merge_candidates = [(fp, chunks) for fp, chunks in groups.items()
+                        if len(chunks) >= min_group_size]
+
+    if not merge_candidates:
+        result["duration_ms"] = round((_time.time() - _t0) * 1000, 2)
+        return result
+
+    result["triggered"] = True
+    result["groups_found"] = len(merge_candidates)
+
+    total_deleted = 0
+    survivors = []
+
+    for fp, chunks in merge_candidates:
+        if total_deleted >= max_merge_per_scan:
+            break
+
+        # 排序：access_count DESC → importance DESC → created_at DESC（最新优先）
+        chunks_sorted = sorted(chunks, key=lambda c: (
+            c["access_count"],
+            c["importance"],
+            c["created_at"],
+        ), reverse=True)
+
+        survivor = chunks_sorted[0]
+        to_merge = chunks_sorted[1:]
+
+        # 保护：不删除 oom_adj <= -500 (mlock) 或 access >= protect_accessed 的 chunks
+        to_delete = []
+        for c in to_merge:
+            if total_deleted >= max_merge_per_scan:
+                break
+            if c["oom_adj"] <= -500:
+                continue  # mlock protected
+            if c["access_count"] >= protect_accessed:
+                continue  # has been accessed, might have unique value
+            to_delete.append(c)
+            total_deleted += 1
+
+        if not to_delete:
+            continue
+
+        # ── Phase 3: Merge & Delete ──
+        # survivor 继承被合并 chunks 的 access_count 总和
+        merged_access = sum(c["access_count"] for c in to_delete)
+        new_access = survivor["access_count"] + merged_access
+
+        # 更新 survivor
+        merge_note = f"\n[ksm_merged {len(to_delete)} chunks, fp=\"{fp[:40]}\"]"
+        conn.execute(
+            "UPDATE memory_chunks SET access_count = ?, content = content || ? WHERE id = ?",
+            (new_access, merge_note, survivor["id"])
+        )
+
+        # 删除被合并 chunks（先清 FTS5，再删主表）
+        delete_ids = [c["id"] for c in to_delete]
+        for i in range(0, len(delete_ids), 100):
+            batch = delete_ids[i:i+100]
+            placeholders = ",".join("?" * len(batch))
+            # Phase 3a: 先删 FTS5（rowid_ref 是 standalone FTS5 的关联字段）
+            try:
+                conn.execute(
+                    f"DELETE FROM memory_chunks_fts WHERE rowid_ref IN ({placeholders})",
+                    batch
+                )
+            except Exception:
+                pass  # FTS5 will be cleaned by fts5_checkpoint at next boot
+            # Phase 3b: 再删主表
+            conn.execute(
+                f"DELETE FROM memory_chunks WHERE id IN ({placeholders})",
+                batch
+            )
+
+        survivors.append({"id": survivor["id"], "fp": fp[:50], "merged": len(to_delete)})
+        result["chunks_merged"] += len(to_delete)
+
+    # Commit & bump version
+    try:
+        conn.commit()
+        if result["chunks_merged"] > 0:
+            bump_chunk_version(conn)
+    except Exception:
+        pass
+
+    result["chunks_deleted"] = result["chunks_merged"]
+    result["survivors"] = survivors
+    result["duration_ms"] = round((_time.time() - _t0) * 1000, 2)
+    return result
+
+
 def _page_idle_load() -> dict:
     """加载 page_idle bitmap 文件。"""
     try:

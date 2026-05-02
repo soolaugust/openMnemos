@@ -3028,6 +3028,17 @@ _REGISTRY: dict = {
         "iter511: 每次降级时 importance *= decay_factor（默认 0.7）"),
     "page_idle.demote_oom_adj": (200, int, 50, 500, None,
         "iter511: 每次降级时 oom_adj += N，加速后续回收（默认 200）"),
+
+    # ── ksm_scan（迭代514）——同页合并扫描器 ──
+    # OS 类比：Linux KSM (Andrea Arcangeli, 2009) — ksmd 扫描相同页面并合并为 COW 共享页
+    "ksm_scan.min_group_size": (3, int, 2, 10, None,
+        "相同前缀 fingerprint 的最小 chunk 数才触发合并（防误杀）"),
+    "ksm_scan.max_merge_per_scan": (60, int, 10, 200, None,
+        "单次扫描最多合并/删除的 chunk 数量（批次限制）"),
+    "ksm_scan.prefix_chars": (20, int, 10, 50, None,
+        "fingerprint 中 bracket topic 后取多少字符（越短越激进，越长越精确）"),
+    "ksm_scan.protect_min_access": (2, int, 1, 10, None,
+        "access_count >= N 的 chunk 不被合并（已有实战价值）"),
 }
 
 # ── 磁盘配置缓存（进程内只读一次）──

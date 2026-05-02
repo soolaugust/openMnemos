@@ -121,6 +121,7 @@ from store_mm import (  # noqa: F401
     page_idle_scan,
     gc_namespace,
     overcommit_kill,
+    ksm_scan,
     autotune,
     context_pressure_governor,
     GOV_LOW,

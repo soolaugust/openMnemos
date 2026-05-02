@@ -23,7 +23,7 @@ sys.path.insert(0, str(_ROOT))
 from schema import MemoryChunk
 from utils import resolve_project_id
 from scorer import working_set_score as _unified_ws_score
-from store import open_db, ensure_schema, get_chunks as store_get_chunks, dmesg_log, DMESG_INFO, DMESG_WARN, watchdog_check, damon_scan, mglru_aging, checkpoint_restore, autotune, gc_traces, rmap_sweep, vma_merge, page_idle_scan, page_idle_mark, gc_orphan_swap, gc_namespace, overcommit_kill
+from store import open_db, ensure_schema, get_chunks as store_get_chunks, dmesg_log, DMESG_INFO, DMESG_WARN, watchdog_check, damon_scan, mglru_aging, checkpoint_restore, autotune, gc_traces, rmap_sweep, vma_merge, page_idle_scan, page_idle_mark, gc_orphan_swap, gc_namespace, overcommit_kill, ksm_scan
 from config import get as _sysctl  # 迭代27: sysctl Runtime Tunables
 
 MEMORY_OS_DIR = Path.home() / ".claude" / "memory-os"
@@ -870,6 +870,17 @@ def main():
             if oc_result.get("triggered"):
                 dmesg_log(_log_conn, DMESG_INFO, "overcommit_kill",
                           f"reap: global={oc_result['global_total']} zero={oc_result['global_zero_access']}({oc_result['zero_access_ratio']:.1%}) reaped={oc_result['reaped']} deleted={oc_result['deleted']} {oc_result.get('duration_ms', 0):.1f}ms",
+                          session_id=_session_id, project=project)
+        except Exception:
+            pass
+
+        # ── iter514：ksm_scan — 同页合并扫描（去除版本化重复） ──
+        # OS 类比：Linux KSM (Andrea Arcangeli, 2009) — ksmd 扫描相同页面合并为 COW 共享页
+        try:
+            ksm_result = ksm_scan(_log_conn)
+            if ksm_result.get("triggered"):
+                dmesg_log(_log_conn, DMESG_INFO, "ksm_scan",
+                          f"ksm: groups={ksm_result['groups_found']} merged={ksm_result['chunks_merged']} deleted={ksm_result['chunks_deleted']} {ksm_result.get('duration_ms', 0):.1f}ms",
                           session_id=_session_id, project=project)
         except Exception:
             pass
