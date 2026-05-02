@@ -1079,6 +1079,20 @@ def main():
         except Exception:
             pass
 
+        # ── iter528：munlock_idle — 撤销过期 mlock 保护 ──
+        # OS 类比：Linux munlock() + MADV_COLD (Minchan Kim, 2019)
+        # mlock 保护的 chunk 若连续 N 轮 idle 且 access=0，说明从未被实战验证，撤销保护
+        try:
+            from store_mm import munlock_idle
+            munlock_result = munlock_idle(_log_conn, project)
+            if munlock_result["unlocked"] > 0:
+                dmesg_log(_log_conn, DMESG_INFO, "munlock_idle",
+                          f"unlocked={munlock_result['unlocked']} scanned={munlock_result['scanned']} "
+                          f"grace_skip={munlock_result['skipped_grace']}",
+                          session_id=_session_id, project=project)
+        except Exception:
+            pass
+
         # ── 迭代146：Swap GC — 孤儿 project 清理 ──
         # OS 类比：process exit → free anonymous swap pages (do_exit → exit_mmap)
         # 消亡 project（主表已无 chunk）的 swap 条目永久占位，不会被 swap_in，

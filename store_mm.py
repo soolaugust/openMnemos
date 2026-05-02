@@ -4283,6 +4283,135 @@ def page_idle_scan(conn: sqlite3.Connection, project: str) -> dict:
             "deleted": deleted, "max_idle_rounds": max_rounds}
 
 
+# ── munlock_idle — Revoke Stale mlock Protection（iter528）─────────────
+#
+# OS 类比：Linux munlock() + MADV_COLD (Minchan Kim, 2019)
+#   mlock 页面不会被 swap out，但当进程退出或 admin 决定后可以 munlock。
+#   Android PROCESS_STATE_CACHED 触发 MADV_COLD 对 locked pages 降级。
+#   关键原则：mlock 不是永久的，应有续期机制——长期无访问的 mlock 页面应被 revoke。
+#
+# 问题（数据驱动）：
+#   16 个 mlock chunks (oom_adj<=-500) 中 7 个 access_count=0（43% 资源从未被使用）。
+#   page_idle bitmap 显示这些 chunk 已连续 24 轮空闲，但因 mlock 保护跳过所有回收器。
+#   mlock 一旦设置永不过期 → 无效知识永久占位 → 检索噪声（FTS5 候选池膨胀）。
+#
+# 解决：
+#   munlock_idle(conn, project) — 撤销从未被验证的 mlock 保护：
+#     条件：oom_adj <= -500 AND access_count = 0 AND idle_rounds >= threshold
+#     动作：oom_adj → OOM_ADJ_DEFAULT(0)，解除保护，允许 page_idle/shrink_dcache 正常降级
+#     保护：design_constraint 类型有 grace period（创建 < N 天不处理）
+
+
+def munlock_idle(conn: sqlite3.Connection, project: str) -> dict:
+    """
+    iter528: 撤销从未被检索验证的 mlock 保护。
+
+    mlock (oom_adj<=-500) 应保护**经过实战验证**的核心知识。
+    但某些 chunk 被创建时即获得 mlock，之后从未被 retriever 召回（access=0）。
+    这些 chunk 占据 FTS5 候选池且不可回收，是 mlock 资源浪费。
+
+    触发条件：
+      - oom_adj <= -500 (mlock 级别)
+      - access_count = 0 (从未被 retriever 召回验证)
+      - 存在于 page_idle bitmap 且 idle_rounds >= munlock_idle_rounds
+
+    动作：oom_adj → 0 (OOM_ADJ_DEFAULT)，解除 mlock 保护。
+    不修改 importance（让 page_idle/numa_balancing 正常衰减）。
+
+    保护机制：
+      - design_constraint 有 grace_days 宽限期（新创建的约束需要时间被验证）
+      - pinned chunks (MCP pin_memory) 不处理
+      - access_count > 0 的 chunk 已被实战验证，保留 mlock
+    """
+    t0 = _time.time()
+
+    # 读取配置
+    try:
+        from config import get as _cfg
+    except Exception:
+        _cfg = lambda k: None
+
+    munlock_rounds = _cfg("munlock.idle_rounds") or 5
+    grace_days = _cfg("munlock.grace_days") or 7
+    max_per_scan = _cfg("munlock.max_per_scan") or 20
+
+    # Phase 1: 找到所有 mlock + zero-access chunks
+    mlock_chunks = conn.execute(
+        """SELECT id, chunk_type, importance, oom_adj, access_count, created_at
+           FROM memory_chunks
+           WHERE project = ? AND oom_adj <= -500 AND access_count = 0""",
+        (project,)
+    ).fetchall()
+
+    if not mlock_chunks:
+        return {"scanned": 0, "unlocked": 0, "skipped_grace": 0,
+                "skipped_pinned": 0, "duration_ms": 0}
+
+    # Phase 2: 加载 page_idle bitmap 验证 idle 轮次
+    bitmap = _page_idle_load()
+    project_bitmap = bitmap.get(project, {})
+
+    now = datetime.now(timezone.utc)
+    unlocked = 0
+    skipped_grace = 0
+    skipped_pinned = 0
+    unlocked_ids = []
+
+    for chunk_id, chunk_type, importance, oom_adj, access_count, created_at in mlock_chunks:
+        if unlocked >= max_per_scan:
+            break
+
+        # 检查 idle_rounds
+        idle_rounds = project_bitmap.get(chunk_id, 0)
+        if idle_rounds < munlock_rounds:
+            continue
+
+        # Grace period：design_constraint 新创建的不处理
+        if chunk_type == "design_constraint" and created_at:
+            try:
+                dt = datetime.fromisoformat(created_at)
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=timezone.utc)
+                age_days = (now - dt).total_seconds() / 86400
+                if age_days < grace_days:
+                    skipped_grace += 1
+                    continue
+            except Exception:
+                pass
+
+        # 执行 munlock：oom_adj → 0
+        conn.execute(
+            "UPDATE memory_chunks SET oom_adj = ? WHERE id = ?",
+            (OOM_ADJ_DEFAULT, chunk_id)
+        )
+        unlocked += 1
+        unlocked_ids.append(chunk_id)
+
+    if unlocked > 0:
+        conn.commit()
+        try:
+            bump_chunk_version()
+        except Exception:
+            pass
+        try:
+            dmesg_log(conn, DMESG_INFO, "munlock_idle",
+                      f"unlocked={unlocked} scanned={len(mlock_chunks)} "
+                      f"skipped_grace={skipped_grace}",
+                      project=project,
+                      extra={"unlocked_ids": unlocked_ids[:10]})
+        except Exception:
+            pass
+
+    duration_ms = (_time.time() - t0) * 1000
+    return {
+        "scanned": len(mlock_chunks),
+        "unlocked": unlocked,
+        "skipped_grace": skipped_grace,
+        "skipped_pinned": skipped_pinned,
+        "duration_ms": round(duration_ms, 2),
+    }
+
+
 # ── gc_namespace — Process Namespace Cleanup（迭代512）───────────────
 
 # 测试 namespace 正则：匹配 test_*、test-*、perf_*、bench_* 前缀的 project ID

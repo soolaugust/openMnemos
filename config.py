@@ -3037,6 +3037,15 @@ _REGISTRY: dict = {
     "page_idle.demote_oom_adj": (200, int, 50, 500, None,
         "iter511: 每次降级时 oom_adj += N，加速后续回收（默认 200）"),
 
+    # ── iter528: munlock_idle — 撤销过期 mlock 保护 ──
+    # OS 类比：Linux munlock() + MADV_COLD (Minchan Kim, 2019) — 撤销不再活跃的 mlock 保护
+    "munlock.idle_rounds": (5, int, 3, 20, None,
+        "iter528: page_idle 连续 idle 轮次达此阈值时撤销 mlock（默认 5 轮）"),
+    "munlock.grace_days": (7, int, 3, 30, None,
+        "iter528: design_constraint 创建后 N 天内不 munlock（宽限期，默认 7 天）"),
+    "munlock.max_per_scan": (20, int, 5, 50, None,
+        "iter528: 单次 scan 最多 munlock 的 chunk 数（默认 20）"),
+
     # ── ksm_scan（迭代514）——同页合并扫描器 ──
     # OS 类比：Linux KSM (Andrea Arcangeli, 2009) — ksmd 扫描相同页面并合并为 COW 共享页
     "ksm_scan.min_group_size": (3, int, 2, 10, None,
