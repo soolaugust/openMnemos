@@ -562,7 +562,7 @@ def _is_fragment(text: str) -> bool:
     # 这些字符在中文语法中不能作为独立句子的开头，出现在 position-0 说明是句子中间截断的。
     # 典型情形：正则捕获组匹配到从句尾部 "性" / "等" 等助词或形容词词尾。
     # OS 类比：TCP sequence number validation — 起始 seq 不在合法窗口内，丢弃 segment。
-    _CN_MID_SENTENCE_STARTERS = frozenset('性等时中里上下内外到从着过了地得把被让向以于的是')
+    _CN_MID_SENTENCE_STARTERS = frozenset('性等时中里上下内外到从着过了地得把被让向以于的是句')
     if text[0] in _CN_MID_SENTENCE_STARTERS:
         # 仅当第一个字是纯中文助词/尾词时判定为碎片
         # 保护：首字是"中文名词+助词"组合的合法句（如"中文分词策略"的"中"）
@@ -591,6 +591,16 @@ def _is_fragment(text: str) -> bool:
         right_count = text.count('）') + text.count(')')
         if right_count > left_count:
             return True
+    # ── iter525: memfd_seal — JSON truncation fragment detection ──────────
+    # OS 类比：Linux memfd_seal(F_SEAL_WRITE) (Jeff Xu, 2024) — 内容完整性密封
+    # 根因：assistant 输出含 JSON 结构体，regex 捕获组截断到 value 中间，
+    # 产生 "ommended_action": "xxx"、"tion": "..." 等碎片
+    # 检测：小写拉丁字母开头 + JSON 键值特征 = 截断的 JSON value
+    if re.match(r'^[a-z]', text) and re.search(r'": "', text[:40]):
+        return True
+    # 裸小写词片段 + 紧跟下划线 — 无 () 的截断标识符（排除合法函数引用如 "sleep_consolidate()"）
+    if re.match(r'^[a-z]{2,}_', text) and '()' not in text[:30]:
+        return True
     return False
 
 

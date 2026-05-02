@@ -82,6 +82,52 @@ logging.basicConfig(
 log = logging.getLogger("extractor_pool")
 
 
+# ── iter525: memfd_seal — Write Gate Integrity Seal ──────────────────────────
+# OS 类比：Linux memfd_seal(F_SEAL_WRITE) (Jeff Xu, 2024) —
+# sealed memory 拒绝损坏数据写入，在 write 入口强制完整性校验。
+# 根因：extractor_pool._write_chunks() 缺少 _is_fragment()/_is_quality_chunk() 检查，
+# 导致 table row fragments 和 JSON truncation artifacts 直接写入 DB。
+
+import re as _re
+
+def _seal_check_reject(text: str) -> bool:
+    """返回 True 表示该文本是碎片/损坏数据，应拒绝写入。
+    合并 extractor.py 中 _is_fragment() + _is_quality_chunk() 的核心检查。"""
+    if not text or len(text) < 10:
+        return True
+    # _is_fragment 核心规则
+    if text[0] in ('_', '|', ')', ']', '}', '>', '+', '=', ':', '：', '）', '】', '》',
+                   ',', '，', '、', ';', '；', '#'):
+        return True
+    if _re.match(r'^[\d\s.,:;/×\-+=%]+$', text):
+        return True
+    if text.count('|') >= 2:
+        return True
+    stripped = text.rstrip()
+    if stripped.endswith(':') or stripped.endswith('：'):
+        return True
+    # iter525 新增：JSON truncation fragments — 小写拉丁字母碎片开头
+    # 特征：以小写拉丁字母开头 + 含 JSON 键值特征（": "）
+    # 根因：assistant 输出含 JSON 结构，regex 捕获组截断到 value 中间
+    if _re.match(r'^[a-z]', text) and _re.search(r'": "', text[:40]):
+        return True
+    # iter525 新增：裸小写词片段 + 紧跟下划线 — 无 () 的截断标识符
+    # 排除合法函数引用如 "sleep_consolidate() ..."
+    if _re.match(r'^[a-z]{2,}_', text) and '()' not in text[:30]:
+        return True
+    # _is_quality_chunk 核心规则
+    if _re.match(r'^[\[\]\-|]', text):
+        return True
+    if text.count('|') >= 3:
+        return True
+    # JSON 键值对碎片
+    if text.startswith('"') and _re.match(r'^"[\w_]+":', text):
+        return True
+    if len(_re.findall(r'"[\w_]+"\s*:', text)) >= 2:
+        return True
+    return False
+
+
 # ── 心跳 + PID 管理 ──────────────────────────────────────────────────────────
 
 def _write_pid() -> None:
@@ -290,6 +336,11 @@ def _run_extraction_pipeline(payload: dict) -> dict:
             written = 0
             for t in texts:
                 if not t or not t.strip():
+                    continue
+                # ── iter525: memfd_seal — Write Gate Integrity Seal ──
+                # OS 类比：Linux memfd_seal(F_SEAL_WRITE) (Jeff Xu, 2024) —
+                # sealed memory region 拒绝写入损坏数据，在 write 入口强制校验
+                if _seal_check_reject(t.strip()):
                     continue
                 imp = base_importance
                 if throttle_active:
