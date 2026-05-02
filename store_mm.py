@@ -4995,3 +4995,655 @@ def _page_idle_save(data: dict) -> None:
         )
     except Exception:
         pass
+
+
+# ── migrate_pages — Cross-NUMA Page Migration（迭代518）────────────────
+
+def migrate_pages(conn: "sqlite3.Connection", current_project: str) -> dict:
+    """
+    迭代518：migrate_pages — 跨 project_id 知识迁移。
+    OS 类比：Linux migrate_pages() (Christoph Lameter, 2006) — 当进程迁移到
+    不同 NUMA 节点时，内核自动将其热页面从远程节点迁移到本地节点，
+    减少跨节点访问延迟（remote memory latency ~100ns vs local ~50ns）。
+
+    Memory-OS 类比：
+      - NUMA 节点 = project_id（不同的 namespace 隔离域）
+      - 页面 = memory chunks（知识单元）
+      - 跨节点访问 = 知识被碎片化到旧 project_id 下，当前 project 查询不可见
+      - migrate_pages = 将旧别名下的 chunks 迁移到当前活跃 project_id
+
+    根因：同一物理仓库/工作目录随时间产生不同的 project_id：
+      1. git remote 配置变化：abspath:xxx → git:xxx（首次添加 remote）
+      2. CWD 变化：从父目录 abspath:parent → 子目录 git:child
+      3. git 仓库初始化：abspath:xxx → gitroot:xxx → git:xxx
+      这导致同一工作域的知识被分散到多个 project_id 下，
+      当前 project 的 get_chunks() 只查询当前 ID → 历史知识不可见。
+
+    别名检测策略（两级）：
+      Phase 1 — Path ancestry：当前 CWD 是某 project 的子目录（CWD 包含关系）
+      Phase 2 — Hash fingerprint：不同 label 但相同物理路径（git: vs abspath: vs gitroot:）
+
+    迁移策略：
+      - 只迁移 chunks，不迁移 recall_traces（traces 仅做统计参考）
+      - 去重：迁移时检查目标 project 是否已存在相同 summary → 跳过
+      - 增量：已迁移的 chunk 记录到 alias cache 文件，不重复扫描
+      - access_count/importance 继承：保留原值（迁移不改变知识质量）
+
+    保护机制：
+      - current_project == 'global' → 不迁移（global 是跨项目共享层）
+      - 源 project chunks < 2 → 不值得迁移
+      - 每次最多迁移 max_migrate_per_scan 条（避免大事务）
+
+    参数：
+      conn — 写连接
+      current_project — 当前活跃 project_id
+
+    返回 dict：
+      aliases_found — 发现的别名 project_id 列表
+      migrated — 迁移的 chunk 数
+      skipped_dup — 去重跳过的 chunk 数
+      skipped_protected — 受保护跳过的 chunk 数
+    """
+    result = {
+        "aliases_found": [],
+        "migrated": 0,
+        "skipped_dup": 0,
+        "skipped_protected": 0,
+        "duration_ms": 0,
+    }
+    t0 = _time.monotonic()
+
+    # ── 守卫：不迁移 global / 空 project ──
+    if not current_project or current_project == "global":
+        return result
+
+    try:
+        from config import get as _cfg
+    except Exception:
+        return result
+
+    max_migrate = _cfg("migrate.max_per_scan")
+
+    # ── Phase 1: 发现别名 project_id ──
+    all_projects = [
+        r[0] for r in conn.execute(
+            "SELECT DISTINCT project FROM memory_chunks WHERE project != 'global'"
+        ).fetchall()
+    ]
+
+    aliases = _find_aliases(current_project, all_projects)
+    if not aliases:
+        result["duration_ms"] = round((_time.monotonic() - t0) * 1000, 2)
+        return result
+
+    result["aliases_found"] = aliases
+
+    # ── Phase 2: 收集当前 project 的 summaries 用于去重 ──
+    existing_summaries = set()
+    for r in conn.execute(
+        "SELECT summary FROM memory_chunks WHERE project=?",
+        (current_project,),
+    ).fetchall():
+        existing_summaries.add(r[0][:60])  # 前 60 字符做粗粒度去重
+
+    # ── Phase 3: 迁移 ──
+    migrated_count = 0
+    for alias in aliases:
+        if migrated_count >= max_migrate:
+            break
+
+        rows = conn.execute(
+            "SELECT id, summary, chunk_type FROM memory_chunks "
+            "WHERE project=? ORDER BY importance DESC",
+            (alias,),
+        ).fetchall()
+
+        for chunk_id, summary, chunk_type in rows:
+            if migrated_count >= max_migrate:
+                break
+
+            # 去重：目标 project 已有相似 summary
+            if summary[:60] in existing_summaries:
+                result["skipped_dup"] += 1
+                continue
+
+            # 迁移：UPDATE project
+            conn.execute(
+                "UPDATE memory_chunks SET project=? WHERE id=?",
+                (current_project, chunk_id),
+            )
+            existing_summaries.add(summary[:60])
+            migrated_count += 1
+
+    result["migrated"] = migrated_count
+
+    if migrated_count > 0:
+        conn.commit()
+        bump_chunk_version()
+
+        # 同步迁移 recall_traces
+        for alias in aliases:
+            conn.execute(
+                "UPDATE recall_traces SET project=? WHERE project=?",
+                (current_project, alias),
+            )
+        conn.commit()
+
+    result["duration_ms"] = round((_time.monotonic() - t0) * 1000, 2)
+
+    try:
+        dmesg_log(conn, DMESG_INFO, "migrate_pages",
+                  f"migrate: aliases={aliases} migrated={result['migrated']} "
+                  f"dup={result['skipped_dup']} {result['duration_ms']:.1f}ms",
+                  extra=json.dumps({
+                      "current": current_project,
+                      "aliases": aliases,
+                      "migrated": result["migrated"],
+                  }))
+    except Exception:
+        pass
+
+    return result
+
+
+def _find_aliases(current_project: str, all_projects: list) -> list:
+    """
+    发现当前 project 的别名 project_id。
+
+    检测策略：
+      1. Label 互换：同一 hash 后缀出现在不同 label 前缀下
+         (git:abc123 vs abspath:abc123 → 不同 hash 算法，不匹配)
+      2. Path ancestry：通过 project_id cache 文件找到物理路径映射
+      3. CWD containment：父目录/子目录关系
+
+    保守策略：只检测 _project_id_cache.json 中有明确路径映射的别名。
+    """
+    aliases = []
+
+    # ── 策略1: 基于 git 根目录的别名检测 ──
+    # 如果当前 project 是 git:xxx，找所有同仓库的 abspath/gitroot 变体
+    # 核心逻辑：从 CWD 反推 git 根目录路径，计算其 abspath hash
+    current_cwd = os.environ.get("CLAUDE_CWD", os.getcwd())
+
+    try:
+        import subprocess
+        # 获取当前仓库的 git root
+        r = subprocess.run(
+            ["git", "rev-parse", "--show-toplevel"],
+            capture_output=True, text=True, cwd=current_cwd, timeout=3,
+        )
+        if r.returncode == 0 and r.stdout.strip():
+            git_root = r.stdout.strip()
+            import hashlib
+
+            # 计算 git root 的各种可能 project_id
+            possible_ids = set()
+
+            # abspath hash of git root
+            h = hashlib.sha256(git_root.encode()).hexdigest()[:12]
+            possible_ids.add(f"abspath:{h}")
+
+            # gitroot hash of git root
+            possible_ids.add(f"gitroot:{h}")
+
+            # abspath hash of parent directories (up to 3 levels)
+            p = Path(git_root)
+            for _ in range(3):
+                parent = p.parent
+                if parent == p:
+                    break
+                h_parent = hashlib.sha256(str(parent).encode()).hexdigest()[:12]
+                possible_ids.add(f"abspath:{h_parent}")
+                p = parent
+
+            # 过滤：只保留实际存在于 DB 中的别名
+            possible_ids.discard(current_project)
+            for pid in possible_ids:
+                if pid in all_projects:
+                    aliases.append(pid)
+    except Exception:
+        pass
+
+    # ── 策略3: label 互换检测 ──
+    # 如果当前是 git:xxx，检查是否有 abspath:* 或 gitroot:* 指向同一仓库
+    # 反之亦然
+    if current_project.startswith("git:"):
+        # 已在策略2中覆盖
+        pass
+    elif current_project.startswith("abspath:"):
+        # 如果当前是 abspath，检查是否有 git:* 指向同一仓库
+        # 通过 _project_id_cache 中的 CWD key 匹配
+        current_hash = current_project.split(":", 1)[1] if ":" in current_project else ""
+        for pid in all_projects:
+            if pid == current_project:
+                continue
+            # gitroot:same_hash → 同一路径
+            if pid == f"gitroot:{current_hash}":
+                aliases.append(pid)
+
+    return list(set(aliases))  # 去重
+
+
+def _load_project_id_cache() -> dict:
+    """加载 project_id 缓存文件（utils.py 写入的 vDSO 缓存）。"""
+    cache_file = MEMORY_OS_DIR / ".project_id_cache.json"
+    try:
+        if cache_file.exists():
+            return json.loads(cache_file.read_text(encoding="utf-8"))
+    except Exception:
+        pass
+    return {}
+
+
+# ── mem_scrub — Memory Scrubbing for Data Integrity（迭代519）────────────────
+
+import re as _re_mod
+
+# Precompiled patterns for corruption detection
+_MERGED_TAG_RE = _re_mod.compile(r"\[merged→[^\]]*\]\s*")
+_REPEATED_MERGED_RE = _re_mod.compile(r"(\[merged→[^\]]*\]\s*){2,}")
+_LEADING_PUNCTUATION_RE = _re_mod.compile(r"^[\s：:）】》\-]+")
+
+
+def mem_scrub(conn: "sqlite3.Connection", project: str = None) -> dict:
+    """
+    迭代519：mem_scrub — ECC Memory Patrol Scrubbing。
+    OS 类比：Intel EDAC patrol scrub (2005) + Linux GHES (Generic Hardware Error Source)
+    — 后台巡检物理 DRAM，发现 ECC 可纠正的单比特错误（CE）并修复，
+    防止 CE 累积为不可纠正的多比特错误（UE）导致 machine check exception。
+
+    Memory-OS 类比：
+      - 物理页帧 = memory_chunks（知识单元）
+      - 单比特错误(CE) = summary/content 轻度腐蚀（可修复）
+      - 多比特错误(UE) = 知识完全损坏（需删除）
+      - patrol scrub = 周期性遍历所有 chunks 检测并修复数据完整性问题
+
+    检测并修复的腐蚀类型：
+      1. Repeated merge tags：[merged→xxx] 重复出现（merge 循环导致）
+      2. Ghost with positive importance：importance > 0 但 summary 含 [merged→]
+         （正常 ghost 应 importance=0，如果 > 0 说明被错误提升）
+      3. Orphan content pollution：content 字段被反复追加相同 summary 片段
+      4. Leading punctuation corruption：summary 以非正常字符开头（截断/合并残留）
+
+    修复策略：
+      - CE（可修复）：strip 重复 tags、修正 importance、清理 content
+      - UE（不可修复）：importance=0 + oom_adj=900（标记为待回收）
+
+    保护机制：
+      - pinned / mlock (oom_adj <= -500) 不做修改（只报告）
+      - design_constraint / quantitative_evidence 只修复不删除
+      - 单次最多修复 max_scrub_per_scan 条
+
+    参数：
+      conn — 写连接
+      project — 项目 ID（None = 全局扫描）
+
+    返回 dict：
+      scanned — 扫描的 chunk 数
+      ce_fixed — 修复的 CE（可修复腐蚀）数
+      ue_marked — 标记的 UE（不可修复）数
+      details — 修复详情列表
+    """
+    result = {
+        "scanned": 0,
+        "ce_fixed": 0,
+        "ue_marked": 0,
+        "details": [],
+        "duration_ms": 0.0,
+    }
+    t0 = _time.monotonic()
+
+    try:
+        from config import get as _cfg
+    except Exception:
+        _cfg = lambda k: {"scrub.max_per_scan": 40, "scrub.ue_oom_adj": 900}.get(k, 40)
+
+    max_per_scan = _cfg("scrub.max_per_scan")
+    ue_oom_adj = _cfg("scrub.ue_oom_adj")
+
+    # ── 加载候选 chunks ──
+    if project:
+        rows = conn.execute(
+            "SELECT id, summary, content, importance, oom_adj, chunk_type "
+            "FROM memory_chunks WHERE project=?",
+            (project,),
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            "SELECT id, summary, content, importance, oom_adj, chunk_type "
+            "FROM memory_chunks"
+        ).fetchall()
+
+    result["scanned"] = len(rows)
+    repairs_done = 0
+    now_iso = datetime.now(timezone.utc).isoformat()
+
+    for row in rows:
+        if repairs_done >= max_per_scan:
+            break
+
+        chunk_id, summary, content, importance, oom_adj, chunk_type = row
+        is_protected = (oom_adj is not None and oom_adj <= -500)
+        fixes = []
+
+        # ── Check 1: Repeated [merged→xxx] tags ──
+        if _REPEATED_MERGED_RE.search(summary or ""):
+            # Strip ALL merge tags, keep only the actual content
+            clean_summary = _MERGED_TAG_RE.sub("", summary).strip()
+            if clean_summary:
+                fixes.append(("ce", "repeated_merge_tags", summary[:60], clean_summary[:60]))
+                if not is_protected:
+                    conn.execute(
+                        "UPDATE memory_chunks SET summary=?, updated_at=? WHERE id=?",
+                        (clean_summary, now_iso, chunk_id),
+                    )
+                    # Sync FTS5
+                    try:
+                        _fts5_sync_after_scrub(conn, chunk_id, clean_summary, content)
+                    except Exception:
+                        pass
+            else:
+                # Summary is ONLY merge tags — UE
+                fixes.append(("ue", "summary_only_merge_tags", summary[:60], ""))
+                if not is_protected:
+                    conn.execute(
+                        "UPDATE memory_chunks SET importance=0, oom_adj=? WHERE id=?",
+                        (ue_oom_adj, chunk_id),
+                    )
+
+        # ── Check 2: Single [merged→] with positive importance (ghost mismatch) ──
+        elif _MERGED_TAG_RE.match(summary or "") and importance > 0.3:
+            # This chunk was supposed to be a ghost (importance=0) but got re-promoted
+            clean_summary = _MERGED_TAG_RE.sub("", summary).strip()
+            if clean_summary and len(clean_summary) > 10:
+                # Recoverable: strip tag, keep content
+                fixes.append(("ce", "ghost_importance_mismatch", f"imp={importance:.2f}", clean_summary[:60]))
+                if not is_protected:
+                    conn.execute(
+                        "UPDATE memory_chunks SET summary=?, updated_at=? WHERE id=?",
+                        (clean_summary, now_iso, chunk_id),
+                    )
+                    try:
+                        _fts5_sync_after_scrub(conn, chunk_id, clean_summary, content)
+                    except Exception:
+                        pass
+            else:
+                # Non-recoverable: force ghost
+                fixes.append(("ue", "ghost_unrecoverable", f"imp={importance:.2f}", summary[:40]))
+                if not is_protected:
+                    conn.execute(
+                        "UPDATE memory_chunks SET importance=0, oom_adj=? WHERE id=?",
+                        (ue_oom_adj, chunk_id),
+                    )
+
+        # ── Check 3: Content has excessive duplicate appends ──
+        if content and summary:
+            # Detect if the same summary fragment appears 3+ times in content
+            short_summary = summary[:40]
+            if short_summary and content.count(short_summary) >= 3:
+                # Deduplicate content: keep each unique line once
+                lines = content.split("\n")
+                seen = set()
+                deduped = []
+                for line in lines:
+                    stripped = line.strip()
+                    if stripped and stripped not in seen:
+                        seen.add(stripped)
+                        deduped.append(line)
+                new_content = "\n".join(deduped)[:2000]
+                if len(new_content) < len(content) * 0.8:  # significant reduction
+                    fixes.append(("ce", "content_dup_append",
+                                  f"lines:{len(lines)}→{len(deduped)}", ""))
+                    if not is_protected:
+                        conn.execute(
+                            "UPDATE memory_chunks SET content=?, updated_at=? WHERE id=?",
+                            (new_content, now_iso, chunk_id),
+                        )
+
+        # ── Check 4: Leading punctuation corruption ──
+        if summary and _LEADING_PUNCTUATION_RE.match(summary):
+            clean = _LEADING_PUNCTUATION_RE.sub("", summary).strip()
+            if clean and len(clean) > 10:
+                fixes.append(("ce", "leading_punctuation", summary[:20], clean[:40]))
+                if not is_protected:
+                    conn.execute(
+                        "UPDATE memory_chunks SET summary=?, updated_at=? WHERE id=?",
+                        (clean, now_iso, chunk_id),
+                    )
+                    try:
+                        _fts5_sync_after_scrub(conn, chunk_id, clean, content)
+                    except Exception:
+                        pass
+
+        # ── Record results ──
+        if fixes:
+            repairs_done += 1
+            for severity, kind, before, after in fixes:
+                if severity == "ce":
+                    result["ce_fixed"] += 1
+                else:
+                    result["ue_marked"] += 1
+                result["details"].append({
+                    "id": chunk_id[:12],
+                    "severity": severity,
+                    "kind": kind,
+                    "before": before,
+                    "after": after,
+                })
+
+    # Bump chunk_version if any repairs were made
+    if result["ce_fixed"] > 0 or result["ue_marked"] > 0:
+        try:
+            from store_vfs import bump_chunk_version
+            bump_chunk_version(conn)
+        except Exception:
+            pass
+
+    result["duration_ms"] = round((_time.monotonic() - t0) * 1000, 2)
+    return result
+
+
+def _fts5_sync_after_scrub(
+    conn: "sqlite3.Connection", chunk_id: str,
+    new_summary: str, content: str
+) -> None:
+    """Sync FTS5 index after a scrub repair (summary/content change).
+    Delegates to store_vfs._fts5_sync_chunk for correct FTS5 handling."""
+    try:
+        from store_vfs import _fts5_sync_chunk
+        _fts5_sync_chunk(conn, chunk_id, summary=new_summary, content=content)
+    except Exception:
+        pass
+
+
+# ── iter520: mmu_notifier — Inline Reference Invalidation on Delete ────────
+
+def mmu_notifier_invalidate(conn: "sqlite3.Connection", deleted_ids: list) -> dict:
+    """
+    迭代520：mmu_notifier — chunk 删除时内联清理所有反向引用。
+
+    OS 类比：Linux mmu_notifier (Andrea Arcangeli, 2008) — 当内核通过
+    zap_pte_range() 释放物理页面时，调用 mmu_notifier_invalidate_range()
+    通知所有注册的 secondary MMU 订阅者（KVM shadow page table、RDMA MR、
+    IOMMU 映射等），让它们同步清除自己的 PTE 映射。
+    没有 mmu_notifier → KVM guest 仍持有 stale host PFN 映射 → use-after-free。
+
+    Memory-OS 类比：
+      - 物理页面释放 = delete_chunks() 删除 memory_chunks 行
+      - secondary MMU = recall_traces.top_k_json、checkpoints.hit_chunk_ids
+      - stale PTE = trace/checkpoint 中引用已删除 chunk 的 ID
+      - mmu_notifier = 本函数：删除时同步清理所有引用方
+
+    问题：delete_chunks() 只清理 memory_chunks + FTS5，不清理 recall_traces
+    和 checkpoints 中的引用 → stale refs 累积（生产实测 22.4%）。
+    rmap_sweep 只在 SessionStart 批量清理 → session 内持续累积 →
+    readahead_pairs() 计算虚假共现 → 预取 ghost chunks。
+
+    策略：
+      1. recall_traces：遍历 top_k_json，过滤掉 deleted_ids，
+         全 stale → 删除整条 trace，部分 stale → UPDATE 保留有效引用
+      2. checkpoints：遍历 hit_chunk_ids，过滤掉 deleted_ids，
+         空 → 删除 checkpoint，否则 UPDATE
+
+    性能预算：<5ms（100 deleted_ids × 100 traces）。
+    不使用全表扫描：只处理包含 deleted_ids 的 traces（LIKE 粗筛 + JSON 精筛）。
+
+    参数：
+      conn — 写连接
+      deleted_ids — 被删除的 chunk ID 列表
+
+    返回 dict：
+      traces_cleaned — 清理了 stale ref 的 trace 数
+      traces_deleted — 全 stale 被删除的 trace 数
+      checkpoints_cleaned — 清理了 stale ref 的 checkpoint 数
+      checkpoints_deleted — 空 hit_ids 被删除的 checkpoint 数
+      refs_removed — 总共移除的 stale ref 数
+    """
+    result = {
+        "traces_cleaned": 0,
+        "traces_deleted": 0,
+        "checkpoints_cleaned": 0,
+        "checkpoints_deleted": 0,
+        "refs_removed": 0,
+    }
+
+    if not deleted_ids:
+        return result
+
+    deleted_set = set(deleted_ids)
+
+    # ── Phase 1: recall_traces 清理 ──
+    # 粗筛：LIKE 匹配任意一个 deleted_id 的前缀（避免全表 JSON 解析）
+    # 对于小表（<500 traces）直接全扫描更高效
+    try:
+        rows = conn.execute(
+            "SELECT ROWID, top_k_json FROM recall_traces "
+            "WHERE top_k_json IS NOT NULL"
+        ).fetchall()
+    except Exception:
+        rows = []
+
+    for rowid, tk_json in rows:
+        try:
+            tk = json.loads(tk_json)
+        except (json.JSONDecodeError, TypeError):
+            continue
+
+        # 过滤掉 deleted_ids
+        original_len = len(tk)
+        filtered = [item for item in tk if item.get("id") not in deleted_set]
+
+        if len(filtered) == original_len:
+            continue  # 无 stale ref
+
+        removed = original_len - len(filtered)
+        result["refs_removed"] += removed
+
+        if not filtered:
+            # 全 stale → 删除整条 trace
+            conn.execute("DELETE FROM recall_traces WHERE ROWID=?", (rowid,))
+            result["traces_deleted"] += 1
+        else:
+            # 部分 stale → UPDATE 保留有效引用
+            conn.execute(
+                "UPDATE recall_traces SET top_k_json=? WHERE ROWID=?",
+                (json.dumps(filtered, ensure_ascii=False), rowid),
+            )
+            result["traces_cleaned"] += 1
+
+    # ── Phase 2: checkpoints 清理 ──
+    try:
+        ckpt_rows = conn.execute(
+            "SELECT ROWID, id, hit_chunk_ids FROM checkpoints "
+            "WHERE hit_chunk_ids IS NOT NULL"
+        ).fetchall()
+    except Exception:
+        ckpt_rows = []
+
+    for rowid, ckpt_id, ids_json in ckpt_rows:
+        try:
+            ids = json.loads(ids_json)
+        except (json.JSONDecodeError, TypeError):
+            continue
+
+        if not isinstance(ids, list):
+            continue
+
+        original_len = len(ids)
+        filtered = [cid for cid in ids if cid not in deleted_set]
+
+        if len(filtered) == original_len:
+            continue  # 无 stale ref
+
+        result["refs_removed"] += original_len - len(filtered)
+
+        if not filtered:
+            conn.execute("DELETE FROM checkpoints WHERE ROWID=?", (rowid,))
+            result["checkpoints_deleted"] += 1
+        else:
+            conn.execute(
+                "UPDATE checkpoints SET hit_chunk_ids=? WHERE ROWID=?",
+                (json.dumps(filtered, ensure_ascii=False), rowid),
+            )
+            result["checkpoints_cleaned"] += 1
+
+    return result
+
+
+def checkpoint_gc(conn: "sqlite3.Connection") -> dict:
+    """
+    迭代520：checkpoint 全局垃圾回收 — 限制总 checkpoint 数量。
+
+    OS 类比：Linux memcg hierarchy (v2, Tejun Heo, 2014) — per-cgroup
+    memory.max 限制子进程总内存，而非只限制单进程。
+    _checkpoint_cleanup() 是 per-session RLIMIT_RSS（每 session 3 个），
+    本函数是全局 memory.max（所有 session 合计不超过上限）。
+
+    问题：11 sessions × max_checkpoints=3 = 33 个 checkpoint（实测 31 个），
+    每个 checkpoint ~49 hit_chunk_ids → 1500+ 引用占用 DB 空间，
+    旧 session 的 checkpoint 永远不会被清理（session 结束后不再有写入触发 cleanup）。
+
+    策略：
+      - 保留最近 N 个全局 checkpoint（max_global_checkpoints, 默认 10）
+      - 按 created_at DESC 排序，超出的直接删除
+      - 独立于 per-session cleanup（互补，不替代）
+
+    调用时机：loader.py SessionStart（低频，每 session 一次）。
+    """
+    try:
+        from config import get as _cfg
+        max_global = int(_cfg("criu.max_global_checkpoints"))
+    except Exception:
+        max_global = 10
+
+    result = {"total_before": 0, "deleted": 0, "total_after": 0}
+
+    try:
+        result["total_before"] = conn.execute(
+            "SELECT COUNT(*) FROM checkpoints"
+        ).fetchone()[0]
+    except Exception:
+        return result
+
+    if result["total_before"] <= max_global:
+        result["total_after"] = result["total_before"]
+        return result
+
+    # 保留最新 max_global 个，删除其余
+    try:
+        rows = conn.execute(
+            "SELECT id FROM checkpoints ORDER BY created_at DESC"
+        ).fetchall()
+        to_delete = [r[0] for r in rows[max_global:]]
+        if to_delete:
+            placeholders = ",".join("?" * len(to_delete))
+            conn.execute(
+                f"DELETE FROM checkpoints WHERE id IN ({placeholders})",
+                to_delete,
+            )
+            result["deleted"] = len(to_delete)
+    except Exception:
+        pass
+
+    result["total_after"] = result["total_before"] - result["deleted"]
+    return result

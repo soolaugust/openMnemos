@@ -823,6 +823,49 @@ def main():
         except Exception:
             pass
 
+        # ── iter518：migrate_pages — 跨 project_id 知识迁移 ──
+        # OS 类比：Linux migrate_pages() (Christoph Lameter, 2006) — 跨 NUMA 节点页面迁移
+        # 同一物理仓库产生不同 project_id 时，将旧别名下的知识迁移到当前 project
+        # 必须在回收器之前运行，否则旧别名 chunks 可能被误删
+        try:
+            from store_mm import migrate_pages
+            mig_result = migrate_pages(_log_conn, project)
+            if mig_result["migrated"] > 0:
+                dmesg_log(_log_conn, DMESG_INFO, "migrate_pages",
+                          f"migrate: aliases={mig_result['aliases_found']} "
+                          f"migrated={mig_result['migrated']} dup={mig_result['skipped_dup']} "
+                          f"{mig_result['duration_ms']:.1f}ms",
+                          session_id=_session_id, project=project)
+        except Exception:
+            pass
+
+        # ── iter519：mem_scrub — ECC patrol scrub 数据完整性巡检 ──
+        # OS 类比：Intel EDAC patrol scrub (2005) — 后台巡检修复 ECC CE
+        # 在回收器之前运行：修复腐蚀数据避免影响 DAMON/kswapd 决策
+        try:
+            from store_mm import mem_scrub
+            scrub_result = mem_scrub(_log_conn, project)
+            if scrub_result["ce_fixed"] > 0 or scrub_result["ue_marked"] > 0:
+                dmesg_log(_log_conn, DMESG_INFO, "mem_scrub",
+                          f"scrub: ce={scrub_result['ce_fixed']} ue={scrub_result['ue_marked']} "
+                          f"scanned={scrub_result['scanned']} {scrub_result['duration_ms']:.1f}ms",
+                          session_id=_session_id, project=project)
+        except Exception:
+            pass
+
+        # ── iter520：checkpoint_gc — 全局 checkpoint 垃圾回收 ──
+        # OS 类比：Linux memcg hierarchy v2 memory.max — 全局上限防止 per-session 膨胀
+        try:
+            from store_mm import checkpoint_gc
+            gc_result = checkpoint_gc(_log_conn)
+            if gc_result["deleted"] > 0:
+                dmesg_log(_log_conn, DMESG_INFO, "checkpoint_gc",
+                          f"gc: {gc_result['total_before']}→{gc_result['total_after']} "
+                          f"deleted={gc_result['deleted']}",
+                          session_id=_session_id, project=project)
+        except Exception:
+            pass
+
         # ── 迭代42：DAMON scan — 主动数据访问模式监控 ──
         # OS 类比：Linux DAMON (2021) 在系统运行时主动采样 access pattern
         # SessionStart 时做一次全量扫描，识别 dead/cold chunk 并主动回收

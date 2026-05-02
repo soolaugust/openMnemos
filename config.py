@@ -3059,6 +3059,25 @@ _REGISTRY: dict = {
         "lazy 状态 importance 上限：低于此值视为未被 promote 的 lazy page"),
     "madv_free.max_per_scan": (60, int, 10, 200, None,
         "单次扫描最大处理数：防止一次性大量修改导致 WAL 膨胀"),
+
+    # ── iter518: migrate_pages — Cross-NUMA Page Migration ──
+    # OS 类比：Linux migrate_pages() (Christoph Lameter, 2006)
+    "migrate.max_per_scan": (50, int, 5, 200, None,
+        "单次最大迁移 chunk 数：防止大事务"),
+    "migrate.min_source_chunks": (2, int, 1, 10, None,
+        "源 project 最少 chunk 数才值得迁移"),
+
+    # ── iter519: mem_scrub — ECC Memory Patrol Scrub ──
+    # OS 类比：Intel EDAC patrol scrub (2005) — 后台巡检 DRAM 修复 ECC CE
+    "scrub.max_per_scan": (40, int, 5, 200, None,
+        "单次最大修复 chunk 数：防止大事务"),
+    "scrub.ue_oom_adj": (900, int, 500, 1000, None,
+        "不可修复腐蚀(UE)的 oom_adj：高值加速回收"),
+
+    # ── iter520: mmu_notifier — Inline Reference Invalidation ──
+    # OS 类比：Linux mmu_notifier (Andrea Arcangeli, 2008) — page unmap 时同步清理 secondary TLB
+    "criu.max_global_checkpoints": (10, int, 3, 50, None,
+        "全局 checkpoint 上限：所有 session 合计不超过此数，防止 per-session 隔离导致全局膨胀"),
 }
 
 # ── 磁盘配置缓存（进程内只读一次）──

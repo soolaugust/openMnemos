@@ -6248,8 +6248,14 @@ def delete_chunks(conn: sqlite3.Connection, chunk_ids: list) -> int:
             except Exception:
                 pass
 
+    # iter520: mmu_notifier — 删除时同步清理 recall_traces/checkpoints 中的 stale refs
     if count > 0:
         bump_chunk_version()  # 迭代64: TLB v2
+        try:
+            from store_mm import mmu_notifier_invalidate
+            mmu_notifier_invalidate(conn, chunk_ids)
+        except Exception:
+            pass  # notifier 失败不影响删除本身
     return count
 
 def get_chunk_count(conn: sqlite3.Connection) -> int:
@@ -7913,7 +7919,7 @@ def sleep_consolidate(
                     conn.execute(
                         "UPDATE memory_chunks SET importance=0, oom_adj=500, "
                         "summary=?, updated_at=? WHERE id=?",
-                        (f"[merged→{survivor_id}] {rows[j][1] or ''}"[:200],
+                        (f"[merged→{survivor_id}] {re.sub(r'\\[merged→[^\\]]*\\]\\s*', '', rows[j][1] or '').strip()}"[:200],
                          now_iso, victim_id),
                     )
                     conn.execute(
