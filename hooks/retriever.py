@@ -4460,8 +4460,10 @@ def main():
             except Exception:
                 pass  # reconsolidate 失败不影响主流程
 
+            # iter668: top_k_data fallback — 防御空 top_k_data 导致 recall_counts 失准
+            _effective_top_k = top_k_data if top_k_data else [{"id": cid} for cid in accessed_ids]
             _write_trace(session_id, project, prompt_hash,
-                         candidates_count, top_k_data, 1, reason,
+                         candidates_count, _effective_top_k, 1, reason,
                          duration_ms, conn=wconn)
             _deferred.flush(wconn)
             _fts_tag = 'Y' if use_fts else f'N(glb_disc={_bm25_global_discount})'

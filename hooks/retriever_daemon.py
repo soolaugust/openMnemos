@@ -3902,12 +3902,14 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                         ensure_schema(wconn)
                         update_accessed(wconn, accessed_ids)
                         mglru_promote(wconn, accessed_ids)
+                        # iter668: top_k_data fallback (hard_deadline path)
+                        _hd_top_k = top_k_data if top_k_data else [{"id": cid} for cid in accessed_ids]
                         store_insert_trace(wconn, {
                             "id": str(uuid_mod.uuid4()),
                             "timestamp": datetime.now(timezone.utc).isoformat(),
                             "session_id": session_id, "project": project,
                             "prompt_hash": prompt_hash, "candidates_count": candidates_count,
-                            "top_k_json": top_k_data, "injected": 1,
+                            "top_k_json": _hd_top_k, "injected": 1,
                             "reason": f"hash_changed|{priority.lower()}|hard_deadline",
                             "duration_ms": duration_ms,
                         })
@@ -4347,12 +4349,19 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 ensure_schema(_wconn)
                 update_accessed(_wconn, _accessed_ids)
                 mglru_promote(_wconn, _accessed_ids)
+                # iter668: top_k_data fallback — 闭包捕获的 _top_k_data 可能为空
+                # （默认参数绑定时 top_k_data list 已被构建但内容被 GC 回收或竞态清空）。
+                # _accessed_ids（同样通过默认参数绑定）始终可靠，用它构建 minimal fallback，
+                # 确保 chunk_recall_counts 能正确统计注入频率。
+                _effective_top_k = _top_k_data
+                if not _effective_top_k and _accessed_ids:
+                    _effective_top_k = [{"id": cid} for cid in _accessed_ids]
                 store_insert_trace(_wconn, {
                     "id": str(uuid_mod.uuid4()),
                     "timestamp": datetime.now(timezone.utc).isoformat(),
                     "session_id": _session_id, "project": _project,
                     "prompt_hash": _prompt_hash, "candidates_count": _candidates_count,
-                    "top_k_json": _top_k_data, "injected": 1, "reason": _reason,
+                    "top_k_json": _effective_top_k, "injected": 1, "reason": _reason,
                     "duration_ms": _duration_ms,
                 })
                 for level, subsystem, message, sid, proj, extra in _deferred_buf:
