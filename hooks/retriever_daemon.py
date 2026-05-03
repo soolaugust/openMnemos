@@ -1715,21 +1715,12 @@ def _load_all_modules():
             match_expr = _fts5_escape_fn(query)  # side-effect: populates _fts5_expr_cache[query]
             if not match_expr:
                 return []
-            # Replicate store_vfs.fts_search project logic (iter172: single IN query)
-            if project is None or project == "global":
-                _results = _run_fts_raw(conn, match_expr, project, top_k, chunk_types)
-            else:
-                _results = _run_fts_raw(conn, match_expr, [project, "global"], top_k, chunk_types)
-            # Orphan fallback: if < top_k//2, scan globally (same as store_vfs fallback)
-            if len(_results) < max(1, top_k // 2):
-                _all = _run_fts_raw(conn, match_expr, None, top_k, chunk_types)
-                _seen = {r[0] for r in _results}
-                for r in _all:
-                    if r[0] not in _seen:
-                        _results.append(r)
-                        _seen.add(r[0])
-                    if len(_results) >= top_k:
-                        break
+            # iter657: 移除 FTS5 project 过滤 — 全库搜索
+            # 根因：高价值 chunk 被写入项目特定 project_id（如 git:xxx），
+            # 用户在不同 cwd 对话时这些知识完全不可见（project 解析为 abspath:yyy）。
+            # 修复：FTS5 阶段搜全库，用 global_discount 在评分阶段控制排名。
+            # 61 chunks 全库扫描 FTS5 < 1ms，比之前 project+orphan 双查询更快。
+            _results = _run_fts_raw(conn, match_expr, None, top_k, chunk_types)
             # After SQL: _fts5_expr_cache[query] is now populated as (expr, crc32) pair
             _expr_pair_post = _fts5_expr_cache.get(query)
             if _expr_pair_post is not None:
