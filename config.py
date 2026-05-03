@@ -2831,7 +2831,7 @@ _REGISTRY: dict = {
     # ── 迭代359：Session Injection Deduplication ──
     "retriever.session_dedup_threshold": (2, int, 1, 10, None,
         "同一 session 内 chunk 被注入 >= 此次数后从输出中去重（OS 类比：copy-on-write lazy page dedup，"
-        "只有同一页被重复 mapped 达到阈值才触发物理页合并）。design_constraint 类型豁免。"),
+        "只有同一页被重复 mapped 达到阈值才触发物理页合并）。iter587: design_constraint 使用 2× 阈值（不再无条件豁免）。"),
 
     # ── Context Pressure Governor（迭代55）──
     "governor.turns_low": (5, int, 1, 20, None,
@@ -3218,8 +3218,8 @@ _REGISTRY: dict = {
     # 否则视为"不在工作集内"的无关约束，跳过以防止 Top-K 被同一约束跨 query 垄断。
     "retriever.constraint_min_relevance": (0.05, float, 0.0, 0.5, None,
         "design_constraint 强制注入的最低 Jaccard 相关性门槛（iter543：低于此值视为 refault_distance 过远，不注入）"),
-    "retriever.constraint_thrash_max_pct": (0.40, float, 0.1, 0.8, None,
-        "design_constraint 跨 query 出现率超此比例时触发 thrash dampener，降低注入优先级（iter543）"),
+    "retriever.constraint_thrash_max_pct": (0.20, float, 0.1, 0.8, None,
+        "design_constraint 跨 query 出现率超此比例时触发 thrash dampener，降低注入优先级（iter543; iter587: 0.40→0.20 收紧反垄断）"),
 
     # ── iter544: trim_shadow_entries — Shadow Entry Expiry & Stale Ref Scrub ──
     # OS 类比：Linux shadow_lru_isolate() (Johannes Weiner, 2013, mm/workingset.c)
@@ -3268,6 +3268,50 @@ _REGISTRY: dict = {
         "tool_patterns 最大保留条数（按 frequency+recency 淘汰）"),
     "logrotate.entity_edges_orphan_max_age_hours": (72, int, 1, 720, None,
         "entity_edges 无 source_chunk_id 的 orphan edges 最大保留时间（小时）"),
+
+    # ── iter585: tmpfiles_d — Per-Session State File Reaper ──
+    "tmpfiles_d.enabled": (True, bool, None, None, None,
+        "是否启用 tmpfiles_d per-session 状态文件清理"),
+    "tmpfiles_d.max_age_hours": (24, int, 1, 168, None,
+        "per-session 状态文件的最大保留时间（小时）"),
+    "tmpfiles_d.max_cold_sync_entries": (200, int, 50, 2000, None,
+        "cold_sync_state.json 最大保留条目数"),
+
+    # ── iter586: proactive_compaction — Fragmentation Index Driven Chunk Consolidation ──
+    # OS 类比：Linux proactive memory compaction (Nitin Gupta, 2019, kernel 5.9)
+    # — 主动扫描 zone fragmentation index，在 OOM 前整理碎片
+    "proactive_compaction.enabled": (True, bool, None, None, None,
+        "是否启用 proactive_compaction 退化 chunk 碎片整理"),
+    "proactive_compaction.frag_threshold": (0.25, float, 0.05, 0.80, None,
+        "碎片指标阈值（退化+重复 / alive），超过才触发 compaction"),
+    "proactive_compaction.demote_oom_adj": (150, int, 50, 250, None,
+        "退化 chunk 降级目标 oom_adj（加速 OOM reaper 回收）"),
+    "proactive_compaction.max_actions_per_scan": (20, int, 1, 100, None,
+        "单次 compaction 最大操作数（删除+降级总计上限）"),
+
+    # ── iter587: folio_referenced — Importance Spread via Rank-Percentile Mapping ──
+    # OS 类比：Linux folio_referenced() (Nick Piggin, 2004; Matthew Wilcox, 2022)
+    # — 周期性 clear + re-observe PTE Accessed bit，区分 hot 与 merely present
+    "folio_referenced.enabled": (True, bool, None, None, None,
+        "是否启用 folio_referenced importance 分布展开"),
+    "folio_referenced.blend_ratio": (0.15, float, 0.05, 0.50, None,
+        "融合比例 α：new_imp = old×(1-α) + target×α（越大越激进）"),
+    "folio_referenced.imp_floor": (0.45, float, 0.20, 0.60, None,
+        "rank-percentile 映射的 importance 下界"),
+    "folio_referenced.imp_ceil": (0.95, float, 0.80, 1.00, None,
+        "rank-percentile 映射的 importance 上界"),
+    "folio_referenced.max_delta_per_chunk": (0.08, float, 0.02, 0.20, None,
+        "单次最大 importance 调整幅度（防止剧烈波动）"),
+    "folio_referenced.min_alive_chunks": (10, int, 3, 50, None,
+        "最少 alive chunk 数量才执行（样本太少无意义）"),
+    "folio_referenced.weight_access": (0.50, float, 0.0, 1.0, None,
+        "composite score 中 access_count 权重"),
+    "folio_referenced.weight_cum_score": (0.30, float, 0.0, 1.0, None,
+        "composite score 中 cum_retrieval_score 权重"),
+    "folio_referenced.weight_recency": (0.20, float, 0.0, 1.0, None,
+        "composite score 中 recency（创建时间新近度）权重"),
+    "folio_referenced.skip_types": (["task_state", "prompt_context"], list, None, None, None,
+        "跳过不调整 importance 的 chunk 类型"),
 
     # ── iter563: prune_icache_sb — Metadata Table Proportional Reclaim ──
     "prune_icache_sb.enabled": (True, bool, None, None, None,

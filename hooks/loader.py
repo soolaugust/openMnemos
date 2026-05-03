@@ -1377,6 +1377,26 @@ def main():
             except Exception:
                 pass
 
+        # ── iter587：folio_referenced — Importance Spread via Rank-Percentile Mapping ──
+        if _ict_enabled: _ict_milestones.append(("folio_referenced", _ict_time.time()))
+        # OS 类比：Linux folio_referenced() (Nick Piggin, 2004; Matthew Wilcox, 2022)
+        # importance Gini=0.057 → 无区分度。对全量 chunk 按 composite evidence 排名，
+        # 映射到 [0.45, 0.95] 区间展开分布，使 importance 乘数恢复检索排序区分力
+        if not _defer_reclaim and not _ts_skip("folio_referenced"):
+            try:
+                from store_mm import folio_referenced
+                fr_result = folio_referenced(_log_conn, project)
+                if fr_result["spread"] > 0:
+                    dmesg_log(_log_conn, DMESG_INFO, "folio_referenced",
+                              f"spread={fr_result['spread']} "
+                              f"gini:{fr_result['gini_before']:.3f}→{fr_result['gini_after']:.3f} "
+                              f"pearson:{fr_result['pearson_before']:.3f}→{fr_result['pearson_after']:.3f} "
+                              f"{fr_result['duration_ms']:.1f}ms",
+                              session_id=_session_id, project=project)
+                _ts_report("folio_referenced", fr_result.get("spread", 0) > 0)
+            except Exception:
+                pass
+
         # ── iter524：mincore — Memory Residency Validation ──
         if _ict_enabled: _ict_milestones.append(("mincore", _ict_time.time()))
         # OS 类比：Linux mincore() (Linus Torvalds, 1994) — 查询哪些页面真实驻留在物理内存
@@ -1638,6 +1658,49 @@ def main():
                                   session_id=_session_id, project=project)
                         _log_conn.commit()
                     _ts_report("logrotate", logrotate_result.get("total_rotated", 0) > 0)
+            except Exception:
+                pass
+
+        # ── iter585：tmpfiles_d — Per-Session State File Reaper ──
+        # OS 类比：systemd-tmpfiles-clean (Lennart Poettering, 2010)
+        # 清理 memory-os 目录下过期的 per-session 状态文件碎片
+        if not _defer_reclaim and not _ts_skip("tmpfiles_d"):
+            try:
+                from config import get as _cfg585
+                if _cfg585("tmpfiles_d.enabled"):
+                    from store_mm import tmpfiles_d
+                    _tmpfiles_result = tmpfiles_d()
+                    if _tmpfiles_result["total_cleaned"] > 0:
+                        _parts = [f"{k}={v}" for k, v in _tmpfiles_result["cleaned"].items() if v > 0]
+                        dmesg_log(_log_conn, DMESG_INFO, "tmpfiles_d",
+                                  f"cleaned={_tmpfiles_result['total_cleaned']} "
+                                  f"({' '.join(_parts)}) "
+                                  f"freed={_tmpfiles_result['bytes_freed']}B "
+                                  f"{_tmpfiles_result['duration_ms']:.1f}ms",
+                                  session_id=_session_id, project=project)
+                        _log_conn.commit()
+                    _ts_report("tmpfiles_d", _tmpfiles_result.get("total_cleaned", 0) > 0)
+            except Exception:
+                pass
+
+        # ── iter586：proactive_compaction — Fragmentation Index Driven Chunk Consolidation ──
+        # OS 类比：Linux proactive memory compaction (Nitin Gupta, 2019, kernel 5.9)
+        # 主动扫描退化 chunks + 完全重复 chunks → 删除重复 / 降级退化
+        if not _defer_reclaim and not _ts_skip("proactive_compaction"):
+            try:
+                from config import get as _cfg586
+                if _cfg586("proactive_compaction.enabled"):
+                    from store_mm import proactive_compaction
+                    _compact_result = proactive_compaction(_log_conn)
+                    if _compact_result.get("triggered"):
+                        dmesg_log(_log_conn, DMESG_INFO, "proactive_compaction",
+                                  f"compaction: frag={_compact_result['frag_index']:.3f} "
+                                  f"dups_deleted={_compact_result['exact_dups_deleted']} "
+                                  f"demoted={_compact_result['degenerate_demoted']} "
+                                  f"{_compact_result['duration_ms']:.1f}ms",
+                                  session_id=_session_id, project=project)
+                        _log_conn.commit()
+                    _ts_report("proactive_compaction", _compact_result.get("triggered", False))
             except Exception:
                 pass
 

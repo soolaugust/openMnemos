@@ -11849,3 +11849,607 @@ def _save_cursor(offset: int):
         )
     except Exception:
         pass
+
+
+# ── iter585: tmpfiles_d — Per-Session State File Reaper ──────────────────────
+# OS 类比：systemd-tmpfiles-clean (Lennart Poettering, 2010, systemd/tmpfiles.d)
+#   /usr/lib/tmpfiles.d/*.conf 声明每类临时文件的清理策略：
+#     d /tmp 1777 root root 10d    — /tmp 下超过 10 天的文件自动清除
+#     e /run/user/%U 0700 - - 0    — session 结束时清除 per-user runtime dir
+#     x /tmp/.X11-unix             — 排除 X11 socket（永不清理）
+#   systemd-tmpfiles-clean.timer 每日触发，遍历 /tmp /run /var/tmp，
+#   按 atime/mtime 判定过期，unlink 释放 inode+block。
+#   没有 tmpfiles-clean → /tmp 累积百万碎片，inode 耗尽，ls 变慢（O(N) readdir）。
+#
+# 根因：
+#   memory-os 运行过程中产生大量 per-session 状态文件，但无清理机制：
+#     - .shadow_trace.{session_id[:16]}.json：每 session 创建，仅被 loader.py 写入，
+#       retriever 只读全局 .shadow_trace.json，per-session 文件是 write-only 残留
+#     - page_fault_log.{session_id[:8]}.json：per-session page fault 记录
+#     - citation_stats.*.json：per-chunk/project citation 统计缓存
+#     - ctx_pressure_state.*.json：per-session context pressure 状态
+#   生产实测：216 个 .shadow_trace 文件（860KB），30 个 citation_stats，
+#   9 个 page_fault_log，总计 255+ 个碎片文件持续累积。
+#
+# 策略：按 mtime 判定过期，超过 max_age 的文件直接 unlink。
+#   与 logrotate（DB 表轮转）互补：logrotate 清理 DB 内表，
+#   tmpfiles_d 清理文件系统上的 per-session 状态碎片。
+
+def tmpfiles_d(mem_dir: str = None) -> dict:
+    """
+    iter585: tmpfiles_d — 清理 memory-os 目录下过期的 per-session 状态文件。
+
+    Args:
+        mem_dir: memory-os 目录路径（默认 ~/.claude/memory-os）
+
+    Returns:
+        dict: {
+            "cleaned": {"shadow_trace": N, "page_fault_log": N, "citation_stats": N, "ctx_pressure": N},
+            "total_cleaned": int,
+            "bytes_freed": int,
+            "duration_ms": float
+        }
+    """
+    try:
+        from config import get as _cfg
+    except Exception:
+        return {"cleaned": {}, "total_cleaned": 0, "bytes_freed": 0, "duration_ms": 0}
+
+    if not _cfg("tmpfiles_d.enabled"):
+        return {"cleaned": {}, "total_cleaned": 0, "bytes_freed": 0, "duration_ms": 0}
+
+    t0 = _time.time()
+
+    if mem_dir is None:
+        mem_dir = str(MEMORY_OS_DIR)
+
+    max_age_hours = int(_cfg("tmpfiles_d.max_age_hours") or 24)
+    max_cold_sync_entries = int(_cfg("tmpfiles_d.max_cold_sync_entries") or 200)
+    cutoff_ts = _time.time() - max_age_hours * 3600
+
+    cleaned = {
+        "shadow_trace": 0,
+        "page_fault_log": 0,
+        "citation_stats": 0,
+        "ctx_pressure": 0,
+        "cold_sync": 0,
+    }
+    bytes_freed = 0
+
+    # ── Phase 1: .shadow_trace.{session_id}.json ──
+    # 排除全局文件 .shadow_trace.json（retriever 使用）
+    try:
+        for fname in os.listdir(mem_dir):
+            if (fname.startswith(".shadow_trace.")
+                    and fname.endswith(".json")
+                    and fname != ".shadow_trace.json"):
+                fpath = os.path.join(mem_dir, fname)
+                try:
+                    st = os.stat(fpath)
+                    if st.st_mtime < cutoff_ts:
+                        bytes_freed += st.st_size
+                        os.unlink(fpath)
+                        cleaned["shadow_trace"] += 1
+                except OSError:
+                    continue
+    except OSError:
+        pass
+
+    # ── Phase 2: page_fault_log.{session_id}.json ──
+    # 排除全局文件 page_fault_log.json
+    try:
+        for fname in os.listdir(mem_dir):
+            if (fname.startswith("page_fault_log.")
+                    and fname.endswith(".json")
+                    and fname != "page_fault_log.json"):
+                fpath = os.path.join(mem_dir, fname)
+                try:
+                    st = os.stat(fpath)
+                    if st.st_mtime < cutoff_ts:
+                        bytes_freed += st.st_size
+                        os.unlink(fpath)
+                        cleaned["page_fault_log"] += 1
+                except OSError:
+                    continue
+    except OSError:
+        pass
+
+    # ── Phase 3: citation_stats.*.json ──
+    try:
+        for fname in os.listdir(mem_dir):
+            if fname.startswith("citation_stats.") and fname.endswith(".json"):
+                fpath = os.path.join(mem_dir, fname)
+                try:
+                    st = os.stat(fpath)
+                    if st.st_mtime < cutoff_ts:
+                        bytes_freed += st.st_size
+                        os.unlink(fpath)
+                        cleaned["citation_stats"] += 1
+                except OSError:
+                    continue
+    except OSError:
+        pass
+
+    # ── Phase 4: ctx_pressure_state.*.json ──
+    # 排除全局文件 ctx_pressure_state.json
+    try:
+        for fname in os.listdir(mem_dir):
+            if (fname.startswith("ctx_pressure_state.")
+                    and fname.endswith(".json")
+                    and fname != "ctx_pressure_state.json"):
+                fpath = os.path.join(mem_dir, fname)
+                try:
+                    st = os.stat(fpath)
+                    if st.st_mtime < cutoff_ts:
+                        bytes_freed += st.st_size
+                        os.unlink(fpath)
+                        cleaned["ctx_pressure"] += 1
+                except OSError:
+                    continue
+    except OSError:
+        pass
+
+    # ── Phase 5: cold_sync_state.json 条目数截断 ──
+    # 保留最新 max_cold_sync_entries 条，删除最旧条目
+    try:
+        cold_sync_path = os.path.join(mem_dir, "cold_sync_state.json")
+        if os.path.exists(cold_sync_path):
+            with open(cold_sync_path, "r", encoding="utf-8") as f:
+                cold_data = json.load(f)
+            if isinstance(cold_data, dict) and len(cold_data) > max_cold_sync_entries:
+                # 按 synced_at 排序，保留最新 max_cold_sync_entries 个
+                sorted_items = sorted(
+                    cold_data.items(),
+                    key=lambda x: x[1].get("synced_at", "") if isinstance(x[1], dict) else "",
+                    reverse=True
+                )
+                old_size = os.path.getsize(cold_sync_path)
+                new_data = dict(sorted_items[:max_cold_sync_entries])
+                with open(cold_sync_path, "w", encoding="utf-8") as f:
+                    json.dump(new_data, f, ensure_ascii=False)
+                new_size = os.path.getsize(cold_sync_path)
+                cleaned["cold_sync"] = len(cold_data) - len(new_data)
+                bytes_freed += max(0, old_size - new_size)
+    except Exception:
+        pass
+
+    elapsed_ms = (_time.time() - t0) * 1000
+    total_cleaned = sum(cleaned.values())
+    return {
+        "cleaned": cleaned,
+        "total_cleaned": total_cleaned,
+        "bytes_freed": bytes_freed,
+        "duration_ms": elapsed_ms,
+    }
+
+
+# ── iter586: proactive_compaction — Fragmentation Index Driven Chunk Consolidation ──
+
+def proactive_compaction(conn: sqlite3.Connection) -> dict:
+    """
+    iter586: proactive_compaction — 主动碎片整理。
+
+    OS 类比：Linux proactive memory compaction (Nitin Gupta, 2019, kernel 5.9,
+    mm/compaction.c) — 传统 compaction 仅在 high-order allocation 失败时被动触发。
+    Proactive compaction 在系统空闲时主动计算每个 zone 的 fragmentation index
+    （/sys/kernel/debug/extfrag/extfrag_index），当碎片率超过
+    /proc/sys/vm/compaction_proactiveness 阈值时执行 page migration，将散碎
+    小 pages 搬移到一端，腾出连续大块。不等 OOM，在压力来临前主动整理。
+
+    memory-os 等价问题：
+      - 37% chunks 退化（content ⊆ summary），FTS5 冗余索引
+        — summary + content 双重索引同一段文字，增加搜索扫描量
+      - 完全重复 chunks 占用 alive slots（3 个相同 conversation_summary）
+      - 短小碎片 chunks（content < 50 字）信息密度不足 FTS5 独立索引
+      - 这些"碎片"不被现有 reclaim 覆盖（非 import → madv_free 跳过；
+        无 bracket → ksm_scan 跳过；oom_adj=0 → OOM reaper 不触碰）
+
+    算法（三阶段）：
+      Phase 1: Fragmentation Index — 计算全局碎片指标
+        - degenerate_rate = (content ⊆ summary 的 chunk 数) / alive
+        - exact_dup_groups = 完全相同 content 的分组数
+      Phase 2: Exact Duplicate Reap — 完全相同 content+chunk_type 的 chunks
+        - 每组保留 access_count 最高的 survivor
+        - 其余直接删除（MADV_DONTNEED 语义 — 立即释放）
+      Phase 3: Degenerate Demotion — content ⊆ summary 且 access_count=0
+        - oom_adj 提升到 150（加速 OOM reaper 回收，但不立即删除）
+        - 如果后续被访问，access_count > 0 → 下次 compaction 跳过
+
+    调用时机：loader.py SessionStart reclaim chain，tmpfiles_d 之后。
+
+    Args:
+        conn: 写连接
+
+    Returns:
+        dict: {
+            "triggered": bool,
+            "frag_index": float,  # 碎片指标 0-1
+            "exact_dups_deleted": int,
+            "degenerate_demoted": int,
+            "duration_ms": float
+        }
+    """
+    _t0 = _time.time()
+    result = {
+        "triggered": False,
+        "frag_index": 0.0,
+        "exact_dups_deleted": 0,
+        "degenerate_demoted": 0,
+        "duration_ms": 0.0,
+    }
+
+    try:
+        from config import get as _cfg
+    except Exception:
+        result["duration_ms"] = round((_time.time() - _t0) * 1000, 2)
+        return result
+
+    if not _cfg("proactive_compaction.enabled"):
+        result["duration_ms"] = round((_time.time() - _t0) * 1000, 2)
+        return result
+
+    frag_threshold = float(_cfg("proactive_compaction.frag_threshold") or 0.25)
+    demote_oom_adj = int(_cfg("proactive_compaction.demote_oom_adj") or 150)
+    max_actions = int(_cfg("proactive_compaction.max_actions_per_scan") or 20)
+
+    # ── Phase 1: Fragmentation Index ──
+    alive = conn.execute(
+        "SELECT id, summary, content, chunk_type, access_count, oom_adj "
+        "FROM memory_chunks WHERE oom_adj < 300"
+    ).fetchall()
+
+    if len(alive) < 3:
+        result["duration_ms"] = round((_time.time() - _t0) * 1000, 2)
+        return result
+
+    # 计算退化 chunks（content 是 summary 的子串或相等）
+    degenerate_ids = []
+    for row in alive:
+        cid, summary, content, ctype, acc, oom = row
+        s = (summary or "").strip()
+        c = (content or "").strip()
+        if c and s and len(c) <= len(s) and c in s and acc == 0 and oom > -500:
+            degenerate_ids.append(cid)
+
+    # 计算完全重复组（相同 content + chunk_type）
+    from collections import defaultdict as _dd
+    dup_groups = _dd(list)
+    for row in alive:
+        cid, summary, content, ctype, acc, oom = row
+        c = (content or "").strip()
+        if c and len(c) > 5:  # 忽略极短内容
+            key = (c, ctype or "")
+            dup_groups[key].append({
+                "id": cid, "access_count": acc or 0,
+                "oom_adj": oom or 0, "summary": summary or "",
+            })
+    exact_dup_groups = {k: v for k, v in dup_groups.items() if len(v) >= 2}
+
+    frag_index = (len(degenerate_ids) + sum(len(v) - 1 for v in exact_dup_groups.values())) / len(alive)
+    result["frag_index"] = round(frag_index, 4)
+
+    if frag_index < frag_threshold:
+        result["duration_ms"] = round((_time.time() - _t0) * 1000, 2)
+        return result
+
+    result["triggered"] = True
+    actions_taken = 0
+
+    # ── Phase 2: Exact Duplicate Reap ──
+    all_deleted_ids = []
+    for (_content, _ctype), chunks in exact_dup_groups.items():
+        if actions_taken >= max_actions:
+            break
+        # 保留 access_count 最高的（平局保留第一个）
+        sorted_chunks = sorted(chunks, key=lambda c: c["access_count"], reverse=True)
+        survivor = sorted_chunks[0]
+        for victim in sorted_chunks[1:]:
+            if actions_taken >= max_actions:
+                break
+            if victim["oom_adj"] <= -500:
+                continue  # mlock protected
+            # 删除 FTS5 + 主表
+            try:
+                conn.execute(
+                    "DELETE FROM memory_chunks_fts WHERE rowid_ref = ?",
+                    (victim["id"],)
+                )
+            except Exception:
+                pass
+            conn.execute(
+                "DELETE FROM memory_chunks WHERE id = ?",
+                (victim["id"],)
+            )
+            all_deleted_ids.append(victim["id"])
+            result["exact_dups_deleted"] += 1
+            actions_taken += 1
+
+    # ── Phase 3: Degenerate Demotion ──
+    for did in degenerate_ids:
+        if actions_taken >= max_actions:
+            break
+        conn.execute(
+            "UPDATE memory_chunks SET oom_adj = ? WHERE id = ? AND oom_adj < ?",
+            (demote_oom_adj, did, demote_oom_adj)
+        )
+        if conn.execute("SELECT changes()").fetchone()[0] > 0:
+            result["degenerate_demoted"] += 1
+            actions_taken += 1
+
+    # Commit & version bump
+    try:
+        conn.commit()
+        if result["exact_dups_deleted"] > 0:
+            bump_chunk_version(conn)
+    except Exception:
+        pass
+
+    # Tombstones for deleted duplicates
+    if all_deleted_ids:
+        try:
+            from tools.import_knowledge import register_import_tombstones
+            register_import_tombstones(all_deleted_ids)
+        except Exception:
+            pass
+
+    result["duration_ms"] = round((_time.time() - _t0) * 1000, 2)
+    return result
+
+
+# ── iter587: folio_referenced — Importance Spread via Rank-Percentile Mapping ──
+
+def folio_referenced(conn: "sqlite3.Connection", project: str = None) -> dict:
+    """
+    iter587: folio_referenced — 基于复合证据排名的 importance 分布展开。
+
+    OS 类比：Linux folio_referenced() (Nick Piggin, 2004; Matthew Wilcox, 2022,
+    mm/rmap.c) — 内核周期性清除 PTE Accessed bit，下次扫描时检查是否重新置位。
+    被重新引用的 folio promoted（active list），未被引用的 demoted（inactive list）。
+    关键洞察：必须主动 clear 才能区分"真正 hot"和"仅仅 present"。
+
+    根因：alive chunks importance Gini=0.057（近似均匀分布），Pearson(importance,
+    access_count)=0.23（弱相关）。70.6% chunks 聚集在 0.7-0.8 importance（类型默认值
+    附近），检索排序几乎完全依赖 BM25 relevance，importance 乘数无区分度。
+    numa_balancing(iter522) 和 fair_clock(iter559) 分别修复个别异常值（高访问低imp /
+    高cum_score低imp），但不改变整体分布形态——大量中间层 chunk 仍然难以区分。
+
+    解决：对全量 alive chunks 计算 composite_evidence_score（加权组合 access_count +
+    cum_retrieval_score + recency），然后按 rank percentile 映射到 [imp_floor, imp_ceil]
+    区间。这不是调整个别 chunk，而是对整个分布做 normalization spread。
+
+    与 numa_balancing/fair_clock 的区别：
+      - numa_balancing：只看 access_count > threshold → 二值 promote/demote
+      - fair_clock：只看 cum_score > threshold → 二值 promote/demote
+      - folio_referenced：对全量 chunk 排名映射 → 连续值 spread（分布整形）
+
+    保护：
+      - mlock (oom_adj <= -500)：跳过不动
+      - task_state/prompt_context：跳过不动
+      - max_delta_per_chunk：单次最大调整幅度限制（防止剧烈波动）
+      - blend_ratio：new_imp = old × (1-α) + ranked × α（渐进融合，非突变）
+
+    返回:
+      spread: int — 调整了 importance 的 chunk 数
+      skipped_protected: int — 受保护跳过数
+      gini_before: float — 调整前 Gini 系数
+      gini_after: float — 调整后 Gini 系数
+      pearson_before: float — 调整前 Pearson(imp, access) 相关系数
+      pearson_after: float — 调整后 Pearson(imp, access) 相关系数
+      duration_ms: float
+    """
+    import math as _math
+
+    _t0 = _time.time()
+    result = {
+        "spread": 0,
+        "skipped_protected": 0,
+        "gini_before": 0.0,
+        "gini_after": 0.0,
+        "pearson_before": 0.0,
+        "pearson_after": 0.0,
+        "duration_ms": 0.0,
+    }
+
+    try:
+        from config import get as _cfg
+    except Exception:
+        return result
+
+    if not _cfg("folio_referenced.enabled"):
+        result["duration_ms"] = round((_time.time() - _t0) * 1000, 2)
+        return result
+
+    blend_ratio = float(_cfg("folio_referenced.blend_ratio"))
+    imp_floor = float(_cfg("folio_referenced.imp_floor"))
+    imp_ceil = float(_cfg("folio_referenced.imp_ceil"))
+    max_delta = float(_cfg("folio_referenced.max_delta_per_chunk"))
+    min_alive = int(_cfg("folio_referenced.min_alive_chunks"))
+    weight_access = float(_cfg("folio_referenced.weight_access"))
+    weight_cum_score = float(_cfg("folio_referenced.weight_cum_score"))
+    weight_recency = float(_cfg("folio_referenced.weight_recency"))
+    skip_types = set(_cfg("folio_referenced.skip_types"))
+
+    # ── Phase 0: 加载全量 alive chunks ──
+    proj_filter = "AND project = ?" if project else ""
+    params = [project] if project else []
+
+    try:
+        rows = conn.execute(f"""
+            SELECT id, importance, access_count, oom_adj, chunk_type,
+                   created_at
+            FROM memory_chunks
+            WHERE COALESCE(oom_adj, 0) < 300
+              {proj_filter}
+        """, params).fetchall()
+    except Exception:
+        result["duration_ms"] = round((_time.time() - _t0) * 1000, 2)
+        return result
+
+    if len(rows) < min_alive:
+        result["duration_ms"] = round((_time.time() - _t0) * 1000, 2)
+        return result
+
+    # ── Phase 1: 计算 cum_retrieval_score per chunk ──
+    # OS 类比：folio_referenced() 遍历 rmap 计算引用计数
+    cum_scores = {}
+    try:
+        trace_params = [project] if project else []
+        trace_filter = "WHERE project = ? AND" if project else "WHERE"
+        trace_rows = conn.execute(f"""
+            SELECT top_k_json FROM recall_traces
+            {trace_filter} top_k_json IS NOT NULL
+            ORDER BY timestamp DESC LIMIT 200
+        """, trace_params).fetchall()
+
+        import json as _json
+        for (tk_json,) in trace_rows:
+            try:
+                entries = _json.loads(tk_json) if isinstance(tk_json, str) else tk_json
+                if isinstance(entries, list):
+                    for entry in entries:
+                        if isinstance(entry, dict) and "chunk_id" in entry:
+                            cid = entry["chunk_id"]
+                            sc = float(entry.get("score", 0))
+                            cum_scores[cid] = cum_scores.get(cid, 0.0) + sc
+            except Exception:
+                continue
+    except Exception:
+        pass  # cum_scores stays empty — access_count + recency still work
+
+    # ── Phase 2: 计算 composite evidence score ──
+    now = _time.time()
+    chunk_data = []  # [(id, old_imp, composite, access_count, protected)]
+    for cid, imp, acc, oom_adj, ctype, created_at in rows:
+        # 保护检查
+        protected = False
+        if (oom_adj or 0) <= -500:
+            protected = True
+        if ctype in skip_types:
+            protected = True
+
+        # Recency: days since creation → decay
+        try:
+            from datetime import datetime as _dt, timezone as _tz
+            if created_at:
+                ct = _dt.fromisoformat(created_at.replace("Z", "+00:00"))
+                age_days = max(0.0, (now - ct.timestamp()) / 86400.0)
+            else:
+                age_days = 30.0
+        except Exception:
+            age_days = 30.0
+        recency_score = _math.exp(-age_days / 30.0)  # 30-day half-life
+
+        # Composite evidence: weighted sum of normalized signals
+        cum = cum_scores.get(cid, 0.0)
+        composite = (
+            weight_access * min(acc, 50) / 50.0
+            + weight_cum_score * min(cum, 10.0) / 10.0
+            + weight_recency * recency_score
+        )
+        chunk_data.append((cid, float(imp), composite, acc, protected))
+
+    # ── Phase 3: Rank-percentile mapping ──
+    # OS 类比：clear + re-observe cycle — 排名即"重新扫描后的引用顺序"
+    eligible = [(cid, imp, comp, acc, prot)
+                for cid, imp, comp, acc, prot in chunk_data if not prot]
+    protected_count = len(chunk_data) - len(eligible)
+    result["skipped_protected"] = protected_count
+
+    if len(eligible) < 2:
+        result["duration_ms"] = round((_time.time() - _t0) * 1000, 2)
+        return result
+
+    # Sort by composite score → assign rank
+    eligible_sorted = sorted(eligible, key=lambda x: x[2])  # ascending
+    n = len(eligible_sorted)
+
+    # Gini & Pearson before
+    old_imps = [x[1] for x in eligible_sorted]
+    old_accs = [x[3] for x in eligible_sorted]
+    result["gini_before"] = _gini(old_imps)
+    result["pearson_before"] = _pearson(old_imps, old_accs)
+
+    # Map rank percentile → target importance in [imp_floor, imp_ceil]
+    updates = []
+    for rank, (cid, old_imp, comp, acc, _) in enumerate(eligible_sorted):
+        percentile = rank / max(1, n - 1)  # 0.0 = lowest, 1.0 = highest
+        target_imp = imp_floor + percentile * (imp_ceil - imp_floor)
+
+        # Blend: gradual convergence, not sudden replacement
+        new_imp = old_imp * (1.0 - blend_ratio) + target_imp * blend_ratio
+
+        # Clamp delta
+        delta = new_imp - old_imp
+        if abs(delta) > max_delta:
+            new_imp = old_imp + max_delta * (1.0 if delta > 0 else -1.0)
+
+        # Clamp final range
+        new_imp = max(imp_floor, min(imp_ceil, new_imp))
+
+        if abs(new_imp - old_imp) > 0.001:
+            updates.append((round(new_imp, 4), cid))
+
+    # ── Phase 4: Apply updates ──
+    if updates:
+        conn.executemany(
+            "UPDATE memory_chunks SET importance = ? WHERE id = ?",
+            updates
+        )
+        result["spread"] = len(updates)
+        try:
+            conn.commit()
+        except Exception:
+            pass
+
+    # Gini & Pearson after
+    if updates:
+        try:
+            new_rows = conn.execute(f"""
+                SELECT importance, access_count FROM memory_chunks
+                WHERE COALESCE(oom_adj, 0) < 300
+                  {proj_filter}
+            """, params).fetchall()
+            new_imps = [r[0] for r in new_rows]
+            new_accs = [r[1] for r in new_rows]
+            result["gini_after"] = _gini(new_imps)
+            result["pearson_after"] = _pearson(new_imps, new_accs)
+        except Exception:
+            pass
+    else:
+        result["gini_after"] = result["gini_before"]
+        result["pearson_after"] = result["pearson_before"]
+
+    result["duration_ms"] = round((_time.time() - _t0) * 1000, 2)
+    return result
+
+
+def _gini(values: list) -> float:
+    """Gini coefficient: 0=perfect equality, 1=total inequality."""
+    if not values or len(values) < 2:
+        return 0.0
+    s = sorted(values)
+    n = len(s)
+    total = sum(s)
+    if total <= 0:
+        return 0.0
+    # Standard Gini: G = (2 * Σ(i * y_i)) / (n * Σ(y_i)) - (n + 1) / n
+    # where i is 1-indexed rank
+    numerator = sum((i + 1) * s[i] for i in range(n))
+    return round((2.0 * numerator) / (n * total) - (n + 1.0) / n, 4)
+
+
+def _pearson(xs: list, ys: list) -> float:
+    """Pearson correlation coefficient between two equal-length lists."""
+    import math as _m
+    n = len(xs)
+    if n < 2 or len(ys) != n:
+        return 0.0
+    mx = sum(xs) / n
+    my = sum(ys) / n
+    cov = sum((xs[i] - mx) * (ys[i] - my) for i in range(n)) / n
+    vx = sum((x - mx) ** 2 for x in xs) / n
+    vy = sum((y - my) ** 2 for y in ys) / n
+    denom = _m.sqrt(vx) * _m.sqrt(vy)
+    if denom < 1e-12:
+        return 0.0
+    return round(cov / denom, 4)
