@@ -3077,24 +3077,33 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
             pass
 
         # Recall counts (anti-starvation)
+        # iter602: rcu_dereference — daemon 的 conn 是 immutable=1，看不到 WAL 中的
+        #   新 recall_traces → _recall_counts 严重过期 → bandwidth hard_gate 全部失效
+        #   → 垄断 chunk (b50e0b54 feishu CLI, rc=26/30=87%) 持续逃逸注入。
+        #   retriever.py 在 iter565 已用独立标准连接修复；daemon 路径遗漏。
+        # 修复：用独立标准连接加载 recall_counts，确保看到最新 traces。
         _recall_counts = {}
         _effective_bw_window = 30
         try:
-            if _psi_cached:
-                _recall_counts = _psi_gov_rc_cached[2]
-            else:
-                _recall_counts = chunk_recall_counts(conn, project, window=30)
-                _rc_fresh = _recall_counts
-                # cache miss: write back all three results together
-                _psi_gov_rc_put(project, _psi_result_fresh, _gov_result_fresh, _rc_fresh)
-            # iter588: effective_bw_window — 修复少 trace 项目窗口稀释
+            # iter602: 用标准连接（非 immutable）读取 recall_traces
+            import sqlite3 as _rc_sql
+            _rc_conn = _rc_sql.connect(str(STORE_DB))
             try:
-                _atc = conn.execute(
+                if _psi_cached:
+                    _recall_counts = _psi_gov_rc_cached[2]
+                else:
+                    _recall_counts = chunk_recall_counts(_rc_conn, project, window=30)
+                    _rc_fresh = _recall_counts
+                    _psi_gov_rc_put(project, _psi_result_fresh, _gov_result_fresh, _rc_fresh)
+                # iter602: effective_bw_window 用标准连接查（两条路径都需要）
+                _atc = _rc_conn.execute(
                     "SELECT COUNT(*) FROM recall_traces WHERE project=?", (project,)
                 ).fetchone()[0]
                 _effective_bw_window = min(30, max(1, _atc))
             except Exception:
                 pass
+            finally:
+                _rc_conn.close()
         except Exception:
             pass
 
