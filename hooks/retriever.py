@@ -2022,12 +2022,16 @@ def main():
             if _acc >= _tmv_acc_threshold:
                 _tmv_mult = _tmv_saturation_discount(_acc)
                 score *= _tmv_mult
-            # ── Session Density Gate（TMV 子机制）──────────────────────────
-            # OS 类比：Linux write-back coalescing — 同一页重复 dirty 合并为一次 I/O
-            # session 内同一 chunk 被注入 >= N 次 → 额外乘以 0.7（更强惩罚）
+            # ── iter613: Graduated Session Density Gate ──────────────────
+            # 根因：固定 >=4 → *0.70 太温和，高 relevance chunk 仍排名第一。
+            #   3192147e 在同 session 内被注入 3 次，0.70 惩罚不足以压下。
+            # 修复：累进惩罚 >=2 → *0.40, >=4 → *0.05（近乎 suppress）。
+            #   已见过的知识边际价值急剧递减，第 2 次后信息增量 ≈0。
             _sess_inj = _session_injection_counts.get(chunk.get("id", ""), 0)
-            if _sess_inj >= _tmv_session_density_gate:
-                score *= 0.70
+            if _sess_inj >= _tmv_session_density_gate:   # >=4: near-suppress
+                score *= 0.05
+            elif _sess_inj >= 2:                          # >=2: strong decay
+                score *= 0.40
             # ── iter600+601+612: Effective Bandwidth Throttle ─────────────
             # iter612: graduated_bandwidth_penalty — 线性渐进惩罚 [soft_start, hard_cap]
             #   根因：3192147e（ac=89）在 project 窗口内 util=0.27 恰好低于 hard_cap，
