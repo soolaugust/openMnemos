@@ -421,10 +421,12 @@ def chunk_recall_counts_memcg(conn: 'sqlite3.Connection', project: str,
     """
     try:
         # 查询所有项目的最近 traces（排除当前项目，当前项目已由 chunk_recall_counts 覆盖）
-        # 迭代580：与 chunk_recall_counts 一致，统计所有 trace（含 skipped_same_hash）
+        # iter606: 与 chunk_recall_counts 对齐，只统计 injected=1 的 trace。
+        # iter604 修复了 per-project 路径但遗漏了 memcg 路径，导致 skipped_same_hash
+        # trace 中的 chunk 仍然累计跨项目 rc → 正反馈死锁未完全打破。
         cur = conn.execute(
             "SELECT top_k_json FROM recall_traces "
-            "WHERE project != ? AND top_k_json IS NOT NULL "
+            "WHERE project != ? AND top_k_json IS NOT NULL AND injected=1 "
             "ORDER BY rowid DESC LIMIT ?",
             (project, window)
         )

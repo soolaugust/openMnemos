@@ -1649,10 +1649,26 @@ def main():
                 _memcg_window = _sysctl("memcg_stat.window") or 60
                 _memcg_counts = chunk_recall_counts_memcg(_rc_conn, project, window=_memcg_window)
                 if _memcg_counts:
+                    _memcg_inflated = False
                     for _mcid, _mcnt in _memcg_counts.items():
                         _existing = _recall_counts.get(_mcid, 0)
                         if _mcnt > _existing:
                             _recall_counts[_mcid] = _mcnt
+                            _memcg_inflated = True
+                    # iter606: bw_window parity — memcg counts 来自 window=60 的跨项目
+                    # trace，但 _effective_bw_window 只反映本项目的 trace 数量。
+                    # 当 memcg 合入了更大的 count 时，必须同步放大 bw_window，
+                    # 否则 rc=9/ebw=19=0.47 > 0.30 会误杀有价值的 global chunk。
+                    if _memcg_inflated:
+                        try:
+                            _xp_atc = _rc_conn.execute(
+                                "SELECT COUNT(*) FROM recall_traces WHERE project!=? AND injected=1",
+                                (project,)
+                            ).fetchone()[0]
+                            _effective_bw_window = max(_effective_bw_window,
+                                                       min(60, max(1, _xp_atc)))
+                        except Exception:
+                            pass
             _rc_conn.close()
         except Exception:
             pass  # 统计失败不影响主流程

@@ -3095,26 +3095,34 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                     _recall_counts = chunk_recall_counts(_rc_conn, project, window=30)
                     _rc_fresh = _recall_counts
                     _psi_gov_rc_put(project, _psi_result_fresh, _gov_result_fresh, _rc_fresh)
-                # iter603: memcg_stat — daemon 路径补齐 cross-project recall 计数
-                # 根因：global chunk (3192147e) per-project 计数低估跨项目垄断度，
-                #   retriever.py iter566 已修复，daemon 路径遗漏。
-                try:
-                    from store_criu import chunk_recall_counts_memcg
-                    if sysctl("memcg_stat.enabled") is not False:
-                        _memcg_w = sysctl("memcg_stat.window") or 60
-                        _memcg_c = chunk_recall_counts_memcg(_rc_conn, project, window=_memcg_w)
-                        if _memcg_c:
-                            for _mcid, _mcnt in _memcg_c.items():
-                                if _mcnt > _recall_counts.get(_mcid, 0):
-                                    _recall_counts[_mcid] = _mcnt
-                except Exception:
-                    pass
                 # iter602: effective_bw_window 用标准连接查（两条路径都需要）
                 # iter604: 与 chunk_recall_counts 对齐，只统计 injected=1 的 trace
                 _atc = _rc_conn.execute(
                     "SELECT COUNT(*) FROM recall_traces WHERE project=? AND injected=1", (project,)
                 ).fetchone()[0]
                 _effective_bw_window = min(30, max(1, _atc))
+                # iter603+606: memcg_stat — cross-project recall 计数 + bw_window parity
+                try:
+                    from store_criu import chunk_recall_counts_memcg
+                    if sysctl("memcg_stat.enabled") is not False:
+                        _memcg_w = sysctl("memcg_stat.window") or 60
+                        _memcg_c = chunk_recall_counts_memcg(_rc_conn, project, window=_memcg_w)
+                        if _memcg_c:
+                            _memcg_inflated = False
+                            for _mcid, _mcnt in _memcg_c.items():
+                                if _mcnt > _recall_counts.get(_mcid, 0):
+                                    _recall_counts[_mcid] = _mcnt
+                                    _memcg_inflated = True
+                            # iter606: bw_window parity — memcg window 对齐
+                            if _memcg_inflated:
+                                _xp_atc = _rc_conn.execute(
+                                    "SELECT COUNT(*) FROM recall_traces WHERE project!=? AND injected=1",
+                                    (project,)
+                                ).fetchone()[0]
+                                _effective_bw_window = max(_effective_bw_window,
+                                                           min(60, max(1, _xp_atc)))
+                except Exception:
+                    pass
             except Exception:
                 pass
             finally:
