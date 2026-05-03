@@ -3078,6 +3078,7 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
 
         # Recall counts (anti-starvation)
         _recall_counts = {}
+        _effective_bw_window = 30
         try:
             if _psi_cached:
                 _recall_counts = _psi_gov_rc_cached[2]
@@ -3086,6 +3087,14 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 _rc_fresh = _recall_counts
                 # cache miss: write back all three results together
                 _psi_gov_rc_put(project, _psi_result_fresh, _gov_result_fresh, _rc_fresh)
+            # iter588: effective_bw_window — 修复少 trace 项目窗口稀释
+            try:
+                _atc = conn.execute(
+                    "SELECT COUNT(*) FROM recall_traces WHERE project=?", (project,)
+                ).fetchone()[0]
+                _effective_bw_window = min(30, max(1, _atc))
+            except Exception:
+                pass
         except Exception:
             pass
 
@@ -3172,6 +3181,7 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
         _bw_quota      = sysctl("cfs_bandwidth.quota") or 8
         _bw_factor     = sysctl("cfs_bandwidth.throttle_factor") or 0.50
         _bw_decay      = sysctl("cfs_bandwidth.overflow_decay") or 0.85
+        _bw_max_pct    = sysctl("scorer.bw_max_pct") or 0.30  # iter588
         # iter212: removed 3 redundant in-function imports (0.139+0.160+0.260=0.56us/request):
         #   import math as _math → use module-level _math (same object, no overhead)
         #   import hashlib as _hashlib → use already-unpacked hashlib from mods
@@ -3420,6 +3430,10 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
             # cfs_bandwidth 用乘法 score *= factor * decay^overflow 实现渐进强压制。
             if _bw_enabled and _rc > _bw_quota:
                 score *= _bw_factor * (_bw_decay ** (_rc - _bw_quota))
+            # iter588: effective bandwidth throttle for low-trace projects
+            if _rc > 0 and _effective_bw_window < 30:
+                if _rc / _effective_bw_window > _bw_max_pct:
+                    score *= 0.15
             return score
 
         def _score_chunk_dict(chunk, relevance):
@@ -3472,6 +3486,10 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
             # iter560: cfs_bandwidth — same throttle as _score_chunk (see above)
             if _bw_enabled and _rc > _bw_quota:
                 score *= _bw_factor * (_bw_decay ** (_rc - _bw_quota))
+            # iter588: effective bandwidth throttle for low-trace projects
+            if _rc > 0 and _effective_bw_window < 30:
+                if _rc / _effective_bw_window > _bw_max_pct:
+                    score *= 0.15
             return score
 
         def _gc_dict_to_ci(c):
@@ -3749,10 +3767,44 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                     return 0.0
                 return len(_query_words & s_words) / len(_query_words | s_words)
             _extra_constraints.sort(key=_constraint_relevance, reverse=True)
+            # ── iter584: refault_distance gate — thrash detection for forced constraints ──
+            # OS 类比：Linux cfs_burst_throttle (Paul Turner, 2011) — 超出 bandwidth 的
+            # cgroup task 即使 burst 也不能无限消耗 CPU；类推：recall_count/window > max_pct
+            # 的 constraint 已过度曝光，强制注入只增加冗余而非信息量。
+            # 根因：daemon 路径缺失此门控导致垄断 chunk(35.2%召回率) score=0.99 绕过所有 throttle。
+            _constraint_min_rel = sysctl("retriever.constraint_min_relevance")
+            _thrash_max_pct = sysctl("retriever.constraint_thrash_max_pct")
+            _bw_window = sysctl("scorer.bw_window") or 30
+            _pre_gate = len(_extra_constraints)
+            _extra_constraints = [
+                c for c in _extra_constraints
+                if _constraint_relevance(c) >= _constraint_min_rel
+                and (_recall_counts.get(c[_CI_ID], 0) / max(_bw_window, 1)) <= _thrash_max_pct
+            ]
+            # ── iter584: Jaccard content dedup — skip constraints redundant with top_k ──
+            # OS 类比：KSM (Kernel Samepage Merging) — 内容相同的页面合并为 COW，不重复映射。
+            _top_k_token_sets = []
+            for _, _tc in top_k:
+                _tc_words = set(_CONSTRAINT_RE.sub(' ', (_tc[_CI_SUM] or "").lower()).split())
+                if _tc_words:
+                    _top_k_token_sets.append(_tc_words)
             for c in _extra_constraints[:_effective_max_forced]:
+                # Jaccard dedup: summary overlap > 0.5 → redundant, skip
+                _c_words = set(_CONSTRAINT_RE.sub(' ', (c[_CI_SUM] or "").lower()).split())
+                if _c_words and _top_k_token_sets:
+                    _is_redundant = False
+                    for _existing in _top_k_token_sets:
+                        _union = _existing | _c_words
+                        if _union and len(_existing & _c_words) / len(_union) >= 0.50:
+                            _is_redundant = True
+                            break
+                    if _is_redundant:
+                        continue
                 forced_constraints.append(c[_CI_SUM])  # iter235
                 top_k.insert(0, (0.99, c))
                 top_k_ids_set.add(c[_CI_ID])  # iter235
+                if _c_words:
+                    _top_k_token_sets.append(_c_words)
 
         if not top_k:
             if priority == "FULL" and not _check_deadline("swap_fault"):

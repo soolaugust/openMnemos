@@ -1628,6 +1628,17 @@ def main():
             import sqlite3 as _rc_sql
             _rc_conn = _rc_sql.connect(str(STORE_DB))
             _recall_counts = chunk_recall_counts(_rc_conn, project, window=30)
+            # ── iter588: effective_bw_window — 实际 trace 数量（修复少 trace 项目窗口稀释） ──
+            # 问题（数据驱动，2026-05-02）：项目只有 8 条 trace 时 rc=3/window=30=10% < 30%，
+            # 但实际利用率 3/8=37% → bandwidth_throttle 失效，垄断 chunk 持续注入。
+            # 修复：用 min(30, actual_trace_count) 作为有效窗口。
+            try:
+                _atc = _rc_conn.execute(
+                    "SELECT COUNT(*) FROM recall_traces WHERE project=?", (project,)
+                ).fetchone()[0]
+                _effective_bw_window = min(30, max(1, _atc))
+            except Exception:
+                _effective_bw_window = 30
             # ── iter566: memcg_stat — Cross-Project Recall Accounting ──
             # OS 类比：cgroup v2 memory.stat hierarchical aggregation — 共享页面的
             # 跨 cgroup 访问计数聚合，反映真实系统级资源压力。
@@ -1987,6 +1998,15 @@ def main():
             _sess_inj = _session_injection_counts.get(chunk.get("id", ""), 0)
             if _sess_inj >= _tmv_session_density_gate:
                 score *= 0.70
+            # ── iter588: Effective Bandwidth Throttle ──────────────────────
+            # 修复 bandwidth_throttle 在少 trace 项目中失效的问题。
+            # scorer.py 的 bandwidth_throttle 用固定 window=30，项目只有 N<30 条
+            # trace 时利用率被稀释。这里用 _effective_bw_window 做更准确的检查。
+            _rc = _recall_counts.get(chunk.get("id", ""), 0)
+            if _rc > 0 and _effective_bw_window < 30:
+                _eff_util = _rc / _effective_bw_window
+                if _eff_util > (_sysctl("scorer.bw_max_pct") or 0.30):
+                    score *= 0.15  # 与 scorer.bandwidth_throttle 的 _BW_THROTTLE 一致
             # ── iter368: Attention Focus Bonus ─────────────────────────────
             # OS 类比：寄存器中的变量零访问延迟 bonus（vs 内存访问 200 cycles）
             # 当前焦点关键词命中 → chunk 进入"注意焦点"→ 激活阈值降低
@@ -3534,20 +3554,24 @@ def main():
         #   同一 chunk 在同一 session 被注入 >= threshold 次 → 从输出中剔除，
         #   避免 agent 每轮都收到已内化的知识（边际价值趋零）。
         #
-        # 豁免：design_constraint 永远注入（系统级约束，不可去重）。
-        # 预期收益：-30~50 tokens/call（长 session 中 3~5 个重复 chunk × 8~12 tokens/chunk）
+        # iter587: 移除 design_constraint 无条件豁免 — 改为 2× threshold 宽松去重
+        # 根因：'feishu CLI' 被注入 10/50 次、'memory 验证路径' 15/50 次，
+        #   占 50% 注入槽位但多数与 query 无关。豁免导致垄断 chunk 永远无法被 dedup。
+        # OS 类比：CFS sched_entity vruntime — 即使是 RT 任务也受 bandwidth throttle，
+        #   否则单个 RT task 会饿死所有 SCHED_NORMAL 任务。
+        # 修复：design_constraint 使用 2× 普通阈值（首次 session 仍可见，之后逐步降权）
         _iter359_dedup_threshold = _sysctl("retriever.session_dedup_threshold")
         _iter359_dedup_count = 0
         if _iter359_dedup_threshold > 0 and _session_injection_counts:
             _dedup_top_k = []
+            _constraint_dedup_threshold = _iter359_dedup_threshold * 2  # iter587: 宽松阈值
             for _score, _chunk in top_k:
                 _cid = _chunk.get("id", "")
                 _ctype = _chunk.get("chunk_type", "")
                 _inj_cnt = _session_injection_counts.get(_cid, 0)
-                # design_constraint 豁免（约束知识不去重）
-                if _ctype == "design_constraint":
-                    _dedup_top_k.append((_score, _chunk))
-                elif _inj_cnt >= _iter359_dedup_threshold:
+                # iter587: design_constraint 使用宽松阈值（不再无条件豁免）
+                _effective_threshold = _constraint_dedup_threshold if _ctype == "design_constraint" else _iter359_dedup_threshold
+                if _inj_cnt >= _effective_threshold:
                     _iter359_dedup_count += 1
                     # 迭代29 dmesg 延迟日志
                     _deferred.log(DMESG_DEBUG, "retriever",
