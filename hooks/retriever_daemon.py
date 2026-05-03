@@ -3610,7 +3610,7 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
             # iter619: 阈值收紧 24h:3→2, 7d:8→5
             if _recent_24h_counts.get(_cid, 0) >= 2:
                 score = 0.0
-            elif _recent_7d_counts.get(_cid, 0) >= 4:
+            elif _recent_7d_counts.get(_cid, 0) >= 3:
                 score = 0.0
             # iter622: saturation_absolute_suppress — access_count >= 30 永久 suppress
             elif (chunk[_CI_AC] or 0) >= 30:
@@ -3681,7 +3681,7 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
             # iter619: 阈值收紧 24h:3→2, 7d:8→5
             if _recent_24h_counts.get(_cid, 0) >= 2:
                 score = 0.0
-            elif _recent_7d_counts.get(_cid, 0) >= 4:
+            elif _recent_7d_counts.get(_cid, 0) >= 3:
                 score = 0.0
             # iter622: saturation_absolute_suppress — access_count >= 30 永久 suppress
             elif (chunk.get("access_count", 0) or 0) >= 30:
@@ -4028,7 +4028,7 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 # iter619: 阈值收紧 24h:3→2, 7d:8→5
                 if _recent_24h_counts.get(_cid, 0) >= 2:
                     return False
-                if _recent_7d_counts.get(_cid, 0) >= 4:
+                if _recent_7d_counts.get(_cid, 0) >= 3:
                     return False
                 # iter608: session-level constraint dedup
                 if _d_session_inj_counts.get(_cid, 0) >= _d_session_cap:
@@ -4168,7 +4168,7 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 _pre663d = len(top_k)
                 top_k = [(s, c) for s, c in top_k
                          if _rt663d_24h.get(c[_CI_ID], 0) < 2
-                         and _rt663d_7d.get(c[_CI_ID], 0) < 4]
+                         and _rt663d_7d.get(c[_CI_ID], 0) < 3]
                 if len(top_k) < _pre663d:
                     _deferred.log(DMESG_WARN, "retriever_daemon",
                                   f"iter663_suppress_final_gate: filtered "

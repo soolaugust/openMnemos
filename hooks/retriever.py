@@ -2103,9 +2103,9 @@ def main():
                 if _r24_ee >= 2:
                     return 0.0
                 # iter618: early exit 也检查 7d_rolling_suppress
-                # iter619: 7d 阈值 8→5，43 traces 中 2 chunk 占 62.8%→更早介入
+                # iter619: 8→5; iter664: 5→3，与评分阶段阈值统一
                 _r7d_ee = _recent_7d_counts.get(chunk.get("id", ""), 0)
-                if _r7d_ee >= 5:
+                if _r7d_ee >= 3:
                     return 0.0
                 # iter621→622: saturation_absolute_suppress — 累积注入过饱和永久 suppress
                 # iter642: 用 live ac 替代 immutable 连接的 stale ac
@@ -2227,10 +2227,10 @@ def main():
                 score = 0.0
                 _hard_suppressed = True  # iter616
             # ── iter618: 7d_rolling_suppress — 长期慢性垄断 suppress ────────
-            # 同一 chunk 在 7 天内注入 >=4 次 → suppress（score=0）
-            # iter619: 8→5; iter659: 5→4，数据驱动：迭代器决策 chunk 4次/7d 仍逃逸
+            # 同一 chunk 在 7 天内注入 >=3 次 → suppress（score=0）
+            # iter619: 8→5; iter659: 5→4; iter664: 4→3，数据驱动：7d=4 仍有 2 chunk 垄断
             _r7d_cnt = _recent_7d_counts.get(chunk.get("id", ""), 0)
-            if _r7d_cnt >= 4:
+            if _r7d_cnt >= 3:
                 score = 0.0
                 _hard_suppressed = True
             # ── iter368: Attention Focus Bonus ─────────────────────────────
@@ -2942,7 +2942,7 @@ def main():
             if top_k:
                 top_k = [(s, c) for s, c in top_k
                          if _recent_24h_counts.get(c["id"], 0) < 2
-                         and _recent_7d_counts.get(c["id"], 0) < 4]
+                         and _recent_7d_counts.get(c["id"], 0) < 3]
             if top_k:
                 # 快速路径：直接组装输出
                 top_k_ids = sorted([c["id"] for _, c in top_k])
@@ -3526,7 +3526,7 @@ def main():
                 if _recent_24h_counts.get(_cid, 0) >= 2:
                     return False
                 # iter618: 7d rolling suppress 也在 constraint 通道生效
-                if _recent_7d_counts.get(_cid, 0) >= 4:
+                if _recent_7d_counts.get(_cid, 0) >= 3:
                     return False
                 # iter608: session-level constraint dedup — 早于全局 cap 拦截
                 _sinj = _session_injection_counts.get(_cid, 0)
@@ -3900,7 +3900,7 @@ def main():
                 _pre663 = len(top_k)
                 top_k = [(s, c) for s, c in top_k
                          if _rt663_24h.get(c["id"], 0) < 2
-                         and _rt663_7d.get(c["id"], 0) < 4]
+                         and _rt663_7d.get(c["id"], 0) < 3]
                 if len(top_k) < _pre663:
                     _deferred.log(DMESG_WARN, "retriever",
                                   f"iter663_suppress_final_gate: filtered "
