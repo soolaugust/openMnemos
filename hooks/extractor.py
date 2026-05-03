@@ -1253,11 +1253,12 @@ def _is_quality_chunk(summary: str) -> bool:
     #   通过了 quality gate（含数字锚点），但这是迭代器自身对 memory-os 内部状态的诊断，
     #   对用户无检索价值（ac=0）。特征：含 memory-os 内部指标术语 + 无决策动词。
     _ITERATOR_DIAG_KW = re.compile(
-        r'(?:垄断\s*chunk|注入的?\s*\d|access.count|recall.count|zero.access|'
+        r'(?:垄断\s*chunk|注入的?\s*\d|access.count|recall.count|zero.access|零访问|'
         r'top_k|anti.monopoly|bandwidth.throttle|hard.cap|suppress|'
         # iter661: 补充逃逸模式 — daemon 指标行/幽灵 chunk/项目孤岛化
         r'injected=\d|candidates=\d|幽灵\s*chunk|幽灵条目|项目孤岛化|'
-        r'Timeline\s*条目|知识完全不可见)',
+        # iter662: 中文形式 memory-os 指标术语 — 迭代器用中文描述内部状态
+        r'Timeline\s*条目|知识完全不可见|存量噪声|迭代器.*噪声|noise.gate)',
         re.I
     )
     if _ITERATOR_DIAG_KW.search(s):
@@ -1561,6 +1562,11 @@ def _is_tool_insight_noise(text: str) -> bool:
         return True
     # iter656: "Count: N, Avg: N, ..." / "Total: N" 格式统计行
     if re.match(r'^(?:Count|Avg|Min|Max|Total|P\d+)[：:]\s*[\d.,]+', text.strip(), re.I):
+        return True
+    # iter662: memory-os 迭代器自引用 — tool output 中的 extractor/retriever 调试行
+    # 根因：f3be0440 "✅ should block blocked=True (diag=True selfref=1)" 逃逸，
+    #   因为 tool_insight 路径不走 _should_block 的 self-ref gate。
+    if re.search(r'should.block|selfref|_should_block|_ITERATOR_DIAG|chunk_state.*dead|存量噪声', text):
         return True
     return False
 
