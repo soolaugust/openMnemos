@@ -3430,10 +3430,12 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
             # cfs_bandwidth 用乘法 score *= factor * decay^overflow 实现渐进强压制。
             if _bw_enabled and _rc > _bw_quota:
                 score *= _bw_factor * (_bw_decay ** (_rc - _bw_quota))
-            # iter588: effective bandwidth throttle for low-trace projects
-            if _rc > 0 and _effective_bw_window < 30:
-                if _rc / _effective_bw_window > _bw_max_pct:
-                    score *= 0.15
+            # iter600: bandwidth throttle — 移除 _effective_bw_window<30 限制
+            # 根因（数据驱动，2026-05-03）：b50e0b54 rc=26/30=87%，旧代码仅
+            #   _effective_bw_window<30 时触发。项目 ≥30 trace → 条件 False →
+            #   垄断 chunk 持续进入 positive。修复：统一对所有项目应用。
+            if _rc > 0 and _rc / _effective_bw_window > _bw_max_pct:
+                score *= 0.15
             return score
 
         def _score_chunk_dict(chunk, relevance):
@@ -3486,10 +3488,9 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
             # iter560: cfs_bandwidth — same throttle as _score_chunk (see above)
             if _bw_enabled and _rc > _bw_quota:
                 score *= _bw_factor * (_bw_decay ** (_rc - _bw_quota))
-            # iter588: effective bandwidth throttle for low-trace projects
-            if _rc > 0 and _effective_bw_window < 30:
-                if _rc / _effective_bw_window > _bw_max_pct:
-                    score *= 0.15
+            # iter600: bandwidth throttle — 统一对所有项目应用（同 _score_chunk）
+            if _rc > 0 and _rc / _effective_bw_window > _bw_max_pct:
+                score *= 0.15
             return score
 
         def _gc_dict_to_ci(c):

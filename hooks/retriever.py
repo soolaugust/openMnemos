@@ -1998,12 +1998,11 @@ def main():
             _sess_inj = _session_injection_counts.get(chunk.get("id", ""), 0)
             if _sess_inj >= _tmv_session_density_gate:
                 score *= 0.70
-            # ── iter588: Effective Bandwidth Throttle ──────────────────────
-            # 修复 bandwidth_throttle 在少 trace 项目中失效的问题。
-            # scorer.py 的 bandwidth_throttle 用固定 window=30，项目只有 N<30 条
-            # trace 时利用率被稀释。这里用 _effective_bw_window 做更准确的检查。
+            # ── iter600: Effective Bandwidth Throttle ──────────────────────
+            # iter588 原逻辑仅 _effective_bw_window<30 时触发；iter600 移除此限制。
+            # 根因：项目 ≥30 trace 时 throttle 不触发，垄断 chunk 持续注入。
             _rc = _recall_counts.get(chunk.get("id", ""), 0)
-            if _rc > 0 and _effective_bw_window < 30:
+            if _rc > 0:
                 _eff_util = _rc / _effective_bw_window
                 if _eff_util > (_sysctl("scorer.bw_max_pct") or 0.30):
                     score *= 0.15  # 与 scorer.bandwidth_throttle 的 _BW_THROTTLE 一致
