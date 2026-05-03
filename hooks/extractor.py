@@ -1198,7 +1198,9 @@ def _is_quality_chunk(summary: str) -> bool:
                 # 写入的内部诊断信息（suppress 效果、注入统计、PA 通过率），
                 # 对用户零价值且占用 FTS 和 Top-K 槽位
                 "PA 10/10", "PA 9/10", "PA 8/10", "注入垄断", "injection_timeline",
-                "零访问率", "e2e 测试通过",
+                "零访问率", "e2e 测试通过", "production assertions",
+                # iter673: 迭代器工作汇报模式 — "+N/-M 行"改动量报告
+                "改动 +",
                 # iter656: 对话诊断/审计输出碎片 — AI 分析 AIOS 时产出的数据行
                 "边际收益在递减", "存量清理：swap_out", "Active chunks"]
     if any(kw in s for kw in noise_kw):

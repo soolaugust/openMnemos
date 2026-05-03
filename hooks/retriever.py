@@ -3752,6 +3752,39 @@ def main():
                 except Exception:
                     pass
 
+            # ── iter673: constraint_empty_fallback — positive=[] 时注入项目 constraint ──
+            # 根因（数据驱动，2026-05-04）：66% trace 产出空 top_k，其中大量属于有
+            #   design_constraint 的项目。constraint 价值不依赖 query 匹配度（是无条件
+            #   安全约束），但当 FTS5 score 全部 < min_thresh 时，constraint 和其他
+            #   chunk 一起被淘汰 → 项目约束从未被注入。
+            # 修复：positive=[] 时，直接从 DB 取项目 constraint 注入最重要的 1 条。
+            #   受 24h/7d suppress 保护（复用 suppress_final_gate 逻辑），不会垄断。
+            if not top_k:
+                try:
+                    _cef_rows = conn.execute(
+                        "SELECT * FROM memory_chunks WHERE chunk_state='ACTIVE' "
+                        "AND project=? AND chunk_type='design_constraint' "
+                        "ORDER BY importance DESC LIMIT 2", (project,)
+                    ).fetchall()
+                    if _cef_rows:
+                        _cef_cols = [d[0] for d in conn.execute(
+                            "SELECT * FROM memory_chunks LIMIT 0").description]
+                        _cef_chunks = [dict(zip(_cef_cols, r)) for r in _cef_rows]
+                        # 过滤已被 24h/7d suppress 的
+                        _cef_chunks = [c for c in _cef_chunks
+                                       if _recent_24h_counts.get(c["id"], 0) < 2
+                                       and _recent_7d_counts.get(c["id"], 0) < 3]
+                        if _cef_chunks:
+                            _cef_best = _cef_chunks[0]
+                            top_k = [(0.99, _cef_best)]
+                            _deferred.log(DMESG_INFO, "retriever",
+                                          f"iter673_constraint_empty_fallback: "
+                                          f"injected {_cef_best['id'][:12]} "
+                                          f"(positive=0, project has constraint)",
+                                          session_id=session_id, project=project)
+                except Exception:
+                    pass
+
             if not top_k:
                 # 迭代84：关闭只读连接，flush deferred logs
                 conn.close()
