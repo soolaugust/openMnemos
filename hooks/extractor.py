@@ -1185,8 +1185,8 @@ def _is_quality_chunk(summary: str) -> bool:
     # 含 JSON 键值对特征：多个 "key": "value" 组合
     if len(re.findall(r'"[\w_]+"\s*:', s)) >= 2:
         return False
-    # 表格行：含 3+ 个 | 分隔符
-    if s.count('|') >= 3:
+    # 表格行：含 2+ 个 | 分隔符（iter656: 降低阈值，2 个 pipe 的行也是表格碎片）
+    if s.count('|') >= 2:
         return False
     # 纯数据/指标行：全是数字、符号、单位，没有中文动词
     if not re.search(r'[\u4e00-\u9fff]{2,}', s) and re.match(r'^[\d\s.%ms/=<>×+\-,()]+$', s):
@@ -1198,7 +1198,9 @@ def _is_quality_chunk(summary: str) -> bool:
                 # 写入的内部诊断信息（suppress 效果、注入统计、PA 通过率），
                 # 对用户零价值且占用 FTS 和 Top-K 槽位
                 "PA 10/10", "PA 9/10", "PA 8/10", "注入垄断", "injection_timeline",
-                "零访问率", "e2e 测试通过"]
+                "零访问率", "e2e 测试通过",
+                # iter656: 对话诊断/审计输出碎片 — AI 分析 AIOS 时产出的数据行
+                "边际收益在递减", "存量清理：swap_out", "Active chunks"]
     if any(kw in s for kw in noise_kw):
         return False
     placeholders = {"方案 X 是最优解", "extractor 升级", "KnowledgeRouter"}
@@ -1299,6 +1301,18 @@ def _is_quality_chunk(summary: str) -> bool:
         return False
     # 纯数值单位换算行（"N ns = M s ≈ Xh Ym" — point-in-time 计算，无决策价值）
     if re.match(r'^\d[\d\s.]*(?:ns|ms|s)\s*[=≈]', s):
+        return False
+    # ── iter656: raw_metric_label_line — 纯指标行拦截 ──
+    # 根因（数据驱动，2026-05-04）：对话中 AI 输出的数据行被误提取为 causal_chain/decision
+    #   如 "single-session-user: 87.1% → 100%"、"Count: 62, Avg: 45.26ms"。
+    # 拦截：(1) "label: N%" / "label: N% → N%" 格式的纯指标行
+    #        (2) "Count/Avg/Min/Max: N" 格式的统计行
+    #        (3) "label 一直 N%" 格式的断言行
+    if re.match(r'^[\w-]+(?:\s*[\w-]+)?:\s+[\d.]+%?\s*(?:→\s*[\d.]+%?)?\s*$', s):
+        return False
+    if re.match(r'^(?:Count|Avg|Min|Max|P\d+|Total)[：:]\s*[\d.,]+', s, re.I):
+        return False
+    if re.search(r'^[\w-]+\s+一直\s+\d+%?$', s):
         return False
     # ── 迭代88：OOM Killer V9 — 主动杀死不产出价值的知识 ──
     # OS 类比：Linux OOM Killer (Andries Brouwer, 2000) — 选择性终止消耗资源但无产出的进程
@@ -1526,6 +1540,22 @@ def _is_tool_insight_noise(text: str) -> bool:
         return True
     # iter106: 单字母分类标签行（"R: recall=0.0"、"Q: hash recall=..."）
     if re.match(r'^[A-Z]:\s+\w', text) and 'recall' in text:
+        return True
+    # iter657: raw_metric_line_gate — 纯指标行（无决策上下文）
+    # 根因（数据驱动，2026-05-04）：12 个 ac=0 chunk 是纯统计数据行
+    #   如 "temporal-reasoning: 90.3% → 91.2%"、"Count: 62, Avg: 45.26ms"。
+    #   特征：整行只是 "label: number" 或 "| col | col |" 格式，缺乏因果/决策语义。
+    # 拦截：(1) "word: N%" 或 "word: N% → N%" 格式的纯指标行
+    #        (2) markdown 表格行（以 | 开头含数字）
+    #        (3) 原始 DB 行/日志行（以 tuple 或时间戳开头）
+    if re.match(r'^[\w-]+:\s+[\d.]+%?\s*(?:→\s*[\d.]+%?)?\s*$', text.strip()):
+        return True
+    if re.match(r'^\|.*\|.*\d+.*\|', text.strip()):
+        return True
+    if re.match(r'^\(\d{4,}', text.strip()):
+        return True
+    # iter656: "Count: N, Avg: N, ..." / "Total: N" 格式统计行
+    if re.match(r'^(?:Count|Avg|Min|Max|Total|P\d+)[：:]\s*[\d.,]+', text.strip(), re.I):
         return True
     return False
 
