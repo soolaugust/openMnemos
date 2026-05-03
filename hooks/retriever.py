@@ -1647,6 +1647,8 @@ def main():
         _recall_counts = {}
         _recent_24h_counts = {}  # iter614: temporal_burst_suppression
         _recent_7d_counts = {}   # iter630: hoist default outside try — prevent NameError on connect failure
+        _INJECTION_TIMELINE_FILE = os.path.join(MEMORY_OS_DIR, ".injection_timeline.json")  # iter647
+        _injection_timeline = {}  # iter647: WAL-immune cross-session timeline
         _local_bw_window = 30  # iter610: fallback if outer try fails
         try:
             import sqlite3 as _rc_sql
@@ -1699,60 +1701,36 @@ def main():
                                                        min(60, max(1, _xp_atc)))
                         except Exception:
                             pass
-            # ── iter614: temporal_burst_suppression — 24h 时间窗口注入频率 cap ──
-            # 根因：跨 session 短期高频注入逃逸现有机制。
-            #   session_density_gate 按 session 重置 → 每个短 session 内 chunk 只注入 1 次不触发。
-            #   bandwidth_penalty 基于 trace 数量窗口 → 少 trace 时 rc/window 尚低于阈值。
-            #   实际数据：b50e0b54 在 3.5h 内跨 8 个 session 注入 8 次，score=0.99 不受抑制。
-            # 修复：基于绝对时间（24h）统计每个 chunk 注入次数，>=3 次 → suppress。
-            #   时间窗口不受 trace 数量稀释，对突发垄断反应灵敏。
+            # ── iter647: WAL-immune injection timeline — 文件级跨 session 注入时间序列 ──
+            # 根因（数据驱动，2026-05-03）：iter614/618 的 24h/7d suppress 依赖
+            #   recall_traces 的 SELECT，但 WAL 模式下刚写入的 trace 对读连接不可见。
+            #   实测：b50e0b54 在 5/2 连续 8 次 score=0.99 注入（跨 8 个 session），
+            #   24h>=2 suppress 完全失效，因为 _recent_24h_counts 始终为 0。
+            # 修复：用独立 JSON 文件记录 {chunk_id: [ts1, ts2, ...]}，
+            #   写入在 write-back phase（与 session_injection_counts 同步），
+            #   读取在此处直接从文件计算 24h/7d 计数，完全绕过 SQLite WAL。
+            _INJECTION_TIMELINE_FILE = os.path.join(MEMORY_OS_DIR, ".injection_timeline.json")
             _recent_24h_counts = {}
-            try:
-                # iter637: 移除 project 过滤 — global chunk 跨 project 注入导致
-                #   project=? 永远匹配不到 global chunk 的 trace，suppress 全失效
-                _r24_cur = _rc_conn.execute(
-                    "SELECT top_k_json FROM recall_traces "
-                    "WHERE injected=1 "
-                    "AND timestamp > datetime('now', '-24 hours')"
-                )
-                for (_r24_json,) in _r24_cur.fetchall():
-                    try:
-                        _r24_items = json.loads(_r24_json) if isinstance(_r24_json, str) else _r24_json
-                        if isinstance(_r24_items, list):
-                            for _r24_item in _r24_items:
-                                if isinstance(_r24_item, dict) and "id" in _r24_item:
-                                    _r24_id = _r24_item["id"]
-                                    _recent_24h_counts[_r24_id] = _recent_24h_counts.get(_r24_id, 0) + 1
-                    except Exception:
-                        continue
-            except Exception:
-                pass
-            # ── iter618: 7d_rolling_suppress — 长期垄断检测 ──────────────────
-            # 根因：24h_burst_suppression (>=3) 只看 24h 窗口。
-            #   如果 chunk 每天注入 2 次持续 7 天（总计 14 次），24h 永远 <3 不触发。
-            #   实测：3192147e 7天注入 15 次（34.9%），b50e0b54 12 次（27.9%），
-            #   两个 chunk 占 7 天总注入的 62.8%，严重挤占其他知识。
-            # 修复：7 天窗口内注入 >=5 次 → suppress。阈值比 24h 宽松（5 vs 2），
-            #   但覆盖"每天少量、长期累积"的慢性垄断模式。
-            # iter619: 阈值从 8 降至 5（数据驱动：top2 chunk 7d=15/12，占 62.8% slot）。
             _recent_7d_counts = {}
+            _injection_timeline = {}  # {chunk_id: [iso_ts, ...]}
             try:
-                # iter637: 同上 — 移除 project 过滤
-                _r7d_cur = _rc_conn.execute(
-                    "SELECT top_k_json FROM recall_traces "
-                    "WHERE injected=1 "
-                    "AND timestamp > datetime('now', '-7 days')"
-                )
-                for (_r7d_json,) in _r7d_cur.fetchall():
-                    try:
-                        _r7d_items = json.loads(_r7d_json) if isinstance(_r7d_json, str) else _r7d_json
-                        if isinstance(_r7d_items, list):
-                            for _r7d_item in _r7d_items:
-                                if isinstance(_r7d_item, dict) and "id" in _r7d_item:
-                                    _r7d_id = _r7d_item["id"]
-                                    _recent_7d_counts[_r7d_id] = _recent_7d_counts.get(_r7d_id, 0) + 1
-                    except Exception:
-                        continue
+                if os.path.exists(_INJECTION_TIMELINE_FILE):
+                    with open(_INJECTION_TIMELINE_FILE, encoding="utf-8") as _itf:
+                        _injection_timeline = json.loads(_itf.read())
+                from datetime import datetime as _dt647, timezone as _tz647, timedelta as _td647
+                _now647 = _dt647.now(_tz647.utc)
+                _cutoff_24h = (_now647 - _td647(hours=24)).isoformat()
+                _cutoff_7d = (_now647 - _td647(days=7)).isoformat()
+                _pruned = {}  # GC: 丢弃 >7d 的条目
+                for _cid647, _ts_list in _injection_timeline.items():
+                    _kept = [t for t in _ts_list if t > _cutoff_7d]
+                    if _kept:
+                        _pruned[_cid647] = _kept
+                        _recent_7d_counts[_cid647] = len(_kept)
+                        _cnt_24h = sum(1 for t in _kept if t > _cutoff_24h)
+                        if _cnt_24h > 0:
+                            _recent_24h_counts[_cid647] = _cnt_24h
+                _injection_timeline = _pruned
             except Exception:
                 pass
             _rc_conn.close()
@@ -4289,6 +4267,18 @@ def main():
                                         ensure_ascii=False))
         except Exception:
             pass  # 计数写入失败不影响已输出的结果
+        # ── iter647: injection timeline write-back ──
+        try:
+            from datetime import datetime as _dt647w, timezone as _tz647w
+            _now_ts = _dt647w.now(_tz647w.utc).isoformat()
+            for _inj_tid in accessed_ids:
+                if _inj_tid not in _injection_timeline:
+                    _injection_timeline[_inj_tid] = []
+                _injection_timeline[_inj_tid].append(_now_ts)
+            with open(_INJECTION_TIMELINE_FILE, 'w', encoding="utf-8") as _itf_w:
+                _itf_w.write(json.dumps(_injection_timeline, ensure_ascii=False))
+        except Exception:
+            pass
         # 迭代323: SM-2 recall_quality — 从 top_k 平均分推断
         _avg_score = (sum(s for s, _ in top_k) / len(top_k)) if top_k else 0.0
         _recall_quality_main = 5 if _avg_score > 0.6 else (4 if _avg_score > 0.3 else 3)
