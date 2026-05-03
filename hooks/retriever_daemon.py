@@ -3881,6 +3881,15 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 top_k = _drr_select(positive, effective_top_k)
             else:
                 top_k = positive[:effective_top_k]
+            # ── iter689: score_empty_fallback (hard_deadline) ──
+            if not top_k and final:
+                _sef_hd = max(final, key=_SORT_KEY)
+                if _sef_hd[0] > 0:
+                    top_k = [_sef_hd]
+                    _deferred.log(DMESG_WARN, "retriever_daemon",
+                                  f"iter689_score_empty_fallback_hd: fallback "
+                                  f"best={_sef_hd[1][_CI_ID][:12]} s={_sef_hd[0]:.4f}",
+                                  session_id=session_id, project=project)
             if top_k:
                 top_k_ids = sorted([c[_CI_ID] for _, c in top_k])  # iter235: positional
                 # iter217: crc32 faster than md5 (~0.712us vs ~1.107us, same 8-char hex format)
@@ -4144,17 +4153,32 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                     pass
 
             if not top_k:
-                # iter173: persistent conn — do NOT close
-                if _deferred._buf:  # iter222: direct slot access
-                    try:
-                        wconn = open_db()
-                        ensure_schema(wconn)
-                        _deferred.flush(wconn)
-                        wconn.commit()
-                        wconn.close()
-                    except Exception:
-                        pass
-                return
+                # ── iter689: score_empty_fallback — scoring 全灭降级注入最佳 1 条 ──
+                # 根因（数据驱动，2026-05-04）：80% 的非 skip trace 空召回，
+                #   FTS 找到 10-21 候选但 scoring 后全灭（suppress/threshold），
+                #   4146 直接 return 绕过了 suppress_fallback（4208）。
+                #   空召回 = 系统对用户无价值。宁注入 1 条次优也不空手而归。
+                # 修复：从 final（scoring 后的全量候选）中挑 score 最高且 >0 的降级注入。
+                if final:
+                    _sef_best = max(final, key=_SORT_KEY)
+                    if _sef_best[0] > 0:
+                        top_k = [_sef_best]
+                        _deferred.log(DMESG_WARN, "retriever_daemon",
+                                      f"iter689_score_empty_fallback: all scored out, "
+                                      f"fallback best={_sef_best[1][_CI_ID][:12]} s={_sef_best[0]:.4f}",
+                                      session_id=session_id, project=project)
+                if not top_k:
+                    # iter173: persistent conn — do NOT close
+                    if _deferred._buf:  # iter222: direct slot access
+                        try:
+                            wconn = open_db()
+                            ensure_schema(wconn)
+                            _deferred.flush(wconn)
+                            wconn.commit()
+                            wconn.close()
+                        except Exception:
+                            pass
+                    return
 
         # ── iter670: suppress_fallback — suppress 前快照 ──
         _pre_suppress_top_k = list(top_k)
