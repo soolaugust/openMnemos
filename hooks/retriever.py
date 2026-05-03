@@ -1633,8 +1633,9 @@ def main():
             # 但实际利用率 3/8=37% → bandwidth_throttle 失效，垄断 chunk 持续注入。
             # 修复：用 min(30, actual_trace_count) 作为有效窗口。
             try:
+                # iter604: 与 chunk_recall_counts 对齐，只统计 injected=1 的 trace
                 _atc = _rc_conn.execute(
-                    "SELECT COUNT(*) FROM recall_traces WHERE project=?", (project,)
+                    "SELECT COUNT(*) FROM recall_traces WHERE project=? AND injected=1", (project,)
                 ).fetchone()[0]
                 _effective_bw_window = min(30, max(1, _atc))
             except Exception:

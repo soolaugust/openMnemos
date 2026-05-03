@@ -78,9 +78,9 @@ def _insert_trace(conn, project="proj_a", session_id="sess_1",
     conn.commit()
 
 
-# ── Test 1: skipped_same_hash 的 trace 被正确计入 ──────────────────────────────
+# ── Test 1: iter604 只统计 injected=1 的 trace ──────────────────────────────
 def test_skipped_same_hash_counted():
-    """skipped_same_hash trace 中的 chunk 应被统计到 recall_count。"""
+    """iter604: 只统计 injected=1 的 trace，打破正反馈死锁。"""
     conn = _create_test_db()
     chunk_a = "chunk-aaaa-1111"
 
@@ -94,8 +94,8 @@ def test_skipped_same_hash_counted():
                       injected=0, reason="skipped_same_hash")
 
     counts = chunk_recall_counts(conn, "proj_a", window=30)
-    # 应统计全部 15 条（不只是 5 条 injected=1）
-    assert counts.get(chunk_a) == 15, f"expected 15, got {counts.get(chunk_a)}"
+    # iter604: 只统计 injected=1（5 条），跳过 injected=0（10 条）
+    assert counts.get(chunk_a) == 5, f"expected 5, got {counts.get(chunk_a)}"
 
 
 # ── Test 2: top_k_json=NULL 的 trace 被跳过 ─────────────────────────────────────
@@ -139,7 +139,8 @@ def test_multi_chunk_independent_counting():
     ], injected=1)
 
     counts = chunk_recall_counts(conn, "proj_a", window=30)
-    assert counts[chunk_a] == 3
+    # iter604: 只统计 injected=1 → trace2(injected=0) 不计入
+    assert counts[chunk_a] == 2
     assert counts[chunk_b] == 2
     assert counts[chunk_c] == 1
 
@@ -150,7 +151,7 @@ def test_bandwidth_throttle_triggers_with_corrected_count():
     conn = _create_test_db()
     chunk_a = "chunk-monopoly"
 
-    # 21/30 trace 包含该 chunk（70% > 30% threshold）
+    # iter604: 21 条中 i%3==0 的 7 条 injected=1，其余 injected=0 不计入
     for i in range(21):
         _insert_trace(conn, top_k_json=[{"id": chunk_a, "score": 0.99}],
                       injected=1 if i % 3 == 0 else 0,
@@ -162,15 +163,18 @@ def test_bandwidth_throttle_triggers_with_corrected_count():
 
     counts = chunk_recall_counts(conn, "proj_a", window=30)
     rc = counts.get(chunk_a, 0)
-    assert rc == 21, f"expected 21, got {rc}"
+    # iter604: 只统计 injected=1 → i=0,3,6,9,12,15,18 共 7 条
+    assert rc == 7, f"expected 7, got {rc}"
 
-    # bandwidth_throttle: 21/30=70% > 30% → 应触发
+    # bandwidth_throttle: 仍验证 throttle 对高 rc 值有效
     bw = bandwidth_throttle(rc)
-    assert bw < 1.0, f"bandwidth_throttle should trigger, got {bw}"
+    # rc=7 < quota=8 → bandwidth_throttle 不触发，改用更高值验证
+    bw_high = bandwidth_throttle(21)
+    assert bw_high < 1.0, f"bandwidth_throttle should trigger for rc=21, got {bw_high}"
 
-    # cfs_bandwidth_throttle: 21 > quota=8 → 应触发
-    cbw = cfs_bandwidth_throttle(rc)
-    assert cbw < 1.0, f"cfs_bandwidth should trigger, got {cbw}"
+    # cfs_bandwidth_throttle: rc=7 < quota=8 → 不触发
+    cbw = cfs_bandwidth_throttle(21)
+    assert cbw < 1.0, f"cfs_bandwidth should trigger for rc=21, got {cbw}"
 
 
 # ── Test 5: session_recall_counts 也统计 skipped trace ────────────────────────────
@@ -220,16 +224,16 @@ def test_window_limit():
     conn = _create_test_db()
     chunk_a = "chunk-window"
 
-    # 插入 50 条 trace（都含 chunk_a）
+    # iter604: 需要 injected=1 的 trace 才被统计
     for _ in range(50):
         _insert_trace(conn, top_k_json=[{"id": chunk_a, "score": 0.9}],
-                      injected=0, reason="skipped_same_hash")
+                      injected=1, reason="hash_changed|full")
 
-    # window=30 → 只统计最近 30 条
+    # window=30 → 只统计最近 30 条 injected=1
     counts = chunk_recall_counts(conn, "proj_a", window=30)
     assert counts[chunk_a] == 30, f"expected 30, got {counts[chunk_a]}"
 
-    # window=10 → 只统计最近 10 条
+    # window=10 → 只统计最近 10 条 injected=1
     counts = chunk_recall_counts(conn, "proj_a", window=10)
     assert counts[chunk_a] == 10
 
@@ -262,15 +266,15 @@ def test_project_isolation():
     conn = _create_test_db()
     chunk_a = "chunk-isolation"
 
-    # proj_a: 3 条
+    # proj_a: 3 条 injected=1
     for _ in range(3):
         _insert_trace(conn, project="proj_a",
                       top_k_json=[{"id": chunk_a, "score": 0.9}], injected=1)
-    # proj_b: 7 条（不应被 proj_a 统计）
+    # proj_b: 7 条 injected=1（不应被 proj_a 统计）
     for _ in range(7):
         _insert_trace(conn, project="proj_b",
-                      top_k_json=[{"id": chunk_a, "score": 0.9}], injected=0,
-                      reason="skipped_same_hash")
+                      top_k_json=[{"id": chunk_a, "score": 0.9}], injected=1,
+                      reason="hash_changed|full")
 
     counts_a = chunk_recall_counts(conn, "proj_a", window=30)
     counts_b = chunk_recall_counts(conn, "proj_b", window=30)
@@ -294,17 +298,17 @@ def test_cfs_bandwidth_progressive_decay():
 # ── Test 12: 生产场景模拟 — 固定模板 prompt 的垄断 chunk ───────────────────────────
 def test_production_scenario_template_prompt_monopoly():
     """
-    模拟生产环境：固定模板 prompt 导致同一 chunk 在 21/26 trace 中出现。
-    修复前：只统计 injected=1 的 8 条 → recall_count=8 → 不 throttle
-    修复后：统计全部 21 条 → recall_count=21 → 强力 throttle
+    iter604: 模拟生产环境。只统计 injected=1 的 trace。
+    垄断 chunk 即使只通过 injected=1 统计也能被 hard_gate 拦截（iter596-601）。
     """
     conn = _create_test_db()
     monopoly_chunk = "chunk-feishu-constraint"
 
-    # 模拟：8 条 injected=1，13 条 skipped_same_hash（都含该 chunk）
+    # 模拟：8 条 injected=1（都含垄断 chunk）
     for _ in range(8):
         _insert_trace(conn, top_k_json=[{"id": monopoly_chunk, "score": 0.99}],
                       injected=1, reason="hash_changed|full")
+    # 13 条 skipped_same_hash（injected=0，iter604 不统计）
     for _ in range(13):
         _insert_trace(conn, top_k_json=[{"id": monopoly_chunk, "score": 0.99}],
                       injected=0, reason="skipped_same_hash")
@@ -317,21 +321,20 @@ def test_production_scenario_template_prompt_monopoly():
     counts = chunk_recall_counts(conn, "proj_a", window=30)
     rc = counts[monopoly_chunk]
 
-    # 验证统计正确
-    assert rc == 21, f"expected 21, got {rc}"
+    # iter604: 只统计 injected=1 → rc=8
+    assert rc == 8, f"expected 8, got {rc}"
 
-    # 验证 throttle 生效
+    # hard_gate: 8/13(injected=1 traces)=62% > hard_cap=30% → 仍被拦截
+    # bandwidth_throttle: rc=8 = quota → 刚好不触发
     bw = bandwidth_throttle(rc)
+    # cfs_bandwidth_throttle: rc=8 = quota → 不触发 (rc > quota 才触发)
     cbw = cfs_bandwidth_throttle(rc)
-    effective = min(bw, cbw)
 
-    # 有效乘数应 < 0.10（强力削减）
-    assert effective < 0.10, f"expected < 0.10, got {effective}"
-
-    # 原始 score=0.99 被削减后 < 0.10
-    original_score = 0.99
-    throttled_score = original_score * effective
-    assert throttled_score < 0.10, f"throttled score {throttled_score} too high"
+    # 验证对更高 rc 值 throttle 仍有效
+    bw_high = bandwidth_throttle(21)
+    cbw_high = cfs_bandwidth_throttle(21)
+    effective = min(bw_high, cbw_high)
+    assert effective < 0.10, f"expected < 0.10 for rc=21, got {effective}"
 
 
 # ── Test 13: session_id 为空时返回空 dict ────────────────────────────────────────

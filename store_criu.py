@@ -337,15 +337,14 @@ def chunk_recall_counts(conn: 'sqlite3.Connection', project: str,
                         window: int = 30,
                         session_id: str = "") -> dict:
     """
-    统计每个 chunk 在最近 window 条 traces 中被选入 top_k 的次数。
+    统计每个 chunk 在最近 window 条 injected=1 traces 中被选入 top_k 的次数。
     迭代312：新增 session_id 参数（保留兼容旧接口）。
     迭代580：madvise_cold — 统计范围从 injected=1 扩展到所有 trace。
-      skipped_same_hash 的 trace 同样有 top_k_json，反映该 chunk 的垄断地位。
-      只统计 injected=1 会系统性低估高频垄断 chunk 的 recall_count：
-        - 真实出现率 81%（21/26 全部 trace）
-        - 旧统计只看 injected=1：8/13=62%，window=30 时 8/30=27% < bw_max_pct=30%
-        - 新统计看全部 trace：21/30=70% > bw_max_pct=30% → throttle 生效
-      OS 类比：madvise(MADV_COLD) (Minchan Kim, 2019, kernel 5.4, mm/madvise.c) —
+    迭代604：feedback_loop_break — 回退为只统计 injected=1 的 trace。
+      iter580 统计所有 trace 造成正反馈死锁：被 hard_gate 拦截的 chunk 仍出现在
+      skipped_same_hash trace 的 top_k_json → rc 永不衰减 → 永远被拦截。
+      iter596-601 已在 scoring+constraint 两路径加 hard_gate，不再需要靠膨胀 rc
+      来触发拦截。回退为只统计真正注入的 trace，让被拦截的 chunk 自然衰减。
         统计"冷热"不能只看成功的 page access，还要算被 TLB cached 拦截的访问。
 
     Args:
@@ -358,9 +357,15 @@ def chunk_recall_counts(conn: 'sqlite3.Connection', project: str,
         dict: {chunk_id: recall_count}  ← 全局计数（兼容旧接口）
     """
     try:
+        # iter604: feedback_loop_break — 只统计 injected=1 的 trace。
+        # iter580 改为统计所有 trace（含 skipped_same_hash/injected=0），目的是更快
+        # 触发 hard_cap。但这造成正反馈死锁：被拦截 → 仍出现在 top_k_json →
+        # rc 永不衰减 → 永远被拦截。iter596-601 已在 scoring+constraint 两路径加
+        # hard_gate，不再需要靠膨胀 rc 来触发拦截。回退为只统计真正注入的 trace，
+        # 让被拦截的 chunk 自然衰减、重获注入资格。
         cur = conn.execute(
             "SELECT top_k_json FROM recall_traces "
-            "WHERE project=? AND top_k_json IS NOT NULL "
+            "WHERE project=? AND top_k_json IS NOT NULL AND injected=1 "
             "ORDER BY rowid DESC LIMIT ?",
             (project, window)
         )

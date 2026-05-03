@@ -3110,8 +3110,9 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 except Exception:
                     pass
                 # iter602: effective_bw_window 用标准连接查（两条路径都需要）
+                # iter604: 与 chunk_recall_counts 对齐，只统计 injected=1 的 trace
                 _atc = _rc_conn.execute(
-                    "SELECT COUNT(*) FROM recall_traces WHERE project=?", (project,)
+                    "SELECT COUNT(*) FROM recall_traces WHERE project=? AND injected=1", (project,)
                 ).fetchone()[0]
                 _effective_bw_window = min(30, max(1, _atc))
             except Exception:
