@@ -3466,17 +3466,19 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
             # cfs_bandwidth 用乘法 score *= factor * decay^overflow 实现渐进强压制。
             if _bw_enabled and _rc > _bw_quota:
                 score *= _bw_factor * (_bw_decay ** (_rc - _bw_quota))
-            # iter600+601: bandwidth throttle — hard gate 升级
-            # iter600: 移除 _effective_bw_window<30 限制
-            # iter601: soft throttle(×0.15) 不足以拦截候选池不足时的垄断 chunk，
-            #   超过 hard_cap 时 score=0（与 constraint _ac_gated 路径一致）。
+            # iter600+601+612: bandwidth throttle — graduated penalty
+            # iter612: graduated_bandwidth_penalty — 线性渐进惩罚 [soft_start, hard_cap]
+            #   根因：垄断 chunk 的 util 恰好低于 hard_cap 持续逃逸。
+            #   修复：util ∈ [hard_cap*0.5, hard_cap] 线性插值 penalty ∈ [1.0, 0.0]
             if _rc > 0:
-                # iter610: hard_cap 用 _local_bw_window 防止 memcg inflate 稀释
                 _hard_util_sc = _rc / _local_bw_window
                 if _hard_util_sc > _inject_hard_cap:
                     score = 0.0
-                elif (_rc / _effective_bw_window) > _bw_max_pct:
-                    score *= 0.15
+                else:
+                    _bw_soft_start = _inject_hard_cap * 0.5
+                    if _hard_util_sc > _bw_soft_start:
+                        _bw_penalty = 1.0 - (_hard_util_sc - _bw_soft_start) / (_inject_hard_cap - _bw_soft_start)
+                        score *= _bw_penalty
             return score
 
         def _score_chunk_dict(chunk, relevance):
@@ -3529,14 +3531,16 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
             # iter560: cfs_bandwidth — same throttle as _score_chunk (see above)
             if _bw_enabled and _rc > _bw_quota:
                 score *= _bw_factor * (_bw_decay ** (_rc - _bw_quota))
-            # iter600+601: bandwidth throttle — hard gate 升级（同 _score_chunk）
+            # iter600+601+612: bandwidth throttle — graduated penalty（同 _score_chunk）
             if _rc > 0:
-                # iter610: hard_cap 用 _local_bw_window
                 _hard_util_sd = _rc / _local_bw_window
                 if _hard_util_sd > _inject_hard_cap:
                     score = 0.0
-                elif (_rc / _effective_bw_window) > _bw_max_pct:
-                    score *= 0.15
+                else:
+                    _bw_soft_start_d = _inject_hard_cap * 0.5
+                    if _hard_util_sd > _bw_soft_start_d:
+                        _bw_pen_d = 1.0 - (_hard_util_sd - _bw_soft_start_d) / (_inject_hard_cap - _bw_soft_start_d)
+                        score *= _bw_pen_d
             return score
 
         def _gc_dict_to_ci(c):

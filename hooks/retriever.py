@@ -2028,19 +2028,23 @@ def main():
             _sess_inj = _session_injection_counts.get(chunk.get("id", ""), 0)
             if _sess_inj >= _tmv_session_density_gate:
                 score *= 0.70
-            # ── iter600+601: Effective Bandwidth Throttle ──────────────────
-            # iter588 原逻辑仅 _effective_bw_window<30 时触发；iter600 移除此限制。
-            # iter601: soft throttle(×0.15) 不足以拦截候选池不足时的垄断 chunk —
-            #   升级为 hard gate：超过 constraint_inject_hard_cap 时 score=0。
+            # ── iter600+601+612: Effective Bandwidth Throttle ─────────────
+            # iter612: graduated_bandwidth_penalty — 线性渐进惩罚 [soft_start, hard_cap]
+            #   根因：3192147e（ac=89）在 project 窗口内 util=0.27 恰好低于 hard_cap，
+            #   持续逃逸 → 25/58=43% 注入均含该 chunk。[0.15, 0.30] 区间完全无惩罚。
+            #   修复：util ∈ [hard_cap*0.5, hard_cap] 线性插值 penalty ∈ [1.0, 0.0]
             _rc = _recall_counts.get(chunk.get("id", ""), 0)
             if _rc > 0:
-                # iter610: hard_cap 用 _local_bw_window（不受 memcg inflate），
-                #   soft throttle 保留 _effective_bw_window 防误杀
+                _hard_cap_val = _sysctl("retriever.constraint_inject_hard_cap") or 0.30
                 _hard_util = _rc / _local_bw_window
-                if _hard_util > (_sysctl("retriever.constraint_inject_hard_cap") or 0.30):
-                    score = 0.0  # iter601: hard gate — 与 constraint 路径一致
-                elif (_rc / _effective_bw_window) > (_sysctl("scorer.bw_max_pct") or 0.30):
-                    score *= 0.15
+                if _hard_util > _hard_cap_val:
+                    score = 0.0  # iter601: hard gate
+                else:
+                    _bw_soft_start = _hard_cap_val * 0.5  # 0.15 for default 0.30
+                    if _hard_util > _bw_soft_start:
+                        # iter612: linear ramp from 1.0 → 0.0 over [soft_start, hard_cap]
+                        _bw_penalty = 1.0 - (_hard_util - _bw_soft_start) / (_hard_cap_val - _bw_soft_start)
+                        score *= _bw_penalty
             # ── iter368: Attention Focus Bonus ─────────────────────────────
             # OS 类比：寄存器中的变量零访问延迟 bonus（vs 内存访问 200 cycles）
             # 当前焦点关键词命中 → chunk 进入"注意焦点"→ 激活阈值降低
