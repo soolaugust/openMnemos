@@ -3093,8 +3093,14 @@ _REGISTRY: dict = {
         "access_count >= N 的 chunk 不被合并（已有实战价值）"),
 
     # ── 迭代515：userfaultfd — Demand-Paged Import 按需导入 ──
-    "userfaultfd.import_base_importance": (0.15, float, 0.05, 0.5, None,
-        "import_knowledge 写入 chunks 的基础 importance（低于此值不参与 Top-K 排序）"),
+    # iter599: import_importance_boost — 0.15→0.40 打破 cold-start 死锁
+    # 根因（数据驱动，2026-05-03）：26 个 import chunk 全部 access_count=0。
+    #   importance=0.15 时 retrieval_score ≈ relevance × 0.08，低于 min_score_threshold=0.3，
+    #   永远进不了 top_k → 永远不触发 userfaultfd_promote → 死锁。
+    #   0.50 使 score ≈ relevance × 0.635，rel=0.5 时 score=0.32 > min_threshold=0.30。
+    #   rel≥0.5 的 FTS 命中即可进入 top_k 触发 userfaultfd_promote。
+    "userfaultfd.import_base_importance": (0.50, float, 0.05, 0.6, None,
+        "import_knowledge 写入 chunks 的基础 importance（iter599: 0.15→0.50 打破 cold-start 死锁）"),
     "userfaultfd.import_oom_adj": (300, int, 0, 800, None,
         "import 写入 chunks 的 oom_adj（高值 = 优先被回收，降低 reclaim 压力）"),
     "userfaultfd.promote_importance": (0.75, float, 0.5, 0.95, None,

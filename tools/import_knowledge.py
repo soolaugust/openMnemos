@@ -40,7 +40,7 @@ def _get_import_defaults():
         from config import get as _cfg
         return _cfg("userfaultfd.import_base_importance"), _cfg("userfaultfd.import_oom_adj")
     except Exception:
-        return 0.15, 300
+        return 0.50, 300
 
 
 def make_chunk(chunk_type, summary, content, importance=None, tags=None, source_file=""):
