@@ -3514,6 +3514,9 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 score = 0.0
             elif _recent_7d_counts.get(_cid, 0) >= 5:
                 score = 0.0
+            # iter621: saturation_absolute_suppress — access_count >= 50 且低相关性永久 suppress
+            elif (chunk[_CI_AC] or 0) >= 50 and relevance < 0.30:
+                score = 0.0
             return score
 
         def _score_chunk_dict(chunk, relevance):
@@ -3581,6 +3584,9 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
             if _recent_24h_counts.get(_cid, 0) >= 2:
                 score = 0.0
             elif _recent_7d_counts.get(_cid, 0) >= 5:
+                score = 0.0
+            # iter621: saturation_absolute_suppress — access_count >= 50 且低相关性永久 suppress
+            elif (chunk.get("access_count", 0) or 0) >= 50 and relevance < 0.30:
                 score = 0.0
             return score
 
@@ -3886,6 +3892,9 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 pass
             def _ac_gated_d(c):
                 _cid = c[_CI_ID]
+                # iter621: access_count >= 50 永久 suppress（constraint 通道同步）
+                if (c[_CI_AC] or 0) >= 50:
+                    return False
                 # iter618: 24h + 7d burst suppress 在 constraint 通道生效
                 # iter619: 阈值收紧 24h:3→2, 7d:8→5
                 if _recent_24h_counts.get(_cid, 0) >= 2:

@@ -2021,6 +2021,13 @@ def main():
                 _r7d_ee = _recent_7d_counts.get(chunk.get("id", ""), 0)
                 if _r7d_ee >= 5:
                     return 0.0
+                # iter621: saturation_absolute_suppress — 累积注入过饱和永久 suppress
+                # 根因：24h/7d burst suppress 有时间窗口，超高 access chunk 在窗口滑过后复活。
+                #   3192147e(ac=89) 和 b50e0b54(ac=46) 已被充分内化，边际信息≈0。
+                # 修复：access_count >= 50 → early exit 直接返回 0（不依赖时间窗口）。
+                _acc_ee = chunk.get("access_count", 0) or 0
+                if _acc_ee >= 50:
+                    return 0.0
                 return float(chunk.get("importance", 0.5)) * 0.1  # 极低相关性：快速降权
             # 迭代322: Query-Conditioned Importance — 动态 α
             # OS 类比：CPUFreq P-state — 高负载（高 relevance）降低 importance 依赖；
@@ -2082,12 +2089,19 @@ def main():
                 _matched = sum(1 for kw in _pattern_keywords if kw in _summary_lower)
                 if _matched > 0:
                     score += min(0.10, _matched * 0.03)
+            # ── iter621: saturation_absolute_suppress — 累积过饱和 suppress ──
+            # 根因：24h/7d burst suppress 有时间窗口限制，一旦旧注入记录滑出窗口，
+            #   垄断 chunk 复活。access_count >= 50 且 relevance < 0.30 → 永久 suppress。
+            #   仅 relevance >= 0.30（真正高相关）时允许再次注入，防误杀。
+            _acc = chunk.get("access_count", 0) or 0
+            if _acc >= 50 and relevance < 0.30:
+                score = 0.0
+                _hard_suppressed = True
             # ── 迭代333：TMV Multiplicative Saturation Discount ──────────────
             # 信息论基础：高 access_count chunk 已被 agent "内化"，边际信息趋零。
             # OS 类比：NUMA remote node penalty — acc 越高越像"远端内存"，成本高于收益。
             # 乘法折扣（vs saturation_penalty 的加法）才能真正降权高 relevance 的饱和 chunk。
             # design_constraint/semantic 类型保护：floor=0.55 确保不被完全排除。
-            _acc = chunk.get("access_count", 0) or 0
             if _acc >= _tmv_acc_threshold:
                 _tmv_mult = _tmv_saturation_discount(_acc)
                 score *= _tmv_mult
@@ -3351,6 +3365,10 @@ def main():
             _session_constraint_cap = 2
             def _ac_gated(c):
                 _cid = c.get("id", "")
+                # iter621: access_count >= 50 永久 suppress（constraint 通道同步）
+                _ac_abs = c.get("access_count", 0) or 0
+                if _ac_abs >= 50:
+                    return False
                 # iter617: 24h burst suppress 也在 constraint 通道生效
                 # iter619: 阈值收紧 24h:3→2, 7d:8→5
                 if _recent_24h_counts.get(_cid, 0) >= 2:
