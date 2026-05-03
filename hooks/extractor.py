@@ -1758,6 +1758,15 @@ def _vma_validate(summary: str) -> bool:
     # V4 行号引用前缀（'line 547:'、'L1260:'、'第42行'）
     if re.match(r'^(?:line\s+\d+|L\d+|第\d+行)\s*[:：]', s, re.I):
         return False
+    # V5 iter593: self-referential noise — memory-os 实现细节不是用户知识
+    _code_idents = ('top_k', 'recall_count', 'thrash_max_pct', 'bw_window',
+                    'same_hash', '_sysctl', '_effective', 'chunk_type',
+                    'retriever.', 'extractor.', 'retriever_daemon',
+                    'pre_hash_thrash', 'thrash_suppress', '_write_chunk',
+                    '_seal_check', '_vma_validate', 'insert_chunk')
+    _sl = s.lower()
+    if any(ci in _sl for ci in _code_idents):
+        return False
     return True
 
 

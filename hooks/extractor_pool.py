@@ -125,6 +125,17 @@ def _seal_check_reject(text: str) -> bool:
         return True
     if len(_re.findall(r'"[\w_]+"\s*:', text)) >= 2:
         return True
+    # iter593: self-referential noise — memory-os 自身实现细节不是用户知识
+    # 根因：iterate.sh agent 修改代码时，extractor 把实现决策写成 chunk，87% 零访问。
+    # 检测特征：含代码标识符（变量名/函数名格式）= 在描述代码实现而非领域知识。
+    _code_idents = ('top_k', 'recall_count', 'thrash_max_pct', 'bw_window',
+                    'same_hash', '_sysctl', '_effective', 'chunk_type',
+                    'retriever.', 'extractor.', 'retriever_daemon',
+                    'pre_hash_thrash', 'thrash_suppress', '_write_chunk',
+                    '_seal_check', '_vma_validate', 'insert_chunk')
+    _tl = text.lower()
+    if any(ci in _tl for ci in _code_idents):
+        return True
     return False
 
 
