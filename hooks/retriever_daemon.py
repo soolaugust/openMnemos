@@ -1665,6 +1665,7 @@ def _load_all_modules():
             " JOIN memory_chunks mc ON mc.rowid = CAST(memory_chunks_fts.rowid_ref AS INTEGER)"
             " WHERE memory_chunks_fts MATCH ?"
             " AND mc.summary != ''"
+            " AND COALESCE(mc.access_count, 0) < 30"
         )
         def _run_fts_raw(conn, match_expr, project_filter, top_k, chunk_types):
             """Run FTS SQL and return raw tuples (no dict construction)."""
