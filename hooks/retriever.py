@@ -1731,6 +1731,28 @@ def main():
                         if _cnt_24h > 0:
                             _recent_24h_counts[_cid647] = _cnt_24h
                 _injection_timeline = _pruned
+                # ── iter659: timeline_ghost_gc — 清理已删除 chunk 的 timeline 条目 ──
+                # 根因：chunk 被删除/swap 后 timeline 残留幽灵条目（实测 27 条），
+                #   浪费 JSON 读写 I/O 且污染 7d 计数上限估算。
+                if _pruned:
+                    _alive_ids = set()
+                    try:
+                        _id_list = list(_pruned.keys())
+                        for _batch_start in range(0, len(_id_list), 50):
+                            _batch = _id_list[_batch_start:_batch_start+50]
+                            _ph = ",".join("?" for _ in _batch)
+                            _alive_ids.update(
+                                r[0] for r in _rc_conn.execute(
+                                    f"SELECT id FROM memory_chunks WHERE id IN ({_ph})", _batch
+                                ).fetchall()
+                            )
+                        _ghost_count = len(_pruned) - len(_alive_ids)
+                        if _ghost_count > 0:
+                            _injection_timeline = {k: v for k, v in _pruned.items() if k in _alive_ids}
+                            _recent_24h_counts = {k: v for k, v in _recent_24h_counts.items() if k in _alive_ids}
+                            _recent_7d_counts = {k: v for k, v in _recent_7d_counts.items() if k in _alive_ids}
+                    except Exception:
+                        pass
             except Exception:
                 pass
             _rc_conn.close()
@@ -2205,10 +2227,10 @@ def main():
                 score = 0.0
                 _hard_suppressed = True  # iter616
             # ── iter618: 7d_rolling_suppress — 长期慢性垄断 suppress ────────
-            # 同一 chunk 在 7 天内注入 >=5 次 → suppress（score=0）
-            # iter619: 阈值 8→5，数据驱动：43 traces 中 top2 占 62.8%
+            # 同一 chunk 在 7 天内注入 >=4 次 → suppress（score=0）
+            # iter619: 8→5; iter659: 5→4，数据驱动：迭代器决策 chunk 4次/7d 仍逃逸
             _r7d_cnt = _recent_7d_counts.get(chunk.get("id", ""), 0)
-            if _r7d_cnt >= 5:
+            if _r7d_cnt >= 4:
                 score = 0.0
                 _hard_suppressed = True
             # ── iter368: Attention Focus Bonus ─────────────────────────────
@@ -3489,11 +3511,11 @@ def main():
                 if _ac_abs >= 15:
                     return False
                 # iter617: 24h burst suppress 也在 constraint 通道生效
-                # iter619: 阈值收紧 24h:3→2, 7d:8→5
+                # iter619: 阈值收紧 24h:3→2, 7d:8→5; iter659: 7d 5→4
                 if _recent_24h_counts.get(_cid, 0) >= 2:
                     return False
                 # iter618: 7d rolling suppress 也在 constraint 通道生效
-                if _recent_7d_counts.get(_cid, 0) >= 5:
+                if _recent_7d_counts.get(_cid, 0) >= 4:
                     return False
                 # iter608: session-level constraint dedup — 早于全局 cap 拦截
                 _sinj = _session_injection_counts.get(_cid, 0)

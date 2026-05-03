@@ -3575,7 +3575,7 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
             # iter619: 阈值收紧 24h:3→2, 7d:8→5
             if _recent_24h_counts.get(_cid, 0) >= 2:
                 score = 0.0
-            elif _recent_7d_counts.get(_cid, 0) >= 5:
+            elif _recent_7d_counts.get(_cid, 0) >= 4:
                 score = 0.0
             # iter622: saturation_absolute_suppress — access_count >= 30 永久 suppress
             elif (chunk[_CI_AC] or 0) >= 30:
@@ -3646,7 +3646,7 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
             # iter619: 阈值收紧 24h:3→2, 7d:8→5
             if _recent_24h_counts.get(_cid, 0) >= 2:
                 score = 0.0
-            elif _recent_7d_counts.get(_cid, 0) >= 5:
+            elif _recent_7d_counts.get(_cid, 0) >= 4:
                 score = 0.0
             # iter622: saturation_absolute_suppress — access_count >= 30 永久 suppress
             elif (chunk.get("access_count", 0) or 0) >= 30:
@@ -3766,6 +3766,16 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 return
 
             _bm25_global_discount = sysctl("retriever.bm25_global_discount")
+            # iter657: 当前 project 无 chunk 时跳过 global discount
+            # 根因：project 解析为 abspath:xxx 但 DB 中无该 project chunk，
+            # 所有候选均来自 global，discount 后全部低于 min_score → top_k=0。
+            # 修复：无本地 chunk 时 discount=1.0（global 是唯一信息源，不应惩罚）
+            if project and project != "global":
+                _local_count = conn.execute(
+                    "SELECT COUNT(*) FROM memory_chunks WHERE project=?", (project,)
+                ).fetchone()[0]
+                if _local_count == 0:
+                    _bm25_global_discount = 1.0
             _cv = read_chunk_version()
             # iter207: fast path — _retrieve_types is module constant in ~100% of cases
             _rtypes_key = (_ALL_RETRIEVE_TYPES_KEY if _retrieve_types is _ALL_RETRIEVE_TYPES_CONST
@@ -3983,7 +3993,7 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 # iter619: 阈值收紧 24h:3→2, 7d:8→5
                 if _recent_24h_counts.get(_cid, 0) >= 2:
                     return False
-                if _recent_7d_counts.get(_cid, 0) >= 5:
+                if _recent_7d_counts.get(_cid, 0) >= 4:
                     return False
                 # iter608: session-level constraint dedup
                 if _d_session_inj_counts.get(_cid, 0) >= _d_session_cap:
