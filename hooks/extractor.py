@@ -1778,6 +1778,18 @@ def _vma_validate(summary: str) -> bool:
         return False
     if len(s) <= 30 and not re.search(r'[A-Za-z0-9/_.→:：]', s):
         return False
+    # V7 iter597: memory_os_meta_gate — 拦截迭代器对 memory-os 自身的分析产出
+    # 根因（数据驱动）：41 个零访问 chunk 中 7 个是迭代器分析 memory-os 行为的"决策"，
+    #   如 "注入垄断 — feishu CLI (ac=46, 注入14次)"、"session dedup 宽松系数"。
+    #   V5 的 _code_idents 拦截了代码标识符，但中文描述的内部概念漏网。
+    _MEMORYOS_META = (
+        '注入垄断', '零访问', 'session dedup', '写入门控', '噪声写入',
+        '去垄断', 'chunk 零', 'recall_trace', 'inject_hard_cap',
+        'access_count', 'ephemeral_type', 'monopoly_gate',
+        '迭代器自身', '迭代器噪声',
+    )
+    if any(m in s for m in _MEMORYOS_META):
+        return False
     return True
 
 
@@ -1794,6 +1806,13 @@ def _write_chunk(chunk_type: str, summary: str, project: str, session_id: str,
     迭代301：新增 stability 初始值（importance * 2.0）。
     迭代306：新增 raw_snippet（写入时保真原始片段，≤500字，可选）。
     """
+    # iter596: ephemeral_type_gate — 拒绝写入临时/无跨会话价值的 chunk 类型
+    # 根因（数据驱动）：38% chunk 零访问，其中 4 条 conversation_summary/prompt_context
+    # 是迭代器自身写入的噪声（重复提示词、轮次计数），从未被用户召回。
+    # 这些类型天然短暂（会话级），写入 store 只增加 FTS 噪声和 swap 压力。
+    _EPHEMERAL_TYPES = {"prompt_context", "conversation_summary"}
+    if chunk_type in _EPHEMERAL_TYPES:
+        return
     importance_map = {
         "decision": 0.85,
         "reasoning_chain": 0.80,
