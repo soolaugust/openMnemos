@@ -146,8 +146,8 @@ def _load_modules():
                        psi_stats as _psi_stats, mglru_promote as _mglru_promote,
                        readahead_pairs as _readahead_pairs,
                        context_pressure_governor as _context_pressure_governor,
-                       chunk_recall_counts as _chunk_recall_counts,
-                       chunk_recall_counts_memcg as _chunk_recall_counts_memcg)
+                       chunk_recall_counts as _chunk_recall_counts)
+    from store_criu import chunk_recall_counts_memcg as _chunk_recall_counts_memcg
     from store import DMESG_INFO as _DMESG_INFO, DMESG_WARN as _DMESG_WARN, DMESG_DEBUG as _DMESG_DEBUG
     from bm25 import hybrid_tokenize as _hybrid_tokenize, bm25_scores as _bm25_scores, normalize as _normalize, bm25_scores_cached as _bm25_scores_cached
     from store_vfs import read_chunk_version as _read_chunk_version
@@ -412,7 +412,11 @@ def _vdso_fast_exit() -> bool:
     except Exception:
         hook_input = {}
 
-    prompt = (hook_input.get("prompt", "") or "").strip()
+    # iter685: 兼容 Claude Code hook input 格式
+    # Claude Code 发送 {"hookSpecificInput": {"userMessage": "..."}}
+    # 旧格式用 "prompt" 字段（兼容保留）
+    _hsi = hook_input.get("hookSpecificInput", {})
+    prompt = (_hsi.get("userMessage", "") or hook_input.get("prompt", "") or "").strip()
 
     # ── Stage 0：SKIP 快速判断（零 I/O，<1ms）──
     # 条件：prompt 匹配 SKIP 模式 + 无技术信号 + 无未消费的缺页日志
@@ -1938,7 +1942,8 @@ def main():
 
         # ── FTS5 索引召回（迭代23 ext3 htree）──
         try:
-            fts_results = fts_search(conn, query, project, top_k=effective_top_k * _oversample_factor,
+            # iter685: 全库搜索（与 daemon iter657 对齐，消除 project 孤岛化）
+            fts_results = fts_search(conn, query, None, top_k=effective_top_k * _oversample_factor,
                                      chunk_types=_retrieve_types)
             # iter526: 排除 loader 已注入的 chunk IDs（避免双重映射）
             if _loader_exclude_ids and fts_results:
@@ -3734,7 +3739,7 @@ def main():
                             conn.close()
                             conn = _open_db_readonly()
                             # 重新检索（swap in 后主表有新数据）
-                            fts_results = fts_search(conn, query, project, top_k=effective_top_k * 3,
+                            fts_results = fts_search(conn, query, None, top_k=effective_top_k * 3,
                                                      chunk_types=_retrieve_types)
                             if fts_results:
                                 max_rank = max(c["fts_rank"] for c in fts_results) if fts_results else 1.0
