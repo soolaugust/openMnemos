@@ -4137,6 +4137,45 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
         # 条件：access_count >= 30 的 chunk 不得出现在最终注入列表中。
         _pre_postfilter = len(top_k)
         top_k = [(s, c) for s, c in top_k if (c[_CI_AC] or 0) < 30]
+        # ── iter663: suppress_final_gate — 24h/7d suppress 实时 DB 兜底 ──
+        # 根因同 retriever.py：_score_chunk 内 24h/7d suppress 依赖进程启动时
+        #   一次性计算的计数。并发 session timeline 写入无锁 → 读到旧值 → 逃逸。
+        # 修复：在最终门禁实时查 recall_traces 计数。
+        if top_k:
+            try:
+                import sqlite3 as _sf663d
+                from datetime import datetime as _dt663d, timezone as _tz663d, timedelta as _td663d
+                _sf663d_conn = _sf663d.connect(str(STORE_DB))
+                _sf663d_now = _dt663d.now(_tz663d.utc)
+                _cut663d_24h = (_sf663d_now - _td663d(hours=24)).isoformat()
+                _cut663d_7d = (_sf663d_now - _td663d(days=7)).isoformat()
+                _rt663d_24h = {}
+                _rt663d_7d = {}
+                for (_tk663d, _ts663d) in _sf663d_conn.execute(
+                        "SELECT top_k_json, timestamp FROM recall_traces "
+                        "WHERE injected=1 AND timestamp>?", (_cut663d_7d,)).fetchall():
+                    if not _tk663d: continue
+                    try:
+                        for _it663d in json.loads(_tk663d):
+                            _c663d = _it663d.get("id", "") if isinstance(_it663d, dict) else ""
+                            if _c663d:
+                                _rt663d_7d[_c663d] = _rt663d_7d.get(_c663d, 0) + 1
+                                if _ts663d and _ts663d > _cut663d_24h:
+                                    _rt663d_24h[_c663d] = _rt663d_24h.get(_c663d, 0) + 1
+                    except Exception:
+                        continue
+                _sf663d_conn.close()
+                _pre663d = len(top_k)
+                top_k = [(s, c) for s, c in top_k
+                         if _rt663d_24h.get(c[_CI_ID], 0) < 2
+                         and _rt663d_7d.get(c[_CI_ID], 0) < 4]
+                if len(top_k) < _pre663d:
+                    _deferred.log(DMESG_WARN, "retriever_daemon",
+                                  f"iter663_suppress_final_gate: filtered "
+                                  f"{_pre663d - len(top_k)} chunks (24h/7d realtime)",
+                                  session_id=session_id, project=project)
+            except Exception:
+                pass
         if not top_k:
             return
         top_k_ids = sorted([c[_CI_ID] for _, c in top_k])  # iter235

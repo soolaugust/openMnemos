@@ -2932,6 +2932,17 @@ def main():
             _mpf_live = _live_access_counts([c["id"] for _, c in top_k])
             top_k = [(s, c) for s, c in top_k
                      if (_mpf_live.get(c["id"], c.get("access_count", 0) or 0)) < 30]
+            # ── iter663: suppress_final_gate — 24h/7d suppress 在最终门禁兜底 ──
+            # 根因（数据驱动，2026-05-04）：24h suppress 在 _score_chunk 内依赖
+            #   闭包变量 _recent_24h_counts，但该变量在进程启动时一次性从 timeline
+            #   文件+recall_traces 计算。并发 session 写入 timeline 无锁 → 读到旧值
+            #   → 24h>=2 条件不满足 → suppress 被绕过。
+            #   实测：import-6cc32f2ff 24h 注入 4 次（应在第 3 次被拦截）。
+            # 修复：hard_deadline 路径用闭包变量做零成本兜底。
+            if top_k:
+                top_k = [(s, c) for s, c in top_k
+                         if _recent_24h_counts.get(c["id"], 0) < 2
+                         and _recent_7d_counts.get(c["id"], 0) < 4]
             if top_k:
                 # 快速路径：直接组装输出
                 top_k_ids = sorted([c["id"] for _, c in top_k])
@@ -3856,6 +3867,47 @@ def main():
         _mpf_live = _live_access_counts([c["id"] for _, c in top_k])
         top_k = [(s, c) for s, c in top_k
                  if (_mpf_live.get(c["id"], c.get("access_count", 0) or 0)) < 30]
+        # ── iter663: suppress_final_gate — FULL 路径用实时 DB 查询兜底 ──
+        # 根因（数据驱动，2026-05-04）：_score_chunk 内 24h suppress 依赖
+        #   进程启动时一次性计算的 _recent_24h_counts。并发 session 写入
+        #   timeline 文件无锁 → 读到旧值 → suppress 被绕过。
+        #   实测：import-6cc32f2ff 24h 内注入 4 次（应在第 3 次被拦截）。
+        # 修复：FULL 路径有时间预算，实时从 recall_traces 查询 24h/7d 计数。
+        if top_k:
+            try:
+                import sqlite3 as _sf663
+                from datetime import datetime as _dt663, timezone as _tz663, timedelta as _td663
+                _sf663_conn = _sf663.connect(str(STORE_DB))
+                _sf663_now = _dt663.now(_tz663.utc)
+                _cut663_24h = (_sf663_now - _td663(hours=24)).isoformat()
+                _cut663_7d = (_sf663_now - _td663(days=7)).isoformat()
+                _rt663_24h = {}
+                _rt663_7d = {}
+                for (_tk663, _ts663) in _sf663_conn.execute(
+                        "SELECT top_k_json, timestamp FROM recall_traces "
+                        "WHERE injected=1 AND timestamp>?", (_cut663_7d,)).fetchall():
+                    if not _tk663: continue
+                    try:
+                        for _it663 in json.loads(_tk663):
+                            _c663 = _it663.get("id", "") if isinstance(_it663, dict) else ""
+                            if _c663:
+                                _rt663_7d[_c663] = _rt663_7d.get(_c663, 0) + 1
+                                if _ts663 and _ts663 > _cut663_24h:
+                                    _rt663_24h[_c663] = _rt663_24h.get(_c663, 0) + 1
+                    except Exception:
+                        continue
+                _sf663_conn.close()
+                _pre663 = len(top_k)
+                top_k = [(s, c) for s, c in top_k
+                         if _rt663_24h.get(c["id"], 0) < 2
+                         and _rt663_7d.get(c["id"], 0) < 4]
+                if len(top_k) < _pre663:
+                    _deferred.log(DMESG_WARN, "retriever",
+                                  f"iter663_suppress_final_gate: filtered "
+                                  f"{_pre663 - len(top_k)} chunks (24h/7d realtime)",
+                                  session_id=session_id, project=project)
+            except Exception:
+                pass  # 兜底查询失败不阻塞
         if not top_k:
             return
         top_k_ids = sorted([c["id"] for _, c in top_k])
