@@ -3509,9 +3509,10 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                         _bw_penalty = 1.0 - (_hard_util_sc - _bw_soft_start) / (_inject_hard_cap - _bw_soft_start)
                         score *= _bw_penalty
             # iter618: 24h + 7d burst suppress（daemon 此前完全缺失）
-            if _recent_24h_counts.get(_cid, 0) >= 3:
+            # iter619: 阈值收紧 24h:3→2, 7d:8→5
+            if _recent_24h_counts.get(_cid, 0) >= 2:
                 score = 0.0
-            elif _recent_7d_counts.get(_cid, 0) >= 8:
+            elif _recent_7d_counts.get(_cid, 0) >= 5:
                 score = 0.0
             return score
 
@@ -3576,9 +3577,10 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                         _bw_pen_d = 1.0 - (_hard_util_sd - _bw_soft_start_d) / (_inject_hard_cap - _bw_soft_start_d)
                         score *= _bw_pen_d
             # iter618: 24h + 7d burst suppress（daemon 此前完全缺失）
-            if _recent_24h_counts.get(_cid, 0) >= 3:
+            # iter619: 阈值收紧 24h:3→2, 7d:8→5
+            if _recent_24h_counts.get(_cid, 0) >= 2:
                 score = 0.0
-            elif _recent_7d_counts.get(_cid, 0) >= 8:
+            elif _recent_7d_counts.get(_cid, 0) >= 5:
                 score = 0.0
             return score
 
@@ -3883,9 +3885,10 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
             def _ac_gated_d(c):
                 _cid = c[_CI_ID]
                 # iter618: 24h + 7d burst suppress 在 constraint 通道生效
-                if _recent_24h_counts.get(_cid, 0) >= 3:
+                # iter619: 阈值收紧 24h:3→2, 7d:8→5
+                if _recent_24h_counts.get(_cid, 0) >= 2:
                     return False
-                if _recent_7d_counts.get(_cid, 0) >= 8:
+                if _recent_7d_counts.get(_cid, 0) >= 5:
                     return False
                 # iter608: session-level constraint dedup
                 if _d_session_inj_counts.get(_cid, 0) >= _d_session_cap:

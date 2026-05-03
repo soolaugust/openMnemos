@@ -1709,8 +1709,9 @@ def main():
             #   如果 chunk 每天注入 2 次持续 7 天（总计 14 次），24h 永远 <3 不触发。
             #   实测：3192147e 7天注入 15 次（34.9%），b50e0b54 12 次（27.9%），
             #   两个 chunk 占 7 天总注入的 62.8%，严重挤占其他知识。
-            # 修复：7 天窗口内注入 >=8 次 → suppress。阈值比 24h 宽松（8 vs 3），
+            # 修复：7 天窗口内注入 >=5 次 → suppress。阈值比 24h 宽松（5 vs 2），
             #   但覆盖"每天少量、长期累积"的慢性垄断模式。
+            # iter619: 阈值从 8 降至 5（数据驱动：top2 chunk 7d=15/12，占 62.8% slot）。
             _recent_7d_counts = {}
             try:
                 _r7d_cur = _rc_conn.execute(
@@ -2011,12 +2012,14 @@ def main():
                 # iter617: early exit 也必须检查 24h_burst_suppression
                 # 根因：高 importance chunk (0.9) 走 early exit 返回 0.09，跳过 2084 行的
                 #   24h suppress → feishu CLI 7天12次注入全部逃逸（每次不同 session）。
+                # iter619: 24h 阈值 3→2，同一天看过 2 次已足够
                 _r24_ee = _recent_24h_counts.get(chunk.get("id", ""), 0)
-                if _r24_ee >= 3:
+                if _r24_ee >= 2:
                     return 0.0
                 # iter618: early exit 也检查 7d_rolling_suppress
+                # iter619: 7d 阈值 8→5，43 traces 中 2 chunk 占 62.8%→更早介入
                 _r7d_ee = _recent_7d_counts.get(chunk.get("id", ""), 0)
-                if _r7d_ee >= 8:
+                if _r7d_ee >= 5:
                     return 0.0
                 return float(chunk.get("importance", 0.5)) * 0.1  # 极低相关性：快速降权
             # 迭代322: Query-Conditioned Importance — 动态 α
@@ -2117,15 +2120,17 @@ def main():
                         _bw_penalty = 1.0 - (_hard_util - _bw_soft_start) / (_hard_cap_val - _bw_soft_start)
                         score *= _bw_penalty
             # ── iter614: temporal_burst_suppression — 24h 注入频率 cap ─────────
-            # 同一 chunk 在 24h 内注入 >=3 次 → suppress（score=0）
+            # 同一 chunk 在 24h 内注入 >=2 次 → suppress（score=0）
+            # iter619: 阈值 3→2，同日看 2 次已足够，第 3 次起 suppress
             _r24_cnt = _recent_24h_counts.get(chunk.get("id", ""), 0)
-            if _r24_cnt >= 3:
+            if _r24_cnt >= 2:
                 score = 0.0
                 _hard_suppressed = True  # iter616
             # ── iter618: 7d_rolling_suppress — 长期慢性垄断 suppress ────────
-            # 同一 chunk 在 7 天内注入 >=8 次 → suppress（score=0）
+            # 同一 chunk 在 7 天内注入 >=5 次 → suppress（score=0）
+            # iter619: 阈值 8→5，数据驱动：43 traces 中 top2 占 62.8%
             _r7d_cnt = _recent_7d_counts.get(chunk.get("id", ""), 0)
-            if _r7d_cnt >= 8:
+            if _r7d_cnt >= 5:
                 score = 0.0
                 _hard_suppressed = True
             # ── iter368: Attention Focus Bonus ─────────────────────────────
@@ -3342,10 +3347,11 @@ def main():
             def _ac_gated(c):
                 _cid = c.get("id", "")
                 # iter617: 24h burst suppress 也在 constraint 通道生效
-                if _recent_24h_counts.get(_cid, 0) >= 3:
+                # iter619: 阈值收紧 24h:3→2, 7d:8→5
+                if _recent_24h_counts.get(_cid, 0) >= 2:
                     return False
                 # iter618: 7d rolling suppress 也在 constraint 通道生效
-                if _recent_7d_counts.get(_cid, 0) >= 8:
+                if _recent_7d_counts.get(_cid, 0) >= 5:
                     return False
                 # iter608: session-level constraint dedup — 早于全局 cap 拦截
                 _sinj = _session_injection_counts.get(_cid, 0)
