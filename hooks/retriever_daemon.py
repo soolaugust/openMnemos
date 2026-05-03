@@ -3845,6 +3845,15 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
             if not chunks:
                 return
             candidates_count = len(chunks)
+            # iter683: raw_relevance_gate — 绝对相关性门槛
+            # 根因（用户可感知）：normalize 是相对排名（max=1.0），当 DB 中无真正相关 chunk 时，
+            # 噪声匹配（中文通用 bigram 重叠）被放大到 1.0 超过阈值 → 注入不相关内容。
+            # 实测：真正相关时 raw max > 10（飞书=21, Android=28），噪声时 raw max < 5（睾酮=3.9, 继续迭代=2.3）。
+            # 修复：raw max < 6.0 时直接跳过注入（宁可不注入也不注入垃圾）。
+            _raw_max = max(raw_scores) if raw_scores else 0
+            if _raw_max < 6.0:
+                # 无真正相关内容，退出（不写 trace 污染统计）
+                return
             relevance_scores = normalize(raw_scores)
             final = []
             for i, chunk in enumerate(chunks):
