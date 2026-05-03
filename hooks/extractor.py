@@ -1254,7 +1254,10 @@ def _is_quality_chunk(summary: str) -> bool:
     #   对用户无检索价值（ac=0）。特征：含 memory-os 内部指标术语 + 无决策动词。
     _ITERATOR_DIAG_KW = re.compile(
         r'(?:垄断\s*chunk|注入的?\s*\d|access.count|recall.count|zero.access|'
-        r'top_k|anti.monopoly|bandwidth.throttle|hard.cap|suppress)',
+        r'top_k|anti.monopoly|bandwidth.throttle|hard.cap|suppress|'
+        # iter661: 补充逃逸模式 — daemon 指标行/幽灵 chunk/项目孤岛化
+        r'injected=\d|candidates=\d|幽灵\s*chunk|幽灵条目|项目孤岛化|'
+        r'Timeline\s*条目|知识完全不可见)',
         re.I
     )
     if _ITERATOR_DIAG_KW.search(s):
@@ -1403,6 +1406,8 @@ def _is_quality_chunk(summary: str) -> bool:
         # 根因：ac>=50/逃逸率/垄断/iter\d+/zero_access 等迭代术语只匹配 0-1 次→漏网
         r'ac[>=]+\d|iter\d{3}|垄断|逃逸|burst|saturation|'
         r'zero.access|relevance.{0,3}[<>0]|slot.?位|注入占比|'
+        # iter661: ghost_gc/幽灵/孤岛化 — daemon 清理逻辑的常见漏网词
+        r'ghost.?gc|幽灵条目|幽灵.*chunk|孤岛化|'
         r'daemon|priming|refault|thrash)',
         s, re.I
     )

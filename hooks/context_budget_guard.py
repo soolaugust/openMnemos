@@ -256,6 +256,12 @@ def _db_vacuum(db_path: Path):
                     OR summary LIKE '%PSI 永久 FULL%'
                     OR summary LIKE '%系统膨胀%Hook 合并%'
                     OR summary LIKE '%extractor_pool._write_chunks%'
+                    OR summary LIKE '%ghost_gc%'
+                    OR summary LIKE '%幽灵条目%suppress%'
+                    OR summary LIKE '%幽灵%chunk%清除%'
+                    OR summary LIKE '%Timeline 条目%'
+                    OR summary LIKE '%项目孤岛化%'
+                    OR summary LIKE '%daemon injected=%'
                 )
             """).rowcount
             freed_total += _noise_deleted
