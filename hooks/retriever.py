@@ -1967,6 +1967,7 @@ def main():
             pass
 
         def _score_chunk(chunk, relevance):
+            _hard_suppressed = False  # iter616: final_hard_gate flag
             # ── B13: Lazy Scoring Early Exit — 极低 relevance 跳过全量计算 ────
             # OS 类比：Linux speculative execution abort — 分支预测失败时丢弃管线，
             #   不把无效结果写入 register file；relevance≈0 的 chunk 即使算完也会被排出 top-K。
@@ -2071,6 +2072,7 @@ def main():
                 _hard_util = _rc / _local_bw_window
                 if _hard_util > _hard_cap_val:
                     score = 0.0  # iter601: hard gate
+                    _hard_suppressed = True  # iter616
                 else:
                     _bw_soft_start = _hard_cap_val * 0.5  # 0.15 for default 0.30
                     if _hard_util > _bw_soft_start:
@@ -2082,6 +2084,7 @@ def main():
             _r24_cnt = _recent_24h_counts.get(chunk.get("id", ""), 0)
             if _r24_cnt >= 3:
                 score = 0.0
+                _hard_suppressed = True  # iter616
             # ── iter368: Attention Focus Bonus ─────────────────────────────
             # OS 类比：寄存器中的变量零访问延迟 bonus（vs 内存访问 200 cycles）
             # 当前焦点关键词命中 → chunk 进入"注意焦点"→ 激活阈值降低
@@ -2247,6 +2250,14 @@ def main():
                         score *= 0.50
             except Exception:
                 pass
+            # ── iter616: final_hard_gate — 防止 additive bonus 绕过 hard suppression ──
+            # 根因：24h_burst_suppression (iter614) 和 bandwidth_hard_cap (iter601) 设
+            #   score=0.0，但后续 focus_bonus/emotional_boost/priming_boost 是 += 操作，
+            #   将 score 从 0.0 抬回 ~0.0001，使被 suppress 的 chunk 仍进入 top-K。
+            #   实测：feishu CLI chunk 24h 注入 12 次 (>=3 应 suppress)，score=0.0001 仍入选。
+            # 修复：在所有 bonus 之后、return 之前，硬性归零。
+            if _hard_suppressed:
+                return 0.0
             return score
 
         # ── 迭代357：Working Set TLB Probe（pre-FTS5 热数据快速命中）──
