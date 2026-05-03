@@ -3260,12 +3260,18 @@ def main():
                 if _rel == 0:
                     return False
                 _ac = c.get("access_count", 0) or 0
-                # iter609: progressive_relevance_gate — 高 access_count 需更高 relevance
-                # 根因：iter595 线性 penalty 太弱（ac=46 → penalty=0.043），单词重叠
-                # 就通过门控。改用对数递增：ac=20→0.10, ac=46→0.15, ac=89→0.18。
-                # 效果：已被注入 46 次的 chunk 需 Jaccard>0.20 才能再次注入。
+                # iter611: two_phase_relevance_gate — ac>30 加速衰减防垄断
+                # 根因：iter609 penalty 上限 0.20 太低（ac=89 → 0.175），
+                #   3192147e/b50e0b54 占 28% 注入量仍未被有效抑制。
+                # 修复：ac≤30 保持原逻辑；ac>30 切入更陡斜率，上限 0.40。
+                #   效果：ac=46→thresh=0.42, ac=89→thresh=0.45（近乎精准匹配才注入）
                 import math as _m609
-                _ac_penalty = min(0.20, _m609.log1p(max(0, _ac - 10)) * 0.04) if _ac > 10 else 0.0
+                if _ac <= 10:
+                    _ac_penalty = 0.0
+                elif _ac <= 30:
+                    _ac_penalty = min(0.20, _m609.log1p(_ac - 10) * 0.04)
+                else:
+                    _ac_penalty = 0.20 + min(0.20, _m609.log1p(_ac - 30) * 0.06)
                 _eff_min_rel = _constraint_min_rel + _ac_penalty
                 if _rel < _eff_min_rel:
                     return False
