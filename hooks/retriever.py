@@ -2136,13 +2136,20 @@ def main():
                 # 根因：高 importance chunk (0.9) 走 early exit 返回 0.09，跳过 2084 行的
                 #   24h suppress → feishu CLI 7天12次注入全部逃逸（每次不同 session）。
                 # iter619: 24h 阈值 3→2，同一天看过 2 次已足够
+                # iter796: ee_suppress_sync_tinydb — early exit 阈值同步 tiny_db 放宽
+                # 根因（数据驱动，2026-05-04）：评分路径 tiny_db 24h 阈值=4~5，但
+                #   early exit 固定 >=2 → 34 chunk 小库中 24h=2 即全灭（56% 空召回）。
+                #   early exit 是 relevance<0.005 路径，score 必然低，用低分阈值对齐。
                 _r24_ee = _recent_24h_counts.get(chunk.get("id", ""), 0)
-                if _r24_ee >= 2:
+                _ee_24h_thresh = 4 if candidates_count < 30 else 3 if candidates_count < 100 else 2
+                if _r24_ee >= _ee_24h_thresh:
                     return 0.0
                 # iter618: early exit 也检查 7d_rolling_suppress
                 # iter619: 8→5; iter664: 5→3，与评分阶段阈值统一
+                # iter796: 同步 tiny_db 放宽
                 _r7d_ee = _recent_7d_counts.get(chunk.get("id", ""), 0)
-                if _r7d_ee >= 3:
+                _ee_7d_thresh = 8 if candidates_count < 30 else 5 if candidates_count < 100 else 3
+                if _r7d_ee >= _ee_7d_thresh:
                     return 0.0
                 # iter621→622: saturation_absolute_suppress — 累积注入过饱和永久 suppress
                 # iter642: 用 live ac 替代 immutable 连接的 stale ac
