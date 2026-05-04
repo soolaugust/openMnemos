@@ -3610,7 +3610,13 @@ def main():
                     return False
                 _rel = _constraint_relevance(c)
                 # iter598: zero relevance gate — 与 query 零词重叠的 constraint 无条件拦截
-                if _rel == 0:
+                # iter692: global_high_imp_exempt — global+imp>=0.9 的通用约束豁免 zero_rel gate
+                #   根因（数据驱动，2026-05-04）：2 个 imp=0.9 global constraint（用户偏好、
+                #   memory 验证路径）被 supplement 加入候选池但 Jaccard=0 被拦截，永远 ac=0。
+                #   这些是跨项目通用约束，与 query 词不重叠是正常的（非相关性不足）。
+                #   24h/7d suppress 已足够控制垄断。
+                _is_global_high = (c.get("project") == "global" and (c.get("importance") or 0) >= 0.9)
+                if _rel == 0 and not _is_global_high:
                     return False
                 _ac = _ac_abs
                 # iter641: two_phase_relevance_gate — 阈值与 constraint_ac_cap 对齐

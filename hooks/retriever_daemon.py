@@ -4095,7 +4095,9 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                     return False
                 _rel = _constraint_relevance(c)
                 # iter598: zero relevance gate — 与 query 零词重叠的 constraint 无条件拦截
-                if _rel == 0:
+                # iter692: global_high_imp_exempt — global+imp>=0.9 豁免 zero_rel gate
+                _is_global_high = (c[_CI_CP] == "global" and (c[_CI_IMP] or 0) >= 0.9)
+                if _rel == 0 and not _is_global_high:
                     return False
                 _ac = c[_CI_AC] or 0
                 # iter611: two_phase_relevance_gate — ac>30 加速衰减（与 retriever.py 对齐）
