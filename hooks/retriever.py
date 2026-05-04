@@ -3309,6 +3309,30 @@ def main():
         # iter632: constraint 提取时过滤 ac>=30 — 堵住 spreading_activate/shmem/schema 路径绕过
         all_constraints = [c for s, c in final if c.get("chunk_type") == "design_constraint"
                           and (c.get("access_count", 0) or 0) < 30]
+        # ── iter691: global_constraint_supplement — FTS 未命中的 global constraint 补充 ──
+        # 根因（数据驱动，2026-05-04）：4 个 zero-access constraint 中 2 个是 global
+        #   (imp=0.9)，FTS5 词匹配无法命中（"用户偏好"vs"memory-os 迭代"零重叠）。
+        #   fallback 路径仅在空召回时触发，而空召回率已降至 0% → 永远不被注入。
+        # 修复：从 DB 补充 global + high-importance constraint 到候选池，
+        #   后续 _ac_gated / 24h/7d suppress 仍正常控制垄断。
+        try:
+            _existing_ids = {c.get("id") for c in all_constraints}
+            _gc_sup_rows = conn.execute(
+                "SELECT * FROM memory_chunks WHERE chunk_state='ACTIVE' "
+                "AND project='global' AND chunk_type='design_constraint' "
+                "AND importance >= 0.7 AND COALESCE(access_count, 0) < 30 "
+                "ORDER BY importance DESC LIMIT 3"
+            ).fetchall()
+            if _gc_sup_rows:
+                _gc_cols = [d[0] for d in conn.execute(
+                    "SELECT * FROM memory_chunks LIMIT 0").description]
+                for _r in _gc_sup_rows:
+                    _gc_chunk = dict(zip(_gc_cols, _r))
+                    if _gc_chunk.get("id") not in _existing_ids:
+                        all_constraints.append(_gc_chunk)
+                        _existing_ids.add(_gc_chunk.get("id"))
+        except Exception:
+            pass
         forced_constraints = []  # 记录强制注入的约束（不在自然 top_k 内的）
 
         # ── 迭代50：DRR Fair Queuing — 类型多样性保障 ──

@@ -4009,6 +4009,26 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
         # iter632: ac>=30 过滤 — 堵住 spreading_activate/shmem/schema 路径绕过
         all_constraints = [c for s, c in final if c[_CI_CT] == "design_constraint"
                           and (c[_CI_AC] or 0) < 30]  # iter235
+        # ── iter691: global_constraint_supplement — FTS 未命中的 global constraint 补充 ──
+        # 根因（数据驱动，2026-05-04）：global constraint (imp>=0.7) 因 FTS5 词不匹配
+        #   从未进入 final → 永远不被强制注入。补充到 all_constraints 后走正常 gate。
+        try:
+            _gc_existing_ids = {c[_CI_ID] for c in all_constraints}
+            _gc_sup = conn.execute(
+                "SELECT id, summary, content, importance, last_accessed, "
+                "chunk_type, COALESCE(access_count,0), created_at, "
+                "0.0, COALESCE(lru_gen,0), project, verification_status, confidence_score "
+                "FROM memory_chunks WHERE project='global' "
+                "AND chunk_type='design_constraint' AND importance >= 0.7 "
+                "AND COALESCE(access_count,0) < 30 "
+                "ORDER BY importance DESC LIMIT 3"
+            ).fetchall()
+            for _gc_r in _gc_sup:
+                if _gc_r[_CI_ID] not in _gc_existing_ids:
+                    all_constraints.append(_gc_r)
+                    _gc_existing_ids.add(_gc_r[_CI_ID])
+        except Exception:
+            pass
         forced_constraints = []
         # iter224: pre-compute id list once, build set from it (setcomp ~0.433us → set(list) ~0.288us)
         # _pre_top_k_ids reused by top_k_ids_set; top_k_ids recomputed after constraint insertion
