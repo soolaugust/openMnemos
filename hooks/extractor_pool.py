@@ -152,6 +152,20 @@ def _seal_check_reject(text: str) -> bool:
                 '垄断现象', '垄断 chunk')
     if any(m in text for m in _META_CN):
         return True
+    # iter786: memoryos_arch_selfref — 拦截 memory-os 架构自描述
+    # 根因（数据驱动，2026-05-04）：extractor 写入 memory-os 自身架构概览（L4 SQLite、
+    #   BM25/FTS5、daemon 常驻等）— 用户不需要知道记忆系统内部架构。
+    #   swap 中 24%（16/66）是此类自描述，active 中有 2 个。
+    _ARCH_KW = ('Memory-OS', 'memory-os', 'recall_traces', 'memory_chunks',
+                'hybrid_tokenize', 'SessionStart预热', 'UserPromptSubmit注入',
+                'daemon 常驻', 'extractor_pool', 'retriever_daemon',
+                'chunk_version', 'store.db', 'swap_chunks')
+    if any(ak in text for ak in _ARCH_KW):
+        return True
+    # iter786: ephemeral_dir_structure — 拦截项目目录结构描述
+    # 根因：目录结构可随时 ls 获取，不需持久记忆；且结构频繁变化导致过期。
+    if _re.search(r'(?:项目目录|目录结构|主工作目录|工作区).{0,20}(?:含|包含|子项目|子目录)', text):
+        return True
     # iter631: iterator_quantitative_selfeval — 迭代器量化自评模式拦截
     # 根因：迭代 agent 写入自身度量变化（"X → Y", "PA 10/10", "chunks N→M"），
     #   这些是 point-in-time 运行日志，不是可复用领域知识。零访问率 100%。
