@@ -4001,9 +4001,11 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
             # 根因（数据驱动，2026-05-05）：daemon 缺 adaptive_floor，大库(30+ cands)
             #   top1=0.5~0.9 时 top2+ 在 0.18-0.29 全被 0.30 阈值过滤 → 68% 注入仅 1 条。
             # 修复：top1>=0.5 时 floor=top1×0.25，允许与 top1 相关的次优候选通过。
+            # iter822: af_min_top1 0.5→0.30 — 64% 检索 top1 在 0.30-0.50，原阈值不生效
+            #   导致 74% 注入仅 1 条。降至 0.30 后 top1=0.35 → floor=0.10 放行次优候选。
             if final and not _is_generic_q:
                 _af_top1 = final[0][0]
-                if _af_top1 >= 0.5:
+                if _af_top1 >= 0.30:
                     _min_thresh = min(_min_thresh, max(_af_top1 * 0.25, 0.10))
             # iter821: daemon_gap_bridge (hard_deadline) — 同步 retriever.py iter579
             # 根因：top1=0.6 top2=0.15 时 adaptive_floor=0.15 仍不够低，
@@ -4166,9 +4168,10 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
         # iter193: use pre-read locals; iter194: reuse _is_generic_q (computed once in classify)
         _min_thresh = (_gen_query_thr if _is_generic_q else _min_score_thr)
         # iter820: daemon_adaptive_floor (FULL path) — 同 hard_deadline 路径
+        # iter822: af_min_top1 0.5→0.30 (FULL path sync)
         if final and not _is_generic_q:
             _af_top1 = final[0][0]
-            if _af_top1 >= 0.5:
+            if _af_top1 >= 0.30:
                 _min_thresh = min(_min_thresh, max(_af_top1 * 0.25, 0.10))
         # iter821: daemon_gap_bridge (FULL path) — 同步 retriever.py iter579
         if len(final) >= 3 and not _is_generic_q:
