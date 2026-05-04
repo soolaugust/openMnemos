@@ -2218,17 +2218,19 @@ def main():
                 # iter801: micro_db (<=5) 跳过 24h/7d/saturation suppress
                 if _db_chunk_count > 5:
                     # iter813: 6h burst suppress (early exit path)
-                    if _recent_6h_counts.get(chunk.get("id", ""), 0) >= 2:
+                    # iter818: tiny_db_6h_relax — 6h 分级
+                    _ee_6h_thresh = 3 if _db_chunk_count < 40 else 2  # iter818
+                    if _recent_6h_counts.get(chunk.get("id", ""), 0) >= _ee_6h_thresh:
                         return 0.0
                     _r24_ee = _recent_24h_counts.get(chunk.get("id", ""), 0)
-                    _ee_24h_thresh = 4 if _db_chunk_count < 30 else 3 if _db_chunk_count < 100 else 2
+                    _ee_24h_thresh = 4 if _db_chunk_count < 40 else 3 if _db_chunk_count < 100 else 2  # iter818: 30→40
                     if _r24_ee >= _ee_24h_thresh:
                         return 0.0
                     # iter618: early exit 也检查 7d_rolling_suppress
                     # iter619: 8→5; iter664: 5→3，与评分阶段阈值统一
                     # iter796: 同步 tiny_db 放宽
                     _r7d_ee = _recent_7d_counts.get(chunk.get("id", ""), 0)
-                    _ee_7d_thresh = 8 if _db_chunk_count < 30 else 5 if _db_chunk_count < 100 else 3
+                    _ee_7d_thresh = 8 if _db_chunk_count < 40 else 5 if _db_chunk_count < 100 else 3  # iter818: 30→40
                     if _r7d_ee >= _ee_7d_thresh:
                         return 0.0
                     # iter621→622: saturation_absolute_suppress — 累积注入过饱和永久 suppress
@@ -2376,7 +2378,7 @@ def main():
             #   iter703/764 一刀切 <100 放宽到 5/6,8/10 对 50+ chunk 库过于宽松
             # 修复：<30 极小库保持宽松；30-100 中小库收紧
             _micro_db = _db_chunk_count <= 5  # iter801: micro_db suppress bypass
-            _tiny_db = _db_chunk_count < 30
+            _tiny_db = _db_chunk_count < 40  # iter818: tiny_db_6h_relax — 边界 30→40
             _small_db = _db_chunk_count < 100
             # iter781: tiny_db_suppress_tighten — 收紧 tiny_db suppress 阈值
             #   数据驱动（2026-05-04）：100% injected traces 的 candidates_count<30（全部 tiny_db）
@@ -2385,12 +2387,17 @@ def main():
             #   iter776 suppress_zero_fallback 已解决空召回兜底，可安全收紧。
             # iter801: micro_db (<=5) 跳过 24h/7d suppress — 唯一知识不可 suppress
             if not _micro_db:
-                # iter813: short_burst_suppress — 6h 内 >=2 次即 suppress
+                # iter813: short_burst_suppress — 6h 内 >=N 次即 suppress
                 # 根因（数据驱动，2026-05-05）：import-90139 在 38 分钟内被 3 session 注入，
                 #   24h 阈值=3 因 writeback 延迟和进程重启丢失 inmem log 而逃逸。
                 #   6h 窗口更紧，阈值=2 可捕获短期密集注入。
+                # iter818: tiny_db_6h_relax — 34 chunk 库 6h>=2 过杀致 70% 注入仅 1 条
+                #   数据驱动（2026-05-05）：7d 内 34 次注入中 24 次(70%) top_k=1，
+                #   根因是 6h>=2 无差别 suppress 不区分库大小。
+                #   修复：tiny_db(<40) 6h 阈值 2→3，与 24h 阈值对齐。
                 _r6h_cnt = _recent_6h_counts.get(chunk.get("id", ""), 0)
-                if _r6h_cnt >= 2:
+                _6h_thresh = 3 if _tiny_db else 2  # iter818
+                if _r6h_cnt >= _6h_thresh:
                     score = 0.0
                     _hard_suppressed = True
                 # iter806: small_db_suppress_tighten — 收紧 small_db 24h 阈值
@@ -3178,12 +3185,12 @@ def main():
             # 修复：hard_deadline 路径用闭包变量做零成本兜底。
             if top_k:
                 # iter767: tiered_small_db — 分级小库阈值
-                _hd_tiny_db = _db_chunk_count < 30
+                _hd_tiny_db = _db_chunk_count < 40  # iter818: 边界 30→40
                 _hd_small_db = _db_chunk_count < 100
                 # iter806: final_gate 24h/7d 阈值同步 small_db_suppress_tighten
                 # tiny_db 保持宽松兜底 (10/8, 20/15)；small_db 4/3→3/2 同步
                 top_k = [(s, c) for s, c in top_k
-                         if _recent_6h_counts.get(c["id"], 0) < 2  # iter813: short_burst_suppress
+                         if _recent_6h_counts.get(c["id"], 0) < (3 if _hd_tiny_db else 2)  # iter818: 6h 分级
                          and _recent_24h_counts.get(c["id"], 0) < ((10 if s >= 0.5 else 8) if _hd_tiny_db else (3 if s >= 0.5 else 2) if _hd_small_db else (3 if s >= 0.5 else 2))
                          and _recent_7d_counts.get(c["id"], 0) < ((20 if s >= 0.5 else 15) if _hd_tiny_db else (8 if s >= 0.5 else 6) if _hd_small_db else (5 if s >= 0.5 else 3))]
             # ── iter670: suppress_fallback — hard_deadline suppress 全灭降级 ──
@@ -3858,11 +3865,12 @@ def main():
                 if _ac_abs >= 15:
                     return False
                 # iter813: 6h burst suppress (constraint path)
-                if _recent_6h_counts.get(_cid, 0) >= 2:
+                # iter818: tiny_db_6h_relax — 6h 分级
+                _cst_tiny_db = _db_chunk_count < 40  # iter818: 边界 30→40
+                if _recent_6h_counts.get(_cid, 0) >= (3 if _cst_tiny_db else 2):
                     return False
                 # iter617: 24h burst suppress 也在 constraint 通道生效
                 # iter806: sync small_db_suppress_tighten
-                _cst_tiny_db = _db_chunk_count < 30
                 _cst_small_db = _db_chunk_count < 100
                 if _recent_24h_counts.get(_cid, 0) >= ((3 if _cst_tiny_db else 3) if _cst_small_db else 2):
                     return False
@@ -4325,7 +4333,7 @@ def main():
                 _sf663_conn.close()
                 _pre663 = len(top_k)
                 # iter764: sync_small_db_relax — 同步 daemon iter704 小库放宽
-                _sf663_tiny_db = _db_chunk_count < 30
+                _sf663_tiny_db = _db_chunk_count < 40  # iter818: 边界 30→40
                 _sf663_small_db = _db_chunk_count < 100
                 # iter810: tiny_db_24h_relax — sync FULL final_gate
                 top_k = [(s, c) for s, c in top_k
@@ -4421,16 +4429,17 @@ def main():
                 _cut758_7d = (_now758 - _td758(days=7)).isoformat()
                 _pre758 = len(top_k)
                 # iter764: sync_small_db_relax — 同步 daemon iter703 小库放宽
-                _sf758_tiny_db = _db_chunk_count < 30
+                _sf758_tiny_db = _db_chunk_count < 40  # iter818: 边界 30→40
                 _sf758_small_db = _db_chunk_count < 100
                 # iter810: tiny_db_24h_relax — sync LITE final_gate
                 # iter815: lite_6h_suppress_sync — LITE 路径补充 6h burst suppress（与 FULL 路径 iter813 对齐）
                 # 根因（数据驱动，2026-05-05）：import-90139 在 psi_downgrade LITE 路径
                 #   38 分钟内被 3 个不同 session 注入（02:43/03:13/03:21），因 LITE final_gate
                 #   缺少 6h 检查而逃逸。FULL 路径第 3183 行有 6h<2 但 LITE 路径遗漏。
+                # iter818: tiny_db_6h_relax — 6h 阈值分级
                 _cut758_6h = (_now758 - _td758(hours=6)).isoformat()
                 top_k = [(s, c) for s, c in top_k
-                         if sum(1 for t in _itl758.get(c["id"], []) if t > _cut758_6h) < 2  # iter815: 6h burst
+                         if sum(1 for t in _itl758.get(c["id"], []) if t > _cut758_6h) < (3 if _sf758_tiny_db else 2)  # iter818: 6h 分级
                          and sum(1 for t in _itl758.get(c["id"], []) if t > _cut758_24h) < (3 if _sf758_tiny_db else (3 if s >= 0.5 else 2) if _sf758_small_db else (3 if s >= 0.5 else 2))
                          and sum(1 for t in _itl758.get(c["id"], []) if t > _cut758_7d) < (5 if _sf758_tiny_db else (8 if s >= 0.5 else 6) if _sf758_small_db else (5 if s >= 0.5 else 3))]
                 if len(top_k) < _pre758:
