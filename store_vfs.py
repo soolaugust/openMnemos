@@ -785,13 +785,28 @@ def _ensure_fts5(conn: sqlite3.Connection) -> None:
     # 迭代124：统一使用 str(rowid)（整数转字符串），确保 fts_search JOIN CAST 可正确还原。
     # 历史 bug：旧版本写入了 UUID 字符串（chunk.id）而非 str(rowid)，导致 CAST→0/garbage。
     rows = conn.execute(
-        "SELECT rowid, summary, content FROM memory_chunks WHERE summary != ''"
+        "SELECT rowid, summary, content, tags FROM memory_chunks WHERE summary != ''"
     ).fetchall()
-    for rowid, summary, content in rows:
+    _skip702 = {"semantic", "consolidated", "imported", "design_constraint",
+                "decision", "procedure", "quantitative_evidence", "causal_chain",
+                "excluded_path", "prompt_context", "reasoning_chain"}
+    for rowid, summary, content, tags in rows:
+        # iter702: tags_fts_boost — tags 关键词追加到 content
+        _tsuf = ""
+        if tags:
+            try:
+                import json as _j702
+                _tl = _j702.loads(tags) if isinstance(tags, str) else tags
+                _u = [t for t in _tl if isinstance(t, str) and t not in _skip702
+                      and not t.startswith(("abspath:", "git:", "sec"))]
+                if _u:
+                    _tsuf = " " + " ".join(_u)
+            except Exception:
+                pass
         conn.execute(
             "INSERT INTO memory_chunks_fts(rowid_ref, summary, content) VALUES (?, ?, ?)",
             (str(rowid), _cjk_tokenize(_normalize_structured_summary(summary or '')),
-             _cjk_tokenize(_normalize_structured_summary(content or '')))
+             _cjk_tokenize(_normalize_structured_summary((content or '') + _tsuf)))
         )
 
     # 迭代124：记录 FTS schema 版本（124 = 修复 UUID 污染后的干净重建版本）
@@ -961,25 +976,43 @@ def _fts5_sync_chunk(conn: sqlite3.Connection, chunk_id: str,
     """
     单 chunk FTS5 索引同步：删除旧条目 → 重新插入预处理后的文本。
     OS 类比：ext4 journal commit for single inode — 单文件元数据更新后刷新索引。
+    iter702: tags 关键词追加到 content 尾部，提升 import chunk 的 FTS5 命中率。
     """
     row = conn.execute(
-        "SELECT rowid, summary, content FROM memory_chunks WHERE id=?", (chunk_id,)
+        "SELECT rowid, summary, content, tags FROM memory_chunks WHERE id=?", (chunk_id,)
     ).fetchone()
     if not row:
         return
-    rowid_val, db_summary, db_content = row
+    rowid_val, db_summary, db_content, db_tags = row
     # 使用传入值或 DB 现有值
     final_summary = summary if summary is not None else (db_summary or "")
     final_content = content if content is not None else (db_content or "")
     if not final_summary and not final_content:
         return
+    # iter702: tags_fts_boost — 将 tags 中有检索价值的关键词拼入 content
+    # 过滤掉纯 metadata 标签（chunk_type 名、project ID、generic 标签）
+    _tags_suffix = ""
+    if db_tags:
+        try:
+            import json as _json702
+            _tags_list = _json702.loads(db_tags) if isinstance(db_tags, str) else db_tags
+            _skip = {"semantic", "consolidated", "imported", "design_constraint",
+                     "decision", "procedure", "quantitative_evidence", "causal_chain",
+                     "excluded_path", "prompt_context", "reasoning_chain"}
+            _useful = [t for t in _tags_list
+                       if isinstance(t, str) and t not in _skip
+                       and not t.startswith(("abspath:", "git:", "sec"))]
+            if _useful:
+                _tags_suffix = " " + " ".join(_useful)
+        except Exception:
+            pass
     try:
         conn.execute("DELETE FROM memory_chunks_fts WHERE rowid_ref=?", (str(rowid_val),))
         conn.execute(
             "INSERT INTO memory_chunks_fts(rowid_ref, summary, content) VALUES (?, ?, ?)",
             (str(rowid_val),
              _cjk_tokenize(_normalize_structured_summary(final_summary)),
-             _cjk_tokenize(_normalize_structured_summary(final_content)))
+             _cjk_tokenize(_normalize_structured_summary(final_content + _tags_suffix)))
         )
     except Exception:
         pass  # FTS5 表可能未就绪
@@ -1015,19 +1048,33 @@ def fts5_checkpoint(conn: sqlite3.Connection) -> dict:
     # Phase 2: 补建缺失条目（chunk 存在但 FTS5 无记录）
     # OS 类比：e2fsck Phase 3 — 重建缺失的目录条目
     missing = conn.execute("""
-        SELECT m.rowid, m.summary, m.content FROM memory_chunks m
+        SELECT m.rowid, m.summary, m.content, m.tags FROM memory_chunks m
         WHERE m.summary != '' AND NOT EXISTS (
             SELECT 1 FROM memory_chunks_fts f WHERE CAST(f.rowid_ref AS INTEGER) = m.rowid
         )
     """).fetchall()
     if missing:
-        for rowid_val, summary, content in missing:
+        _skip702c = {"semantic", "consolidated", "imported", "design_constraint",
+                     "decision", "procedure", "quantitative_evidence", "causal_chain",
+                     "excluded_path", "prompt_context", "reasoning_chain"}
+        for rowid_val, summary, content, tags in missing:
+            _tsuf = ""
+            if tags:
+                try:
+                    import json as _j702c
+                    _tl = _j702c.loads(tags) if isinstance(tags, str) else tags
+                    _u = [t for t in _tl if isinstance(t, str) and t not in _skip702c
+                          and not t.startswith(("abspath:", "git:", "sec"))]
+                    if _u:
+                        _tsuf = " " + " ".join(_u)
+                except Exception:
+                    pass
             try:
                 conn.execute(
                     "INSERT INTO memory_chunks_fts(rowid_ref, summary, content) VALUES (?, ?, ?)",
                     (str(rowid_val),
                      _cjk_tokenize(_normalize_structured_summary(summary or "")),
-                     _cjk_tokenize(_normalize_structured_summary(content or "")))
+                     _cjk_tokenize(_normalize_structured_summary((content or "") + _tsuf)))
                 )
             except Exception:
                 pass
@@ -1129,7 +1176,8 @@ def _fts5_escape(query: str) -> str:
     for m in re.finditer(r'[a-zA-Z0-9_][-a-zA-Z0-9_.]*', query):
         token = m.group().lower().strip('.-_')
         if len(token) >= 2 and token not in seen and token not in _BM25_STOPWORDS:
-            stemmed = _bm25_stem(token)
+            # iter714: skip stemming for hyphenated/underscored terms
+            stemmed = token if ("-" in token or "_" in token) else _bm25_stem(token)
             seen.add(token)
             seen.add(stemmed)
             tokens.append(f'"{stemmed}"')
@@ -2114,7 +2162,23 @@ def insert_chunk(conn: sqlite3.Connection, chunk_dict: dict) -> None:
             )
             # iter108：结构化 summary 先归一化再 CJK 分词，修复 [topic]/>/ 截断 FTS5 检索
             fts_summary = _cjk_tokenize(_normalize_structured_summary(d.get("summary") or ""))
-            fts_content = _cjk_tokenize(_normalize_structured_summary(d.get("content") or ""))
+            # iter702: tags_fts_boost — 将 tags 关键词追加到 content
+            _raw_content = d.get("content") or ""
+            _tags702 = d.get("tags")
+            if _tags702:
+                try:
+                    import json as _j702i
+                    _tl = _j702i.loads(_tags702) if isinstance(_tags702, str) else _tags702
+                    _skip702i = {"semantic", "consolidated", "imported", "design_constraint",
+                                 "decision", "procedure", "quantitative_evidence", "causal_chain",
+                                 "excluded_path", "prompt_context", "reasoning_chain"}
+                    _u = [t for t in _tl if isinstance(t, str) and t not in _skip702i
+                          and not t.startswith(("abspath:", "git:", "sec"))]
+                    if _u:
+                        _raw_content += " " + " ".join(_u)
+                except Exception:
+                    pass
+            fts_content = _cjk_tokenize(_normalize_structured_summary(_raw_content))
             conn.execute(
                 "INSERT INTO memory_chunks_fts(rowid_ref, summary, content) VALUES (?, ?, ?)",
                 (str(new_rowid[0]), fts_summary, fts_content)
