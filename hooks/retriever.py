@@ -4997,6 +4997,17 @@ def main():
             # iter668+678: top_k_data fallback — 防御空 top_k_data 导致 recall_counts 失准
             # 数据驱动（2026-05-04）：len(top_k_data) 与 len(accessed_ids) 不一致时重建
             _effective_top_k = top_k_data if (top_k_data and len(top_k_data) == len(accessed_ids)) else [{"id": cid} for cid in accessed_ids]
+            # iter825: skip_empty_trace_sync — 对齐 daemon iter800，防止空 trace 污染统计
+            # 根因（数据驱动，2026-05-05）：26% injected traces 的 top_k_json=[]，
+            #   膨胀 bw_window 分母 → suppress 比例失真 → 垄断检测失效。
+            if not _effective_top_k:
+                _deferred.flush(wconn)
+                dmesg_log(wconn, DMESG_WARN, "retriever",
+                          f"iter825_skip_empty_trace: accessed_ids_empty={not accessed_ids}",
+                          session_id=session_id, project=project)
+                wconn.commit()
+                wconn.close()
+                sys.exit(0)
             _write_trace(session_id, project, prompt_hash,
                          candidates_count, _effective_top_k, 1, reason,
                          duration_ms, conn=wconn)
