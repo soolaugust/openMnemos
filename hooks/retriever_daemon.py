@@ -2753,6 +2753,12 @@ def _is_generic_knowledge_query(q: str) -> bool:
     if cached is not None:
         return cached
     q_lower = q.lower().strip()
+    # iter710: 长查询（>20 chars）不视为 generic — "如何优化 Linux 调度器" 是领域问题
+    #   根因：generic 门槛 0.85 导致几乎所有 "如何/什么是" 开头的查询无法注入
+    #   修复：>20 chars 的查询通常包含足够上下文，不应被 generic 高门槛阻拦
+    if len(q_lower) > 20:
+        _is_generic_q_cache[q] = False
+        return False
     result = bool(_GENERIC_RE.search(q_lower)) and not bool(_PROJECT_MARKER_RE.search(q_lower))
     _is_generic_q_cache[q] = result
     return result
@@ -3567,9 +3573,12 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
             # Correctness: global != project always (project is e.g. "memory-os"); identical semantics.
             # OS 类比：branch layout optimization (PGO) — reordering branches so the hot path executes
             #          fewest branches (same as profile-guided ordering of switch cases).
-            ndp = (0.05 if _cp == "global" else
+            # iter718: global penalty 0.05→0.02 — 67.5% 的 chunk 是 global，
+            #   0.05 惩罚导致 global chunk 系统性低于 project chunk，
+            #   但在 40 chunk DB 中 global 是主要信息源，不应过度惩罚
+            ndp = (0.02 if _cp == "global" else
                    0.0 if _cp == project else
-                   0.25 if _cp else 0.0)  # iter258: global-first (67.9% corpus)
+                   0.15 if _cp else 0.0)  # iter718: other-project 0.25→0.15
 
             # iter239b: compact score formula — eb=0 always when _run_aslr=False (default);
             # sb=0 when _ac>0 (most accessed chunks); avoid unconditional LOAD_FAST+BINARY_ADD for zeros.
@@ -3612,8 +3621,11 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
             # iter618: 24h + 7d burst suppress（daemon 此前完全缺失）
             # iter619: 阈值收紧 24h:3→2, 7d:8→5
             # iter672: relevance_exempt — 高分 chunk 放宽阈值，防 suppress 过杀
-            _s672_24h_t = 3 if score >= 0.5 else 2
-            _s672_7d_t = 5 if score >= 0.5 else 3
+            # iter703: 小库放宽 — 40 chunk DB 中 2/3 阈值导致全库 suppress spiral
+            #   DB<100 chunk 时 24h:3→5, 7d:5→8（低分）/ 24h:3→6, 7d:5→10（高分）
+            #   根因：40 chunk × 频繁对话 → 2次/24h 即封锁 → 注入率骤降
+            _s672_24h_t = (6 if score >= 0.5 else 5) if candidates_count < 100 else (3 if score >= 0.5 else 2)
+            _s672_7d_t = (10 if score >= 0.5 else 8) if candidates_count < 100 else (5 if score >= 0.5 else 3)
             if _recent_24h_counts.get(_cid, 0) >= _s672_24h_t:
                 score = 0.0
             elif _recent_7d_counts.get(_cid, 0) >= _s672_7d_t:
@@ -3686,8 +3698,9 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
             # iter618: 24h + 7d burst suppress（daemon 此前完全缺失）
             # iter619: 阈值收紧 24h:3→2, 7d:8→5
             # iter672: relevance_exempt — 高分 chunk 放宽阈值，防 suppress 过杀
-            _s672d_24h_t = 3 if score >= 0.5 else 2
-            _s672d_7d_t = 5 if score >= 0.5 else 3
+            # iter703: 小库放宽（同 _score_chunk）
+            _s672d_24h_t = (6 if score >= 0.5 else 5) if candidates_count < 100 else (3 if score >= 0.5 else 2)
+            _s672d_7d_t = (10 if score >= 0.5 else 8) if candidates_count < 100 else (5 if score >= 0.5 else 3)
             if _recent_24h_counts.get(_cid, 0) >= _s672d_24h_t:
                 score = 0.0
             elif _recent_7d_counts.get(_cid, 0) >= _s672d_7d_t:
@@ -3735,7 +3748,11 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
             # FTS5 rank 单位不同于 BM25 raw score，但经验阈值：
             #   真正相关 rank > 5.0（飞书=21, Android=15, sched=8）
             #   噪声匹配 rank < 4.0（通用bigram重叠=2-3）
-            if max_rank < 5.0:
+            # iter701→711: 降低门槛 5.0→1.0 — 实测 40 chunk 库，真实相关查询 max_rank=1.5-4.5
+            #   "如何发 kernel patch"=1.75, "Android 性能诊断"=2.54, "飞书文档访问"=4.26
+            #   FTS5 -bm25() 在小库上 score 天然低（IDF 低），5.0 门槛阻断了 80%+ 合法查询
+            #   1.0 门槛仅过滤完全无匹配（score=0）的噪声查询
+            if max_rank < 1.0:
                 return
             # iter198: list comprehension replaces for loop (6.06us → ~2us, 10 chunks)
             # set comprehension replaces per-iteration set.add() (combined: ~2.09us total)
@@ -3790,17 +3807,24 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                     pass
         else:
             if priority == "LITE":
-                # iter173: persistent conn — do NOT close
-                if _deferred._buf:  # iter222: direct slot access (~0.145us vs len() ~0.310us)
-                    try:
-                        wconn = open_db()
-                        ensure_schema(wconn)
-                        _deferred.flush(wconn)
-                        wconn.commit()
-                        wconn.close()
-                    except Exception:
-                        pass
-                return
+                # iter713: 小库时 LITE 不再直接 return — FTS miss 常见（40 chunk），
+                #   改为降级走 BM25 fallback（同 FULL 路径）
+                #   根因：LITE+FTS_miss 是注入率低的第二大原因（仅次于 suppress）
+                #   DB<100 chunk 时全部走 BM25 fallback，否则保持原逻辑
+                _total_mc_lite = conn.execute("SELECT COUNT(*) FROM memory_chunks").fetchone()[0]
+                if _total_mc_lite >= 100:
+                    # iter173: persistent conn — do NOT close
+                    if _deferred._buf:  # iter222: direct slot access (~0.145us vs len() ~0.310us)
+                        try:
+                            wconn = open_db()
+                            ensure_schema(wconn)
+                            _deferred.flush(wconn)
+                            wconn.commit()
+                            wconn.close()
+                        except Exception:
+                            pass
+                    return
+                # else: fall through to BM25 fallback below
 
             if _check_deadline("pre_bm25_fallback", is_hard=True):
                 # iter173: persistent conn — do NOT close
@@ -3817,15 +3841,22 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
 
             _bm25_global_discount = sysctl("retriever.bm25_global_discount")
             # iter657: 当前 project 无 chunk 时跳过 global discount
-            # 根因：project 解析为 abspath:xxx 但 DB 中无该 project chunk，
-            # 所有候选均来自 global，discount 后全部低于 min_score → top_k=0。
-            # 修复：无本地 chunk 时 discount=1.0（global 是唯一信息源，不应惩罚）
+            # iter702: 小库（<100 chunk）时 discount 提升到 0.8 — global chunk 是主要信息源
+            #   根因：40 chunk DB 中 27 个是 global，discount=0.4 导致 relevance 被压到
+            #   0.4 以下 → 低于 min_score_threshold(0.3) → 零注入。
+            #   修复：DB 总量<100 时，global discount 提升到 max(0.8, 原值)，保留排序信号但不过度惩罚
             if project and project != "global":
                 _local_count = conn.execute(
                     "SELECT COUNT(*) FROM memory_chunks WHERE project=?", (project,)
                 ).fetchone()[0]
                 if _local_count == 0:
                     _bm25_global_discount = 1.0
+                else:
+                    _total_count = conn.execute(
+                        "SELECT COUNT(*) FROM memory_chunks"
+                    ).fetchone()[0]
+                    if _total_count < 100:
+                        _bm25_global_discount = max(0.8, _bm25_global_discount)
             _cv = read_chunk_version()
             # iter207: fast path — _retrieve_types is module constant in ~100% of cases
             _rtypes_key = (_ALL_RETRIEVE_TYPES_KEY if _retrieve_types is _ALL_RETRIEVE_TYPES_CONST
@@ -3855,9 +3886,10 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
             # 根因（用户可感知）：normalize 是相对排名（max=1.0），当 DB 中无真正相关 chunk 时，
             # 噪声匹配（中文通用 bigram 重叠）被放大到 1.0 超过阈值 → 注入不相关内容。
             # 实测：真正相关时 raw max > 10（飞书=21, Android=28），噪声时 raw max < 5（睾酮=3.9, 继续迭代=2.3）。
-            # 修复：raw max < 6.0 时直接跳过注入（宁可不注入也不注入垃圾）。
+            # iter701→712: 降低门槛 6.0→1.0 — 实测小库 BM25 raw max 同样偏低
+            #   scoring+suppress 已足够过滤无关内容，gate 应只拦截零匹配
             _raw_max = max(raw_scores) if raw_scores else 0
-            if _raw_max < 6.0:
+            if _raw_max < 1.0:
                 # 无真正相关内容，退出（不写 trace 污染统计）
                 return
             relevance_scores = normalize(raw_scores)
@@ -4298,9 +4330,11 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 _sf663d_conn.close()
                 _pre663d = len(top_k)
                 # iter672: relevance_exempt — 高分 chunk 放宽 suppress 阈值
+                # iter704: 小库放宽（同 iter703 _score_chunk）— 防止 final_gate 全灭
+                _sf663d_small_db = candidates_count < 100
                 top_k = [(s, c) for s, c in top_k
-                         if _rt663d_24h.get(c[_CI_ID], 0) < (3 if s >= 0.5 else 2)
-                         and _rt663d_7d.get(c[_CI_ID], 0) < (5 if s >= 0.5 else 3)]
+                         if _rt663d_24h.get(c[_CI_ID], 0) < ((6 if s >= 0.5 else 5) if _sf663d_small_db else (3 if s >= 0.5 else 2))
+                         and _rt663d_7d.get(c[_CI_ID], 0) < ((10 if s >= 0.5 else 8) if _sf663d_small_db else (5 if s >= 0.5 else 3))]
                 if len(top_k) < _pre663d:
                     _deferred.log(DMESG_WARN, "retriever_daemon",
                                   f"iter663_suppress_final_gate: filtered "

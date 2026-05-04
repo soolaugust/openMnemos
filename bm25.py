@@ -168,7 +168,8 @@ def hybrid_tokenize(text: str) -> list:
         word = m.group().lower()
         if word in ENGLISH_STOPWORDS:
             continue
-        stemmed = _porter_stem(word)
+        # iter714: skip stemming for hyphenated/underscored compound terms
+        stemmed = word if ("-" in word or "_" in word) else _porter_stem(word)
         tokens.append(stemmed)
     # 中文 bigram only
     chinese = re.sub(r'[^\u4e00-\u9fff]', '', text)

@@ -1186,10 +1186,15 @@ def _fts5_escape(query: str) -> str:
     cjk_chars = re.findall(r'[\u4e00-\u9fff\u3400-\u4dbf]', query)
     bigrams = [cjk_chars[i] + cjk_chars[i+1] for i in range(len(cjk_chars) - 1)]
     if bigrams:
+        # iter715: limit CJK bigrams to 4 to reduce cross-word noise
+        _bg_count = 0
         for bg in bigrams:
+            if _bg_count >= 4:
+                break
             if bg not in seen:
                 seen.add(bg)
                 tokens.append(f'"{bg}"')
+                _bg_count += 1
     else:
         # 无 bigram（单个 CJK 字或为空）：退回单字
         for c in cjk_chars:
