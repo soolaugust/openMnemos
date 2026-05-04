@@ -8366,6 +8366,69 @@ def sleep_consolidate(
             return 0.0
         return len(ta & tb) / len(ta | tb)
 
+    # ── iter785: session_fragment_merge — 同 session 同 type 碎片聚合 ──────────
+    # 根因（数据驱动，2026-05-04）：session e3e4392b 写了 5 条 decision（组织架构），
+    #   内容各一行，Jaccard 无法捕捉（"5人小组" vs "30人部门" 相似度<0.3）。
+    #   iter784 只防未来写入，不回溯历史碎片。
+    # 修复：按 (source_session, chunk_type) 分组，同组>3 条 → content 拼接合并。
+    merged_ids: set = set()
+    merge_count = 0
+    try:
+        _frag_rows = conn.execute(
+            f"SELECT source_session, chunk_type, COUNT(*) as cnt "
+            f"FROM memory_chunks WHERE chunk_state='ACTIVE' AND source_session != '' "
+            f"{proj_filter} GROUP BY source_session, chunk_type HAVING cnt > 3",
+            proj_params,
+        ).fetchall()
+        for _fs_sess, _fs_type, _fs_cnt in _frag_rows:
+            if merge_count >= max_merges:
+                break
+            _frags = conn.execute(
+                "SELECT id, summary, content, importance FROM memory_chunks "
+                "WHERE source_session=? AND chunk_type=? AND chunk_state='ACTIVE' "
+                "ORDER BY created_at ASC",
+                (_fs_sess, _fs_type),
+            ).fetchall()
+            if len(_frags) <= 3:
+                continue
+            # survivor = highest importance
+            _frags_sorted = sorted(_frags, key=lambda r: r[3] or 0, reverse=True)
+            _survivor = _frags_sorted[0]
+            _victims = _frags_sorted[1:]
+            # 合并 content: survivor content + victims content
+            _merged_content = (_survivor[2] or _survivor[1] or "").strip()
+            for _v in _victims:
+                _v_text = (_v[2] or _v[1] or "").strip()
+                if _v_text and _v_text not in _merged_content:
+                    _merged_content += "\n" + _v_text
+            _merged_content = _merged_content[:3000]
+            # 合并 summary
+            _merged_summary = _survivor[1] or ""
+            if len(_frags) > 3:
+                _merged_summary = f"{_fs_type}×{len(_frags)} from session {_fs_sess[:8]}: {_merged_summary}"
+            _merged_summary = _merged_summary[:200]
+            _new_imp = min(0.98, max(r[3] or 0 for r in _frags) * 1.02)
+            # update survivor
+            conn.execute(
+                "UPDATE memory_chunks SET content=?, summary=?, importance=?, updated_at=? WHERE id=?",
+                (_merged_content, _merged_summary, round(_new_imp, 4), now_iso, _survivor[0]),
+            )
+            try:
+                _fts5_sync_chunk(conn, _survivor[0], summary=_merged_summary, content=_merged_content)
+            except Exception:
+                pass
+            # ghost victims
+            for _v in _victims:
+                conn.execute(
+                    "UPDATE memory_chunks SET importance=0, oom_adj=500, chunk_state='MERGED', "
+                    "summary=?, updated_at=? WHERE id=?",
+                    (f"[merged→{_survivor[0][:12]}] {(_v[1] or '')[:80]}"[:200], now_iso, _v[0]),
+                )
+                merged_ids.add(_v[0])
+                merge_count += 1
+    except Exception:
+        pass
+
     try:
         rows = conn.execute(
             f"SELECT id, summary, importance, stability FROM memory_chunks "
@@ -8374,8 +8437,6 @@ def sleep_consolidate(
             proj_params,
         ).fetchall()
 
-        merged_ids: set = set()
-        merge_count = 0
         for i in range(len(rows)):
             if merge_count >= max_merges:
                 break
