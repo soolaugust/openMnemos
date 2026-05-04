@@ -4005,6 +4005,19 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 _af_top1 = final[0][0]
                 if _af_top1 >= 0.5:
                     _min_thresh = min(_min_thresh, max(_af_top1 * 0.25, 0.10))
+            # iter821: daemon_gap_bridge (hard_deadline) — 同步 retriever.py iter579
+            # 根因：top1=0.6 top2=0.15 时 adaptive_floor=0.15 仍不够低，
+            #   但 top2~top4 内聚(0.15/0.14/0.13) → cluster 存在 → 应放行。
+            if len(final) >= 3 and not _is_generic_q:
+                _gb_t1 = final[0][0]
+                _gb_t2 = final[1][0] if final[1][0] > 0 else 0.001
+                if _gb_t1 / _gb_t2 >= 3.0:
+                    _gb_cf = _gb_t2 * 0.4
+                    _gb_cs = sum(1 for s, _ in final[1:] if s >= _gb_cf)
+                    if _gb_cs >= 2:
+                        _gb_nt = max(_gb_cf, 0.05)
+                        if _gb_nt < _min_thresh:
+                            _min_thresh = _gb_nt
             # iter620: zero_score_absolute_gate — hard_suppressed chunk 绝对不入选
             positive = [(s, c) for s, c in final if s >= _min_thresh and s > 0]
             # iter695: threshold_degrade — 阈值过高全灭时降级到默认 0.30
@@ -4157,6 +4170,17 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
             _af_top1 = final[0][0]
             if _af_top1 >= 0.5:
                 _min_thresh = min(_min_thresh, max(_af_top1 * 0.25, 0.10))
+        # iter821: daemon_gap_bridge (FULL path) — 同步 retriever.py iter579
+        if len(final) >= 3 and not _is_generic_q:
+            _gb_t1 = final[0][0]
+            _gb_t2 = final[1][0] if final[1][0] > 0 else 0.001
+            if _gb_t1 / _gb_t2 >= 3.0:
+                _gb_cf = _gb_t2 * 0.4
+                _gb_cs = sum(1 for s, _ in final[1:] if s >= _gb_cf)
+                if _gb_cs >= 2:
+                    _gb_nt = max(_gb_cf, 0.05)
+                    if _gb_nt < _min_thresh:
+                        _min_thresh = _gb_nt
         # iter620: zero_score_absolute_gate (FULL path) — 同 hard_deadline 路径
         positive = [(s, c) for s, c in final if s >= _min_thresh and s > 0]
         # iter695: threshold_degrade — 阈值过高全灭时降级到默认 0.30
