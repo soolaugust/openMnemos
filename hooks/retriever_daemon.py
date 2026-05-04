@@ -4207,7 +4207,8 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                     _ac_penalty = min(0.20, _math.log1p(_ac - 10) * 0.04)
                 else:
                     _ac_penalty = 0.20 + min(0.20, _math.log1p(_ac - 30) * 0.06)
-                if _rel < _constraint_min_rel + _ac_penalty:
+                # iter765: global_high_imp 已通过 zero_rel 豁免，不应被 eff_min_rel 二次拦截
+                if _rel < _constraint_min_rel + _ac_penalty and not _is_global_high:
                     return False
                 return (_rc / max(_bw_window, 1)) <= _thrash_max_pct
             _extra_constraints = [c for c in _extra_constraints if _ac_gated_d(c)]

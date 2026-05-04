@@ -3700,7 +3700,8 @@ def main():
                 else:
                     _ac_penalty = 0.20 + min(0.20, _m609.log1p(_ac - 15) * 0.06)
                 _eff_min_rel = _constraint_min_rel + _ac_penalty
-                if _rel < _eff_min_rel:
+                # iter765: global_high_imp 已通过 zero_rel 豁免，不应被 eff_min_rel 二次拦截
+                if _rel < _eff_min_rel and not _is_global_high:
                     return False
                 return (_rc / max(_bw_window, 1)) <= _thrash_max_pct
             _extra_constraints = [c for c in _extra_constraints if _ac_gated(c)]
