@@ -3663,11 +3663,11 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
             _s672_micro = _db_chunk_count <= 5  # iter801: micro_db — suppress 全禁用
             _s672_tiny = _db_chunk_count < 30
             _s672_small = _db_chunk_count < 100
-            # iter803: tinydb_suppress_unify — tiny_db 与 small_db 对齐
+            # iter806: small_db_suppress_tighten — 24h 4/3→3/2, 7d 7/5→5/4
             # iter801: micro_db (<=5) 跳过 24h/7d/saturation suppress — 唯一知识不可 suppress
             if not _s672_micro:
-                _s672_24h_t = (4 if score >= 0.5 else 3) if _s672_tiny else (4 if score >= 0.5 else 3) if _s672_small else (3 if score >= 0.5 else 2)
-                _s672_7d_t = (7 if score >= 0.5 else 5) if _s672_tiny else (7 if score >= 0.5 else 5) if _s672_small else (5 if score >= 0.5 else 3)
+                _s672_24h_t = (3 if score >= 0.5 else 2) if _s672_tiny else (3 if score >= 0.5 else 2) if _s672_small else (3 if score >= 0.5 else 2)
+                _s672_7d_t = (5 if score >= 0.5 else 4) if _s672_tiny else (5 if score >= 0.5 else 4) if _s672_small else (5 if score >= 0.5 else 3)
                 if _recent_24h_counts.get(_cid, 0) >= _s672_24h_t:
                     score = 0.0
                 elif _recent_7d_counts.get(_cid, 0) >= _s672_7d_t:
@@ -3744,11 +3744,11 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
             _s672d_micro = _db_chunk_count <= 5  # iter801: micro_db suppress bypass
             _s672d_tiny = _db_chunk_count < 30
             _s672d_small = _db_chunk_count < 100
-            # iter803: tinydb_suppress_unify — tiny_db 与 small_db 对齐
+            # iter806: small_db_suppress_tighten — sync with retriever.py
             # iter801: micro_db (<=5) 跳过 suppress
             if not _s672d_micro:
-                _s672d_24h_t = (4 if score >= 0.5 else 3) if _s672d_tiny else (4 if score >= 0.5 else 3) if _s672d_small else (3 if score >= 0.5 else 2)
-                _s672d_7d_t = (7 if score >= 0.5 else 5) if _s672d_tiny else (7 if score >= 0.5 else 5) if _s672d_small else (5 if score >= 0.5 else 3)
+                _s672d_24h_t = (3 if score >= 0.5 else 2) if _s672d_tiny else (3 if score >= 0.5 else 2) if _s672d_small else (3 if score >= 0.5 else 2)
+                _s672d_7d_t = (5 if score >= 0.5 else 4) if _s672d_tiny else (5 if score >= 0.5 else 4) if _s672d_small else (5 if score >= 0.5 else 3)
                 if _recent_24h_counts.get(_cid, 0) >= _s672d_24h_t:
                     score = 0.0
                 elif _recent_7d_counts.get(_cid, 0) >= _s672d_7d_t:
@@ -4422,13 +4422,10 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 # iter767: tiered_small_db — 分级小库阈值（同 _score_chunk）
                 _sf663d_tiny_db = _db_chunk_count < 30
                 _sf663d_small_db = _db_chunk_count < 100
-                # iter783: sync_final_gate_thresholds — 与 _score_chunk iter781 对齐
-                # 根因同 retriever.py：final_gate 宽松阈值(10/8, 20/15)导致 _score_chunk
-                #   suppress 因 cached counts 失效时兜底无效。
-                # iter803: tinydb_suppress_unify — 与 retriever.py 对齐
+                # iter806: sync small_db_suppress_tighten — 与 retriever.py 对齐
                 top_k = [(s, c) for s, c in top_k
-                         if _rt663d_24h.get(c[_CI_ID], 0) < ((4 if s >= 0.5 else 3) if _sf663d_tiny_db else (4 if s >= 0.5 else 3) if _sf663d_small_db else (3 if s >= 0.5 else 2))
-                         and _rt663d_7d.get(c[_CI_ID], 0) < ((7 if s >= 0.5 else 5) if _sf663d_tiny_db else (7 if s >= 0.5 else 5) if _sf663d_small_db else (5 if s >= 0.5 else 3))]
+                         if _rt663d_24h.get(c[_CI_ID], 0) < ((3 if s >= 0.5 else 2) if _sf663d_tiny_db else (3 if s >= 0.5 else 2) if _sf663d_small_db else (3 if s >= 0.5 else 2))
+                         and _rt663d_7d.get(c[_CI_ID], 0) < ((5 if s >= 0.5 else 4) if _sf663d_tiny_db else (5 if s >= 0.5 else 4) if _sf663d_small_db else (5 if s >= 0.5 else 3))]
                 if len(top_k) < _pre663d:
                     _deferred.log(DMESG_WARN, "retriever_daemon",
                                   f"iter663_suppress_final_gate: filtered "
