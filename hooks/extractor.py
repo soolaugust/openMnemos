@@ -1232,7 +1232,12 @@ def _is_quality_chunk(summary: str) -> bool:
                 "轮迭代", "连续空召回", "allzero_fallback",
                 # iter755: memory-os 内部参数/路径描述
                 # 数据驱动：bdbcdc29 "daemon 是主检索路径"、2b704212 "importance（0.44→0.75）"
-                "主检索路径", "检索路径没有", "imp 0."]
+                "主检索路径", "检索路径没有", "imp 0.",
+                # iter766: proxy/guard 实现细节 — 对用户无检索价值的参数描述
+                # 数据驱动：8c78b2f3 "proxy 已加 client_max_size=0"(ac=0)、
+                #   a24c657a "filesize_guard：只拦截单文件 Read"(ac=0) — 代码里已体现
+                "client_max_size", "filesize_guard", "body size 日志",
+                "下次再触发"]
     if any(kw in s for kw in noise_kw):
         return False
     placeholders = {"方案 X 是最优解", "extractor 升级", "KnowledgeRouter"}
