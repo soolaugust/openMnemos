@@ -1964,6 +1964,12 @@ def _vfs_write_protect(summary: str) -> bool:
     # iter754: 上限 80→120 — "空召回率 68%→25%" 等 summary 长 50-100B 漏网。
     if len(s) < 120 and len(_RE_VFS_SELFREF.findall(s)) >= 2:
         return True
+    # iter799: iterator_metric_gate — 迭代器量化自评单关键词 + 箭头格式拦截
+    # 根因（数据驱动，2026-05-04）：cf82fd00 "zero_access_rate: 6% → 0%" 只命中 1 个
+    #   self-ref 关键词（需 >=2），但"关键词 + → + 数值"是迭代器度量的独有格式。
+    #   extractor._is_quality_chunk 行 1306 已有此规则，但 direct/MCP 写入路径绕过。
+    if '→' in s and _RE_VFS_SELFREF.search(s) and _re_vfs.search(r'\d+%?\s*→\s*\d+%?', s):
+        return True
     return False
 
 
