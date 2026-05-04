@@ -1262,7 +1262,12 @@ def _is_quality_chunk(summary: str) -> bool:
                 # iter817: iterator_fix_noise — 迭代器 fix/验证/阈值调整记录
                 # 数据驱动：6 个噪声 chunk 含 "修复: 增加 _cut" / "确认：7d suppress 阈值"
                 # / "验证：PA" 模式，描述迭代器自身的代码修改，对用户无检索价值
-                "suppress 阈值", "_cut758", "_cut6h", "suppress_final_gate"]
+                "suppress 阈值", "_cut758", "_cut6h", "suppress_final_gate",
+                # iter824: iterator_tuning_noise — 迭代器调参/度量快照记录
+                # 数据驱动：13 个 ac=1 噪声 chunk 含 top_k=1/af_ratio/adaptive_floor/
+                #   cands→top_k/min_score_threshold 等内部参数调整描述
+                "af_ratio", "adaptive_floor", "cands→top_k", "top_k=1",
+                "min_score_threshold", "_db_chunk_count"]
     if any(kw in s for kw in noise_kw):
         return False
     placeholders = {"方案 X 是最优解", "extractor 升级", "KnowledgeRouter"}
