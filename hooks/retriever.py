@@ -2189,7 +2189,8 @@ def main():
                 # iter756: small_db_bw_tighten; iter774: tiny_db_bw_relax
                 if _local_bw_window <= 30 and _ee_hard_cap > 0.12:
                     # iter801: micro_db_suppress_bypass (early exit path)
-                    _ee_hard_cap = 1.0 if _db_chunk_count <= 5 else (0.25 if _db_chunk_count < 30 else 0.12)
+                    # iter812: small_db_bw_relax — <50 用 0.25
+                    _ee_hard_cap = 1.0 if _db_chunk_count <= 5 else (0.25 if _db_chunk_count < 50 else 0.12)
                 if _rc_ee > 0 and _rc_ee / _local_bw_window > _ee_hard_cap:
                     return 0.0
                 # iter617: early exit 也必须检查 24h_burst_suppression
@@ -2326,7 +2327,8 @@ def main():
                 _hard_cap_val = _sysctl("retriever.constraint_inject_hard_cap") or 0.30
                 # iter756: small_db_bw_tighten; iter774: tiny_db_bw_relax
                 if _local_bw_window <= 30 and _hard_cap_val > 0.12:
-                    _hard_cap_val = 0.25 if _db_chunk_count < 30 else 0.12
+                    # iter812: small_db_bw_relax — <50 用 0.25
+                    _hard_cap_val = 0.25 if _db_chunk_count < 50 else 0.12
                 _hard_util = _rc / _local_bw_window
                 if _hard_util > _hard_cap_val:
                     score = 0.0  # iter601: hard gate
@@ -3801,7 +3803,8 @@ def main():
             # iter756: small_db_bw_tighten (constraint path); iter774: tiny_db_bw_relax
             # iter801: micro_db_suppress_bypass — <=5 chunk 库禁用 bandwidth suppress
             if _local_bw_window <= 30 and (not _inject_hard_cap or _inject_hard_cap > 0.12):
-                _inject_hard_cap = 1.0 if _db_chunk_count <= 5 else (0.25 if _db_chunk_count < 30 else 0.12)
+                # iter812: small_db_bw_relax — <50 用 0.25（sync with daemon）
+                _inject_hard_cap = 1.0 if _db_chunk_count <= 5 else (0.25 if _db_chunk_count < 50 else 0.12)
             # iter608: session_constraint_cap — 同 session 内同一 constraint 注入上限
             # 根因：_ac_gated 的全局 hard_cap 依赖 recall_count 累积到阈值才生效，
             #   但单次长 session（如 memory-os 迭代 agent）可连续触发多次 retrieval，
