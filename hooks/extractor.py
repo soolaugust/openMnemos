@@ -1258,7 +1258,11 @@ def _is_quality_chunk(summary: str) -> bool:
                 # 数据驱动：e76579b5 "空召回：27%→预期~0%"(ac=1)、42d826ac "AIOS架构"(ac=1)、
                 #   2876c5bb "项目目录结构"(ac=1) — 系统内部细节，用户不需要
                 "空召回：", "Memory-OS 架构", "memory-os 架构",
-                "项目目录结构", "主工作区", "子项目"]
+                "项目目录结构", "主工作区", "子项目",
+                # iter817: iterator_fix_noise — 迭代器 fix/验证/阈值调整记录
+                # 数据驱动：6 个噪声 chunk 含 "修复: 增加 _cut" / "确认：7d suppress 阈值"
+                # / "验证：PA" 模式，描述迭代器自身的代码修改，对用户无检索价值
+                "suppress 阈值", "_cut758", "_cut6h", "suppress_final_gate"]
     if any(kw in s for kw in noise_kw):
         return False
     placeholders = {"方案 X 是最优解", "extractor 升级", "KnowledgeRouter"}
