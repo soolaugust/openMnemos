@@ -2971,9 +2971,14 @@ def main():
             # 根因（用户可感知）：rescue 下限 0.15 导致 score=0.156 的不相关知识被注入，
             # 占用 context 空间干扰注意力。注入不相关内容比不注入更糟。
             # iter751: suppress 全灭兜底 (hard_deadline path)
+            # iter770: fallback_noise_gate — fallback 也需硬性下限，防止低分垃圾注入
+            #   根因（数据驱动，2026-05-04）：import-90139 score=0.15~0.22 通过 fallback
+            #   连续 5 次注入（psi_downgrade 路径），全与当前 query 无关。
+            #   修复：fallback 要求 score >= 0.25，低于此宁可空召回。
+            _FALLBACK_NOISE_FLOOR = 0.25
             if not positive and final:
                 _sef_hd = max(final, key=lambda x: x[0])
-                if _sef_hd[0] > 0:
+                if _sef_hd[0] >= _FALLBACK_NOISE_FLOOR:
                     positive = [_sef_hd]
                 elif _sef_hd[0] == 0.0:
                     _sef_hd_imp = [(float(c.get("importance", 0) or 0), c) for _, c in final
@@ -3512,9 +3517,11 @@ def main():
         # iter751: suppress 全灭兜底 — score=0 时用 importance 排序选最佳 1 条
         #   根因（数据驱动，2026-05-04）：13 次连续空召回 cands=3~10 全因 suppress
         #   score=0.0 → 原 > 0 条件阻止 fallback。空召回 = 系统零价值。
+        # iter770: fallback_noise_gate — fallback 也需硬性下限
+        _FALLBACK_NOISE_FLOOR_FULL = 0.25
         if not positive and final:
             _sef_full = max(final, key=lambda x: x[0])
-            if _sef_full[0] > 0:
+            if _sef_full[0] >= _FALLBACK_NOISE_FLOOR_FULL:
                 positive = [_sef_full]
                 _deferred.log(DMESG_WARN, "retriever",
                               f"iter700_score_empty_fallback_full: fallback "
