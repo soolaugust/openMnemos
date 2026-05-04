@@ -3881,7 +3881,8 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
             if not positive and _min_thresh > 0.30:
                 positive = [(s, c) for s, c in final if s >= 0.30 and s > 0]
             # iter697: candidates_rescue — 有候选全灭时按 top1*0.8 降级（最低 0.15）
-            if not positive and final and len(final) >= 5:
+            # iter698: 门槛 >=5 → >=2（candidates=3 场景 11 次空召回）
+            if not positive and final and len(final) >= 2:
                 _rescue_thresh = max(final[0][0] * 0.8, 0.15)
                 if _rescue_thresh < _min_thresh:
                     positive = [(s, c) for s, c in final if s >= _rescue_thresh and s > 0]
@@ -4021,7 +4022,8 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
         if not positive and _min_thresh > 0.30:
             positive = [(s, c) for s, c in final if s >= 0.30 and s > 0]
         # iter697: candidates_rescue — 有候选全灭时按 top1*0.8 降级（最低 0.15）
-        if not positive and final and len(final) >= 5:
+        # iter698: 门槛 >=5 → >=2（candidates=3 场景 11 次空召回）
+        if not positive and final and len(final) >= 2:
             _rescue_thresh = max(final[0][0] * 0.8, 0.15)
             if _rescue_thresh < _min_thresh:
                 positive = [(s, c) for s, c in final if s >= _rescue_thresh and s > 0]

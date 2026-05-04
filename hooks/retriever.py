@@ -2949,7 +2949,8 @@ def main():
             # iter697: candidates_rescue — 有候选全灭时按 top1*0.8 降级（最低 0.15）
             # 根因（数据驱动，2026-05-04）：64% trace 空召回，其中 40% 有 >=5 候选
             #   但全部 score < 0.30 被硬阈值卡死。adaptive_floor 要求 top1>=0.5 不触发。
-            if not positive and final and len(final) >= 5:
+            # iter698: 门槛 >=5 → >=2（数据：candidates=3 场景仍有 11 次空召回）
+            if not positive and final and len(final) >= 2:
                 _rescue_thresh = max(final[0][0] * 0.8, 0.15)
                 if _rescue_thresh < _min_thresh:
                     positive = [(s, c) for s, c in final if s >= _rescue_thresh and s > 0]
@@ -3472,7 +3473,8 @@ def main():
         if not positive and _min_thresh > 0.30:
             positive = [(s, c) for s, c in final if s >= 0.30 and s > 0]
         # iter697: candidates_rescue — 有候选全灭时按 top1*0.8 降级（最低 0.15）
-        if not positive and final and len(final) >= 5:
+        # iter698: 门槛 >=5 → >=2（candidates=3 场景 11 次空召回）
+        if not positive and final and len(final) >= 2:
             _rescue_thresh = max(final[0][0] * 0.8, 0.15)
             if _rescue_thresh < _min_thresh:
                 positive = [(s, c) for s, c in final if s >= _rescue_thresh and s > 0]
