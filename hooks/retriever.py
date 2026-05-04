@@ -596,9 +596,17 @@ def _is_generic_knowledge_query(query: str) -> bool:
         'chunk', 'store.db', 'memory_chunks',
         # 项目特定缩写
         'drr', 'dmesg',
+        # iter732: DB 实际领域词
+        'kernel', 'patch', 'uclamp', 'cgroup', 'proxy exec',
+        'eevdf', 'migration', 'binder', 'schedqos', 'directed yield',
+        'task_rq', 'lkmm', 'commit', 'signed-off',
+        '内核', '调度器', '补丁', '性能诊断', '约束', '决策',
     ]
 
     query_lower = query.lower().strip()
+    # iter731: 长查询(>20 chars)不视为 generic（同 daemon iter710）
+    if len(query_lower) > 20:
+        return False
     has_generic_pattern = any(re.search(p, query_lower) for p in _GENERIC_PATTERNS)
     has_project_marker = any(m in query_lower for m in _PROJECT_MARKERS)
 
