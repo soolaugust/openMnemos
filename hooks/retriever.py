@@ -4279,6 +4279,7 @@ def main():
         #   内连续注入 4 次，24h suppress(>=2) 未拦截。
         # 修复：注入前实时重读 injection_timeline 文件（<1ms, 27 entries），
         #   补充过滤已超 24h/7d 阈值的 chunk。
+        _pre_suppress_top_k_lite = list(top_k)  # iter793: snapshot before suppress
         if top_k:
             try:
                 _itl758 = {}
@@ -4301,6 +4302,17 @@ def main():
                     _deferred.log(DMESG_WARN, "retriever",
                                   f"iter758_suppress_final_gate_lite: filtered "
                                   f"{_pre758 - len(top_k)} chunks (timeline re-read)",
+                                  session_id=session_id, project=project)
+                # ── iter793: suppress_fallback_lite — LITE 路径 suppress 全灭降级 ──
+                # 根因（数据驱动，2026-05-04）：FULL 路径有 iter670 suppress_fallback，
+                #   但 LITE 路径 suppress 后 top_k=[] 无任何兜底 → 直接空召回。
+                #   空召回 = 系统零价值，降级注入最佳 1 条远优于无输出。
+                if not top_k and _pre_suppress_top_k_lite:
+                    _fb_lite = max(_pre_suppress_top_k_lite, key=lambda x: x[0])
+                    top_k = [_fb_lite]
+                    _deferred.log(DMESG_WARN, "retriever",
+                                  f"iter793_suppress_fallback_lite: all {_pre758} "
+                                  f"suppressed, fallback to best={_fb_lite[1].get('id','')[:12]}",
                                   session_id=session_id, project=project)
             except Exception:
                 pass  # timeline 读取失败不阻塞
