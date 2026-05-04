@@ -4033,6 +4033,18 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
         else:
             top_k = positive[:effective_top_k]
 
+        # ── iter700: score_empty_fallback (FULL path) ──
+        # 根因（数据驱动，2026-05-04）：用户工作项目 15 次空召回，有 3-21 个 candidates
+        #   但 top1 < 0.15 → rescue 不触发。hard_deadline 有 iter689，此处遗漏。
+        if not top_k and final:
+            _sef_full = max(final, key=_SORT_KEY)
+            if _sef_full[0] > 0:
+                top_k = [_sef_full]
+                _deferred.log(DMESG_WARN, "retriever_daemon",
+                              f"iter700_score_empty_fallback_full: fallback "
+                              f"best={_sef_full[1][_CI_ID][:12]} s={_sef_full[0]:.4f}",
+                              session_id=session_id, project=project)
+
         # ── design_constraint 强制注入 ──
         # iter219: chunk_type [] not .get() — schema guarantees field exists (TEXT nullable)
         # iter632: ac>=30 过滤 — 堵住 spreading_activate/shmem/schema 路径绕过

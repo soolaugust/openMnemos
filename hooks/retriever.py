@@ -3478,6 +3478,17 @@ def main():
             _rescue_thresh = max(final[0][0] * 0.8, 0.15)
             if _rescue_thresh < _min_thresh:
                 positive = [(s, c) for s, c in final if s >= _rescue_thresh and s > 0]
+        # ── iter700: score_empty_fallback (FULL path) ──
+        # 根因（数据驱动，2026-05-04）：用户工作项目 15 次空召回，有 3-21 个 candidates
+        #   但 top1 < 0.15 → rescue 不触发。hard_deadline 有 iter689，此处遗漏。
+        if not positive and final:
+            _sef_full = max(final, key=lambda x: x[0])
+            if _sef_full[0] > 0:
+                positive = [_sef_full]
+                _deferred.log(DMESG_WARN, "retriever",
+                              f"iter700_score_empty_fallback_full: fallback "
+                              f"best={_sef_full[1].get('id','')[:12]} s={_sef_full[0]:.4f}",
+                              session_id=session_id, project=project)
 
         # ── 迭代334：IWCSI — Importance-Weighted Cold-Start Injection ───────
         # 信息论依据（Shannon 1948）：高 importance + 零召回 chunk 的期望信息增益最高：
