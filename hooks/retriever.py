@@ -3130,6 +3130,15 @@ def main():
                 if _pair_cands_hd:
                     _pair_best_hd = max(_pair_cands_hd, key=lambda x: x[0])
                     positive.append(_pair_best_hd)
+                else:
+                    # iter827: importance_pair_fallback (hard_deadline path)
+                    _imp_pairs_hd = [(float(c.get("importance", 0) or 0), c) for _, c in final
+                                     if c.get("id") != positive[0][1].get("id")
+                                     and (c.get("access_count", 0) or 0) < 30]
+                    if _imp_pairs_hd:
+                        _imp_best_hd = max(_imp_pairs_hd, key=lambda x: x[0])
+                        if _imp_best_hd[0] >= 0.3:
+                            positive.append((positive[0][0] * 0.3, _imp_best_hd[1]))
             # iter695: threshold_degrade — 阈值过高全灭时降级到默认 0.30
             if not positive and _min_thresh > 0.30:
                 positive = [(s, c) for s, c in final if s >= 0.30 and s > 0]
@@ -3722,6 +3731,24 @@ def main():
                               f"iter826_pair_inject: paired {_pair_best[1].get('id','')[:12]} "
                               f"s={_pair_best[0]:.3f} with top1 s={positive[0][0]:.3f}",
                               session_id=session_id, project=project)
+            else:
+                # iter827: importance_pair_fallback — suppress 清零后按 importance 补充
+                # 根因（数据驱动，2026-05-05）：77% 注入为单条。suppress 把 top2+ 全部
+                #   清零(score=0.0) → pair_inject 的 s>0.05 条件无候选 → 无法组合。
+                # 修复：从 final 中按 importance 取非 top1 的最佳 chunk，给予 top1*0.3
+                #   的象征性 score，确保组合上下文。排除 access_count>=30 的过饱和 chunk。
+                _imp_pairs = [(float(c.get("importance", 0) or 0), c) for _, c in final
+                              if c.get("id") != positive[0][1].get("id")
+                              and (c.get("access_count", 0) or 0) < 30]
+                if _imp_pairs:
+                    _imp_best = max(_imp_pairs, key=lambda x: x[0])
+                    if _imp_best[0] >= 0.3:  # importance 下限，避免注入低价值 chunk
+                        _pair_score = positive[0][0] * 0.3
+                        positive.append((_pair_score, _imp_best[1]))
+                        _deferred.log(DMESG_DEBUG, "retriever",
+                                      f"iter827_imp_pair: paired {_imp_best[1].get('id','')[:12]} "
+                                      f"imp={_imp_best[0]:.2f} with top1 s={positive[0][0]:.3f}",
+                                      session_id=session_id, project=project)
         # iter695: threshold_degrade — 阈值过高全灭时降级到默认 0.30
         if not positive and _min_thresh > 0.30:
             positive = [(s, c) for s, c in final if s >= 0.30 and s > 0]
