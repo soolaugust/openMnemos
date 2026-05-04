@@ -767,8 +767,17 @@ def _ensure_fts5(conn: sqlite3.Connection) -> None:
                     )
                     return
             else:
-                # 已经是迭代124 格式，无需操作
-                return
+                # iter787: fts_schema_integrity — 验证 FTS 表确实有 rowid_ref 列
+                # 根因：历史 DB 可能 version=124 但 FTS 表仍是旧 content-sync 格式
+                #   (id,content,summary,chunk_type)，导致 fts_search JOIN rowid_ref 永远 exception
+                #   → 所有 FTS 查询静默返回空 → 系统退化为 BM25 全表扫描。
+                # 检测：PRAGMA table_info 看 FTS 虚拟表列名，缺 rowid_ref 则强制重建。
+                _cols = {r[1] for r in conn.execute(
+                    "PRAGMA table_info(memory_chunks_fts)").fetchall()}
+                if "rowid_ref" in _cols:
+                    return
+                # FTS 表 schema 损坏：DROP 并重建
+                conn.execute("DROP TABLE IF EXISTS memory_chunks_fts")
 
     # 创建新 FTS5 虚拟表（独立模式，存储 CJK 预处理后的文本）
     # OS 类比：ext4 的 htree 独立 B-tree，不引用 inode 原始数据
