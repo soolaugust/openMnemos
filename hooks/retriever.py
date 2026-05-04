@@ -3122,6 +3122,14 @@ def main():
             #   可将 _min_thresh 降到 0.05，而 focus_bonus 等 += 操作可能将 0.0 抬到
             #   0.00009 级别，恰好通过极低 threshold。绝对零分门槛不可绕过。
             positive = [(s, c) for s, c in final if s >= _min_thresh and s > 0]
+            # iter826: single_result_pair_inject (hard_deadline path)
+            if len(positive) == 1 and len(final) >= 3:
+                _pair_cands_hd = [(s, c) for s, c in final
+                                  if s > 0.05 and s < _min_thresh
+                                  and c.get("id") != positive[0][1].get("id")]
+                if _pair_cands_hd:
+                    _pair_best_hd = max(_pair_cands_hd, key=lambda x: x[0])
+                    positive.append(_pair_best_hd)
             # iter695: threshold_degrade — 阈值过高全灭时降级到默认 0.30
             if not positive and _min_thresh > 0.30:
                 positive = [(s, c) for s, c in final if s >= 0.30 and s > 0]
@@ -3697,6 +3705,23 @@ def main():
                                       session_id=session_id, project=project)
         # iter620: zero_score_absolute_gate (FULL path) — 同 hard_deadline 路径
         positive = [(s, c) for s, c in final if s >= _min_thresh and s > 0]
+        # iter826: single_result_pair_inject — 单条结果时补充次优候选
+        # 根因（数据驱动，2026-05-05）：48h 内 50% 注入只有 1 条 chunk，
+        #   cands=29-33 中仅 1 条过 _min_thresh（其余 score=0 被 suppress 或 relevance 极低）。
+        #   单条注入缺乏上下文组合，用户感知记忆系统只能给"单点"知识。
+        # 修复：positive=1 时从 final 中取 score>0 但 < _min_thresh 的次优候选补充 1 条，
+        #   确保至少 2 条组合上下文。下限 0.05 防止噪声注入。
+        if len(positive) == 1 and len(final) >= 3:
+            _pair_candidates = [(s, c) for s, c in final
+                                if s > 0.05 and s < _min_thresh
+                                and c.get("id") != positive[0][1].get("id")]
+            if _pair_candidates:
+                _pair_best = max(_pair_candidates, key=lambda x: x[0])
+                positive.append(_pair_best)
+                _deferred.log(DMESG_DEBUG, "retriever",
+                              f"iter826_pair_inject: paired {_pair_best[1].get('id','')[:12]} "
+                              f"s={_pair_best[0]:.3f} with top1 s={positive[0][0]:.3f}",
+                              session_id=session_id, project=project)
         # iter695: threshold_degrade — 阈值过高全灭时降级到默认 0.30
         if not positive and _min_thresh > 0.30:
             positive = [(s, c) for s, c in final if s >= 0.30 and s > 0]
