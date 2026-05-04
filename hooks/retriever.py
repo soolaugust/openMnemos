@@ -2959,14 +2959,9 @@ def main():
             # iter695: threshold_degrade — 阈值过高全灭时降级到默认 0.30
             if not positive and _min_thresh > 0.30:
                 positive = [(s, c) for s, c in final if s >= 0.30 and s > 0]
-            # iter697: candidates_rescue — 有候选全灭时按 top1*0.8 降级（最低 0.15）
-            # 根因（数据驱动，2026-05-04）：64% trace 空召回，其中 40% 有 >=5 候选
-            #   但全部 score < 0.30 被硬阈值卡死。adaptive_floor 要求 top1>=0.5 不触发。
-            # iter698: 门槛 >=5 → >=2（数据：candidates=3 场景仍有 11 次空召回）
-            if not positive and final and len(final) >= 2:
-                _rescue_thresh = max(final[0][0] * 0.8, 0.15)
-                if _rescue_thresh < _min_thresh:
-                    positive = [(s, c) for s, c in final if s >= _rescue_thresh and s > 0]
+            # iter759: 移除 candidates_rescue — 宁可不注入也不注入垃圾
+            # 根因（用户可感知）：rescue 下限 0.15 导致 score=0.156 的不相关知识被注入，
+            # 占用 context 空间干扰注意力。注入不相关内容比不注入更糟。
             # iter751: suppress 全灭兜底 (hard_deadline path)
             if not positive and final:
                 _sef_hd = max(final, key=lambda x: x[0])
@@ -3500,12 +3495,7 @@ def main():
         # iter695: threshold_degrade — 阈值过高全灭时降级到默认 0.30
         if not positive and _min_thresh > 0.30:
             positive = [(s, c) for s, c in final if s >= 0.30 and s > 0]
-        # iter697: candidates_rescue — 有候选全灭时按 top1*0.8 降级（最低 0.15）
-        # iter698: 门槛 >=5 → >=2（candidates=3 场景 11 次空召回）
-        if not positive and final and len(final) >= 2:
-            _rescue_thresh = max(final[0][0] * 0.8, 0.15)
-            if _rescue_thresh < _min_thresh:
-                positive = [(s, c) for s, c in final if s >= _rescue_thresh and s > 0]
+        # iter759: 移除 candidates_rescue（同 hard_deadline 路径）
         # ── iter700: score_empty_fallback (FULL path) ──
         # 根因（数据驱动，2026-05-04）：用户工作项目 15 次空召回，有 3-21 个 candidates
         #   但 top1 < 0.15 → rescue 不触发。hard_deadline 有 iter689，此处遗漏。
