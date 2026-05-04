@@ -3651,18 +3651,21 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
             #   DB<100 chunk 时 24h:3→5, 7d:5→8（低分）/ 24h:3→6, 7d:5→10（高分）
             #   根因：40 chunk × 频繁对话 → 2次/24h 即封锁 → 注入率骤降
             # iter767: tiered_small_db — 分级小库阈值
+            _s672_micro = _db_chunk_count <= 5  # iter801: micro_db — suppress 全禁用
             _s672_tiny = _db_chunk_count < 30
             _s672_small = _db_chunk_count < 100
             # iter781: tiny_db_suppress_tighten — 收紧 tiny_db 24h 5/4, 7d 10/8
-            _s672_24h_t = (5 if score >= 0.5 else 4) if _s672_tiny else (4 if score >= 0.5 else 3) if _s672_small else (3 if score >= 0.5 else 2)
-            _s672_7d_t = (10 if score >= 0.5 else 8) if _s672_tiny else (7 if score >= 0.5 else 5) if _s672_small else (5 if score >= 0.5 else 3)
-            if _recent_24h_counts.get(_cid, 0) >= _s672_24h_t:
-                score = 0.0
-            elif _recent_7d_counts.get(_cid, 0) >= _s672_7d_t:
-                score = 0.0
-            # iter622: saturation_absolute_suppress — access_count >= 30 永久 suppress
-            elif (chunk[_CI_AC] or 0) >= 30:
-                score = 0.0
+            # iter801: micro_db (<=5) 跳过 24h/7d/saturation suppress — 唯一知识不可 suppress
+            if not _s672_micro:
+                _s672_24h_t = (5 if score >= 0.5 else 4) if _s672_tiny else (4 if score >= 0.5 else 3) if _s672_small else (3 if score >= 0.5 else 2)
+                _s672_7d_t = (10 if score >= 0.5 else 8) if _s672_tiny else (7 if score >= 0.5 else 5) if _s672_small else (5 if score >= 0.5 else 3)
+                if _recent_24h_counts.get(_cid, 0) >= _s672_24h_t:
+                    score = 0.0
+                elif _recent_7d_counts.get(_cid, 0) >= _s672_7d_t:
+                    score = 0.0
+                # iter622: saturation_absolute_suppress — access_count >= 30 永久 suppress
+                elif (chunk[_CI_AC] or 0) >= 30:
+                    score = 0.0
             return score
 
         def _score_chunk_dict(chunk, relevance):
@@ -3729,18 +3732,21 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
             # iter619: 阈值收紧 24h:3→2, 7d:8→5
             # iter672: relevance_exempt — 高分 chunk 放宽阈值，防 suppress 过杀
             # iter767: tiered_small_db — 分级小库阈值（同 _score_chunk）
+            _s672d_micro = _db_chunk_count <= 5  # iter801: micro_db suppress bypass
             _s672d_tiny = _db_chunk_count < 30
             _s672d_small = _db_chunk_count < 100
             # iter781: tiny_db_suppress_tighten — 收紧 tiny_db 24h 5/4, 7d 10/8
-            _s672d_24h_t = (5 if score >= 0.5 else 4) if _s672d_tiny else (4 if score >= 0.5 else 3) if _s672d_small else (3 if score >= 0.5 else 2)
-            _s672d_7d_t = (10 if score >= 0.5 else 8) if _s672d_tiny else (7 if score >= 0.5 else 5) if _s672d_small else (5 if score >= 0.5 else 3)
-            if _recent_24h_counts.get(_cid, 0) >= _s672d_24h_t:
-                score = 0.0
-            elif _recent_7d_counts.get(_cid, 0) >= _s672d_7d_t:
-                score = 0.0
-            # iter622: saturation_absolute_suppress — access_count >= 30 永久 suppress
-            elif (chunk.get("access_count", 0) or 0) >= 30:
-                score = 0.0
+            # iter801: micro_db (<=5) 跳过 suppress
+            if not _s672d_micro:
+                _s672d_24h_t = (5 if score >= 0.5 else 4) if _s672d_tiny else (4 if score >= 0.5 else 3) if _s672d_small else (3 if score >= 0.5 else 2)
+                _s672d_7d_t = (10 if score >= 0.5 else 8) if _s672d_tiny else (7 if score >= 0.5 else 5) if _s672d_small else (5 if score >= 0.5 else 3)
+                if _recent_24h_counts.get(_cid, 0) >= _s672d_24h_t:
+                    score = 0.0
+                elif _recent_7d_counts.get(_cid, 0) >= _s672d_7d_t:
+                    score = 0.0
+                # iter622: saturation_absolute_suppress — access_count >= 30 永久 suppress
+                elif (chunk.get("access_count", 0) or 0) >= 30:
+                    score = 0.0
             return score
 
         def _gc_dict_to_ci(c):
@@ -3795,7 +3801,9 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
             #   根因(756)：42 chunk 库中 hard_cap=0.30 → rc>9 才 suppress → 逃逸。
             #   根因(774)：6 chunk 库中 0.12 → rc≥3 suppress → cands=3 全灭 → 66% 空召回。
             if _db_chunk_count < 100:
-                _inject_hard_cap = 0.25 if _db_chunk_count < 30 else 0.12
+                # iter801: micro_db_suppress_bypass — <=5 chunk 库禁用 bandwidth suppress
+                # 根因：1-chunk 库中唯一 chunk 被自身注入历史 suppress → 15 次连续空召回。
+                _inject_hard_cap = 1.0 if _db_chunk_count <= 5 else (0.25 if _db_chunk_count < 30 else 0.12)
             fts_ids = {chunk[_CI_ID] for chunk in fts_results}  # iter235: positional tuple
             final = [(_score_chunk(chunk, chunk[_CI_FR] / max_rank), chunk)
                      for chunk in fts_results]
@@ -3922,7 +3930,8 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
             candidates_count = len(chunks)
             # iter756: small_db_bw_tighten; iter774: tiny_db_bw_relax (BM25 path)
             if _db_chunk_count < 100:
-                _inject_hard_cap = 0.25 if _db_chunk_count < 30 else 0.12
+                # iter801: micro_db_suppress_bypass (BM25 path)
+                _inject_hard_cap = 1.0 if _db_chunk_count <= 5 else (0.25 if _db_chunk_count < 30 else 0.12)
             # iter683: raw_relevance_gate — 绝对相关性门槛
             # 根因（用户可感知）：normalize 是相对排名（max=1.0），当 DB 中无真正相关 chunk 时，
             # 噪声匹配（中文通用 bigram 重叠）被放大到 1.0 超过阈值 → 注入不相关内容。

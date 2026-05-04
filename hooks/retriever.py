@@ -2143,7 +2143,8 @@ def main():
                 _ee_hard_cap = _sysctl("retriever.constraint_inject_hard_cap") or 0.30
                 # iter756: small_db_bw_tighten; iter774: tiny_db_bw_relax
                 if _local_bw_window <= 30 and _ee_hard_cap > 0.12:
-                    _ee_hard_cap = 0.25 if _db_chunk_count < 30 else 0.12
+                    # iter801: micro_db_suppress_bypass (early exit path)
+                    _ee_hard_cap = 1.0 if _db_chunk_count <= 5 else (0.25 if _db_chunk_count < 30 else 0.12)
                 if _rc_ee > 0 and _rc_ee / _local_bw_window > _ee_hard_cap:
                     return 0.0
                 # iter617: early exit 也必须检查 24h_burst_suppression
@@ -2154,24 +2155,26 @@ def main():
                 # 根因（数据驱动，2026-05-04）：评分路径 tiny_db 24h 阈值=4~5，但
                 #   early exit 固定 >=2 → 34 chunk 小库中 24h=2 即全灭（56% 空召回）。
                 #   early exit 是 relevance<0.005 路径，score 必然低，用低分阈值对齐。
-                _r24_ee = _recent_24h_counts.get(chunk.get("id", ""), 0)
-                _ee_24h_thresh = 4 if _db_chunk_count < 30 else 3 if _db_chunk_count < 100 else 2
-                if _r24_ee >= _ee_24h_thresh:
-                    return 0.0
-                # iter618: early exit 也检查 7d_rolling_suppress
-                # iter619: 8→5; iter664: 5→3，与评分阶段阈值统一
-                # iter796: 同步 tiny_db 放宽
-                _r7d_ee = _recent_7d_counts.get(chunk.get("id", ""), 0)
-                _ee_7d_thresh = 8 if _db_chunk_count < 30 else 5 if _db_chunk_count < 100 else 3
-                if _r7d_ee >= _ee_7d_thresh:
-                    return 0.0
-                # iter621→622: saturation_absolute_suppress — 累积注入过饱和永久 suppress
-                # iter642: 用 live ac 替代 immutable 连接的 stale ac
-                _acc_ee = _get_live_ac(chunk.get("id", ""))
-                if _acc_ee is None:
-                    _acc_ee = chunk.get("access_count", 0) or 0
-                if _acc_ee >= 30:
-                    return 0.0
+                # iter801: micro_db (<=5) 跳过 24h/7d/saturation suppress
+                if _db_chunk_count > 5:
+                    _r24_ee = _recent_24h_counts.get(chunk.get("id", ""), 0)
+                    _ee_24h_thresh = 4 if _db_chunk_count < 30 else 3 if _db_chunk_count < 100 else 2
+                    if _r24_ee >= _ee_24h_thresh:
+                        return 0.0
+                    # iter618: early exit 也检查 7d_rolling_suppress
+                    # iter619: 8→5; iter664: 5→3，与评分阶段阈值统一
+                    # iter796: 同步 tiny_db 放宽
+                    _r7d_ee = _recent_7d_counts.get(chunk.get("id", ""), 0)
+                    _ee_7d_thresh = 8 if _db_chunk_count < 30 else 5 if _db_chunk_count < 100 else 3
+                    if _r7d_ee >= _ee_7d_thresh:
+                        return 0.0
+                    # iter621→622: saturation_absolute_suppress — 累积注入过饱和永久 suppress
+                    # iter642: 用 live ac 替代 immutable 连接的 stale ac
+                    _acc_ee = _get_live_ac(chunk.get("id", ""))
+                    if _acc_ee is None:
+                        _acc_ee = chunk.get("access_count", 0) or 0
+                    if _acc_ee >= 30:
+                        return 0.0
                 return float(chunk.get("importance", 0.5)) * 0.1  # 极低相关性：快速降权
             # 迭代322: Query-Conditioned Importance — 动态 α
             # OS 类比：CPUFreq P-state — 高负载（高 relevance）降低 importance 依赖；
@@ -2235,10 +2238,11 @@ def main():
                     score += min(0.10, _matched * 0.03)
             # ── iter622: saturation_absolute_suppress — 累积过饱和 suppress ──
             # iter642: 用 live ac 替代 immutable 连接的 stale ac，防止 WAL 盲区逃逸
+            # iter801: micro_db (<=5) 跳过 saturation suppress
             _acc = _get_live_ac(chunk.get("id", ""))
             if _acc is None:
                 _acc = chunk.get("access_count", 0) or 0
-            if _acc >= 30:
+            if not _micro_db and _acc >= 30:
                 score = 0.0
                 _hard_suppressed = True
             # ── 迭代333：TMV Multiplicative Saturation Discount ──────────────
@@ -2307,6 +2311,7 @@ def main():
             # 根因（数据驱动，2026-05-04）：52 chunk 库中 import-90139 7d=5 但阈值=8 → 逃逸
             #   iter703/764 一刀切 <100 放宽到 5/6,8/10 对 50+ chunk 库过于宽松
             # 修复：<30 极小库保持宽松；30-100 中小库收紧
+            _micro_db = _db_chunk_count <= 5  # iter801: micro_db suppress bypass
             _tiny_db = _db_chunk_count < 30
             _small_db = _db_chunk_count < 100
             # iter781: tiny_db_suppress_tighten — 收紧 tiny_db suppress 阈值
@@ -2314,18 +2319,21 @@ def main():
             #   iter777 的 10/8 阈值导致 24h 内同一 chunk 被 5+ session 注入仍不 suppress
             #   （import-90139 在 21 分钟内被 3 个不同 session 注入）。
             #   iter776 suppress_zero_fallback 已解决空召回兜底，可安全收紧。
-            _suppress_24h_thresh = (5 if score >= 0.5 else 4) if _tiny_db else (4 if score >= 0.5 else 3) if _small_db else (3 if score >= 0.5 else 2)
-            if _r24_cnt >= _suppress_24h_thresh:
-                score = 0.0
-                _hard_suppressed = True  # iter616
+            # iter801: micro_db (<=5) 跳过 24h/7d suppress — 唯一知识不可 suppress
+            if not _micro_db:
+                _suppress_24h_thresh = (5 if score >= 0.5 else 4) if _tiny_db else (4 if score >= 0.5 else 3) if _small_db else (3 if score >= 0.5 else 2)
+                if _r24_cnt >= _suppress_24h_thresh:
+                    score = 0.0
+                    _hard_suppressed = True  # iter616
             # ── iter618: 7d_rolling_suppress — 长期慢性垄断 suppress ────────
             # iter767: tiered_small_db — 同步分级
             _r7d_cnt = _recent_7d_counts.get(chunk.get("id", ""), 0)
             # iter781: tiny_db 7d 阈值 20/15→10/8（同步收紧）
-            _suppress_7d_thresh = (10 if score >= 0.5 else 8) if _tiny_db else (7 if score >= 0.5 else 5) if _small_db else (5 if score >= 0.5 else 3)
-            if _r7d_cnt >= _suppress_7d_thresh:
-                score = 0.0
-                _hard_suppressed = True
+            if not _micro_db:
+                _suppress_7d_thresh = (10 if score >= 0.5 else 8) if _tiny_db else (7 if score >= 0.5 else 5) if _small_db else (5 if score >= 0.5 else 3)
+                if _r7d_cnt >= _suppress_7d_thresh:
+                    score = 0.0
+                    _hard_suppressed = True
             # ── iter368: Attention Focus Bonus ─────────────────────────────
             # OS 类比：寄存器中的变量零访问延迟 bonus（vs 内存访问 200 cycles）
             # 当前焦点关键词命中 → chunk 进入"注意焦点"→ 激活阈值降低
@@ -3732,8 +3740,9 @@ def main():
             #   2. hard_cap 从 0.50 降至 0.30，与 thrash_max_pct(0.20) 更紧密对齐
             _inject_hard_cap = _sysctl("retriever.constraint_inject_hard_cap")
             # iter756: small_db_bw_tighten (constraint path); iter774: tiny_db_bw_relax
+            # iter801: micro_db_suppress_bypass — <=5 chunk 库禁用 bandwidth suppress
             if _local_bw_window <= 30 and (not _inject_hard_cap or _inject_hard_cap > 0.12):
-                _inject_hard_cap = 0.25 if _db_chunk_count < 30 else 0.12
+                _inject_hard_cap = 1.0 if _db_chunk_count <= 5 else (0.25 if _db_chunk_count < 30 else 0.12)
             # iter608: session_constraint_cap — 同 session 内同一 constraint 注入上限
             # 根因：_ac_gated 的全局 hard_cap 依赖 recall_count 累积到阈值才生效，
             #   但单次长 session（如 memory-os 迭代 agent）可连续触发多次 retrieval，
