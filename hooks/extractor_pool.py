@@ -132,7 +132,10 @@ def _seal_check_reject(text: str) -> bool:
                     'same_hash', '_sysctl', '_effective', 'chunk_type',
                     'retriever.', 'extractor.', 'retriever_daemon',
                     'pre_hash_thrash', 'thrash_suppress', '_write_chunk',
-                    '_seal_check', '_vma_validate', 'insert_chunk')
+                    '_seal_check', '_vma_validate', 'insert_chunk',
+                    # iter757: 补充 memory-os 内部变量名漏网
+                    'hard_cap', 'inject_hard', 'suppress_fallback',
+                    'bandwidth_throttle', 'score_chunk', 'final_gate')
     _tl = text.lower()
     if any(ci in _tl for ci in _code_idents):
         return True
