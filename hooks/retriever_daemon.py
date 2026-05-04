@@ -4113,8 +4113,8 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 # iter775: dead_zone_min_score — 防止 FTS5 无匹配时注入垃圾
                 _sef_full_max = _sef_full[0]
                 _DEAD_ZONE_MIN_FULL = 0.05
-                _sef_by_imp = [(float(c.get(_CI_IMP, 0) or 0), c) for _, c in final
-                               if (c.get(_CI_AC, 0) or 0) < 30]
+                _sef_by_imp = [(float(c[_CI_IMP] or 0), c) for _, c in final
+                               if (c[_CI_AC] or 0) < 30]
                 if _sef_by_imp and _sef_full_max >= _DEAD_ZONE_MIN_FULL:
                     _sef_best = max(_sef_by_imp, key=_SORT_KEY)
                     top_k = [(_sef_best[0] * 0.1, _sef_best[1])]
