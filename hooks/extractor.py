@@ -1167,6 +1167,14 @@ def _is_quality_chunk(summary: str) -> bool:
     s = summary.strip()
     if len(s) < 10:
         return False
+    # iter769: numbered_list_fragment — 拦截编号列表项碎片
+    # 根因（数据驱动，2026-05-04）：同一事件（proxy 20MB limit 调试）被 3 个提取器
+    #   各自逐行提取，产生 8 个碎片 chunk（占总库 17%）。每个碎片以 "1. xxx" 格式
+    #   开头，缺乏独立语义上下文（编号暗示它属于更大列表，单条不可独立检索）。
+    # 豁免：含决策动词的列表项保留（_extract_structured_decisions 已正确过滤）。
+    if re.match(r'^\d+[.。]\s+', s):
+        if not re.search(r'(?:选择|决定|推荐|结论|采用|方向|核心|必须|禁止|不[能可得])', s):
+            return False
     # iter753: 豁免 [topic] 格式（wiki import summary），只拦截裸 [ ] - | 开头的碎片
     if re.match(r'^[\[\]\-|]', s):
         # [word] 后跟中日韩/拉丁内容 = wiki topic tag，不是碎片
