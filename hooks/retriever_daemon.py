@@ -1539,11 +1539,12 @@ def _load_all_modules():
         r'|thanks?|ye[sp]|no[pe]?|got\s*it|sure|lgtm)$',
         re.IGNORECASE
     )
-    # iter722: 扩充 _TECH_SIGNAL — 覆盖 DB 实际内容域的技术词
+    # iter722+743: 扩充 _TECH_SIGNAL — 支持中英混排（\b 不适用于 CJK 边界）
     _modules['_TECH_SIGNAL'] = re.compile(
         r'(?:`[^`]+`|[\w./]+\.(?:py|js|ts|md|json|db|sql|yaml|toml|rs|go|java|cpp|h)\b'
         r'|(?:函数|类|模块|接口|方法|变量|配置|部署|迁移|内核|调度|补丁|性能|分析|诊断|优化|约束|架构|线程|进程|延迟|飞书|文档|规则|策略|决策)'
-        r'|\b(?:error|bug|fix|crash|kernel|patch|sched|perf|trace|commit|config|thread|task|memory|cache|proxy|migration|cgroup)\b|\b(?:def|class|import|function|const)\b)'
+        r'|(?<![a-zA-Z])(?:error|bug|fix|crash|kernel|patch|sched|perf|trace|commit|config|thread|task|memory|cache|proxy|migration|cgroup|PE|RT)(?![a-zA-Z])'
+        r'|\b(?:def|class|import|function|const)\b)'
     )
     _modules['_ACRONYM_SIGNAL'] = re.compile(r'\b[A-Z][A-Z0-9_]{2,}\b')
 
@@ -4540,12 +4541,15 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 _effective_top_k = _top_k_data
                 if (not _effective_top_k or len(_effective_top_k) != _top_k_len) and _accessed_ids:
                     _effective_top_k = [{"id": cid} for cid in _accessed_ids]
-                # iter693: empty_trace_guard — 空 top_k 不写 injected=1（防污染 suppress 统计）
-                # 根因（数据驱动，2026-05-04）：64% trace 为 injected=1 + top_k=[]，
-                #   dmesg 确认 daemon 成功注入了 chunk，但闭包捕获的 _top_k_data 偶发为空。
-                #   根因：默认参数绑定 list 被 GC 或后续 fast-path 覆盖（未完全确定）。
-                #   修复：空时不写 injected=1，避免 recall_counts 统计被无 chunk-id 的 trace 污染。
-                _effective_injected = 1 if _effective_top_k else 0
+                # iter721: trace_injected_fix — 用 _top_k_len 决定 injected 标志
+                # 数据驱动（2026-05-04）：dmesg 确认 daemon 注入了 N chunk（_top_k_len>0），
+                #   但闭包捕获的 _top_k_data/_accessed_ids 偶发为空（根因未确定）。
+                #   iter693 的 empty_trace_guard 将此标记为 injected=0 → recall_counts 严重失准
+                #   → suppress 阈值无法正确累积 → 垄断检测失效。
+                # 修复：_top_k_len 是整数默认参数（不受引用问题影响），用它判断实际注入状态。
+                #   top_k_json 为空时 recall_counts 无法按 chunk_id 统计——但 injected=1
+                #   至少保证总注入次数(window denominator)正确，suppress 比例计算不失真。
+                _effective_injected = 1 if _top_k_len > 0 else 0
                 store_insert_trace(_wconn, {
                     "id": str(uuid_mod.uuid4()),
                     "timestamp": datetime.now(timezone.utc).isoformat(),
