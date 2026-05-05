@@ -3635,12 +3635,11 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
             # Correctness: global != project always (project is e.g. "memory-os"); identical semantics.
             # OS 类比：branch layout optimization (PGO) — reordering branches so the hot path executes
             #          fewest branches (same as profile-guided ordering of switch cases).
-            # iter718: global penalty 0.05→0.02 — 67.5% 的 chunk 是 global，
-            #   0.05 惩罚导致 global chunk 系统性低于 project chunk，
-            #   但在 40 chunk DB 中 global 是主要信息源，不应过度惩罚
-            ndp = (0.02 if _cp == "global" else
+            # iter846: global penalty 0.02→0.10 — global 仅占 14% 库存但 20% 注入量
+            #   iter718 前提"67.5% global"已不成立，恢复有意义的惩罚
+            ndp = (0.10 if _cp == "global" else
                    0.0 if _cp == project else
-                   0.15 if _cp else 0.0)  # iter718: other-project 0.25→0.15
+                   0.15 if _cp else 0.0)
 
             # iter239b: compact score formula — eb=0 always when _run_aslr=False (default);
             # sb=0 when _ac>0 (most accessed chunks); avoid unconditional LOAD_FAST+BINARY_ADD for zeros.
@@ -3744,8 +3743,9 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
             _vs = chunk.get("verification_status") or "pending"  # iter255: simplify dict path to match FTS
             vb = 0.12 if _vs == "verified" else 0.0  # iter255: single ternary (vp dropped, always 0)
             lgb = _LGB_TABLE[_lg] if _lg is not None and _lg < 9 else (0.0 if _lg is None else (0.06 - 0.0075 * (_lg if _lg < 8 else 8)) if _lg >= 0 else 0.0)  # iter240: dict path may have None _lg
+            # iter846: global penalty sync 0.05→0.10
             ndp = (0.0 if _cp == project else
-                   0.05 if _cp == "global" else
+                   0.10 if _cp == "global" else
                    0.25 if _cp else 0.0)
             base = eff_imp * 0.55 + rec * 0.45
             score = relevance * (base + ab + fb) + sb - sp + vb + lgb - ndp  # iter255: drop -vp

@@ -22,8 +22,9 @@ def test_same_project_no_penalty():
 
 
 def test_global_tier_small_penalty():
+    # iter846: global penalty 0.05→0.10
     p = numa_distance_penalty("global", "proj_a")
-    assert p == 0.05, f"global 惩罚应为 0.05，实际 {p}"
+    assert p == 0.10, f"global 惩罚应为 0.10，实际 {p}"
 
 
 def test_cross_project_large_penalty():

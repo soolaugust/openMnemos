@@ -456,18 +456,23 @@ def numa_distance_penalty(chunk_project: str, current_project: str) -> float:
 
     惩罚矩阵：
       same project  → 0.0   (本地 node，无惩罚)
-      global project → 0.05  (共享 global tier，轻微惩罚)
+      global project → 0.10  (共享 global tier，中等惩罚)
       other project  → 0.25  (远端 node，较大惩罚)
 
     注：惩罚不是绝对拒绝，高 relevance 的跨项目 chunk 依然可以进入 top_k。
     仅阻止低相关性跨项目 chunk 通过"高 importance"挤占名额。
+
+    iter846: global penalty 0.05→0.10
+      数据驱动（2026-05-05）：global 占库存 14%（6/44）但占注入量 20%（9/45），
+      "飞书 CLI"/"git commit author" 各被注入 3 次与当前项目无关。
+      iter718 降至 0.02/0.05 的前提"67.5% chunk 是 global"已不成立。
     """
     if not chunk_project or not current_project:
         return 0.0
     if chunk_project == current_project:
         return 0.0
     if chunk_project == "global":
-        return 0.05
+        return 0.10
     return 0.25
 
 
