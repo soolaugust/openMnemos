@@ -3240,6 +3240,22 @@ def main():
                          if _recent_6h_counts.get(c["id"], 0) < (3 if _hd_tiny_db else 2)  # iter818: 6h 分级
                          and _recent_24h_counts.get(c["id"], 0) < ((10 if s >= 0.5 else 8) if _hd_tiny_db else (3 if s >= 0.5 else 2) if _hd_small_db else (3 if s >= 0.5 else 2))
                          and _recent_7d_counts.get(c["id"], 0) < ((20 if s >= 0.5 else 15) if _hd_tiny_db else (8 if s >= 0.5 else 6) if _hd_small_db else (5 if s >= 0.5 else 3))]
+            # iter842: post_suppress_pair_from_final (hard_deadline path)
+            if len(top_k) == 1 and len(final) >= 3:
+                _ps842_hd_top1_id = top_k[0][1].get("id", "")
+                _ps842_hd_cands = [(float(c.get("importance", 0) or 0), c) for _, c in final
+                                   if c.get("id") != _ps842_hd_top1_id
+                                   and (c.get("access_count", 0) or 0) < 30]
+                if _ps842_hd_cands:
+                    _ps842_hd_best = max(_ps842_hd_cands, key=lambda x: x[0])
+                    if _ps842_hd_best[0] >= 0.3:
+                        _ps842_hd_score = top_k[0][0] * 0.25
+                        top_k.append((_ps842_hd_score, _ps842_hd_best[1]))
+                        _deferred.log(DMESG_DEBUG, "retriever",
+                                      f"iter842_pair_from_final_hd: paired "
+                                      f"{_ps842_hd_best[1].get('id','')[:12]} "
+                                      f"imp={_ps842_hd_best[0]:.2f}",
+                                      session_id=session_id, project=project)
             # ── iter670: suppress_fallback — hard_deadline suppress 全灭降级 ──
             # iter829: fallback_rotation (hard_deadline path)
             if not top_k and _pre_suppress_top_k_hd:
@@ -4478,6 +4494,27 @@ def main():
                               f"iter832_post_suppress_pair: paired {_ps_best[1].get('id','')[:12]} "
                               f"s={_ps_best[0]:.3f} with top1={_ps_top1_id[:12]}",
                               session_id=session_id, project=project)
+        elif len(top_k) == 1 and len(final) >= 3:
+            # iter842: post_suppress_pair_from_final — iter832 兜底失败时从 final 按 importance 配对
+            # 根因（数据驱动，2026-05-05）：iter826/827 在 scoring 阶段未配对成功
+            #   → _pre_suppress_top_k=1 → iter832 条件不满足 → 单条逃逸。
+            #   37 cands 中仅 1 条过 threshold，其余全 score=0（suppress）。
+            #   iter827 importance_pair 理论上应兜底，但在 adaptive_floor 将 _min_thresh
+            #   降到 0.10 时 positive 可能已有多条（低分但 >0.10）导致 len(positive)!=1。
+            # 修复：final_gate 后最终兜底——从 final 按 importance 选非 top1 chunk 配对。
+            _ps842_top1_id = top_k[0][1].get("id", "")
+            _ps842_cands = [(float(c.get("importance", 0) or 0), c) for _, c in final
+                            if c.get("id") != _ps842_top1_id
+                            and (c.get("access_count", 0) or 0) < 30]
+            if _ps842_cands:
+                _ps842_best = max(_ps842_cands, key=lambda x: x[0])
+                if _ps842_best[0] >= 0.3:
+                    _ps842_score = top_k[0][0] * 0.25
+                    top_k.append((_ps842_score, _ps842_best[1]))
+                    _deferred.log(DMESG_DEBUG, "retriever",
+                                  f"iter842_pair_from_final: paired {_ps842_best[1].get('id','')[:12]} "
+                                  f"imp={_ps842_best[0]:.2f} with top1={_ps842_top1_id[:12]}",
+                                  session_id=session_id, project=project)
         if not top_k:
             # ── iter670: suppress_fallback — suppress 全灭时降级注入最佳 1 条 ──
             # iter829: fallback_rotation — 避免 fallback 永远选同一 chunk 导致 same_hash 死循环
@@ -4622,6 +4659,22 @@ def main():
                               f"iter832_post_suppress_pair_lite: paired "
                               f"{_ps_lite_best[1].get('id','')[:12]} s={_ps_lite_best[0]:.3f}",
                               session_id=session_id, project=project)
+        elif len(top_k) == 1 and len(final) >= 3:
+            # iter842: post_suppress_pair_from_final (LITE path)
+            _ps842_lite_top1_id = top_k[0][1].get("id", "")
+            _ps842_lite_cands = [(float(c.get("importance", 0) or 0), c) for _, c in final
+                                 if c.get("id") != _ps842_lite_top1_id
+                                 and (c.get("access_count", 0) or 0) < 30]
+            if _ps842_lite_cands:
+                _ps842_lite_best = max(_ps842_lite_cands, key=lambda x: x[0])
+                if _ps842_lite_best[0] >= 0.3:
+                    _ps842_lite_score = top_k[0][0] * 0.25
+                    top_k.append((_ps842_lite_score, _ps842_lite_best[1]))
+                    _deferred.log(DMESG_DEBUG, "retriever",
+                                  f"iter842_pair_from_final_lite: paired "
+                                  f"{_ps842_lite_best[1].get('id','')[:12]} "
+                                  f"imp={_ps842_lite_best[0]:.2f}",
+                                  session_id=session_id, project=project)
 
         # ── 迭代359：Session Injection Deduplication ──────────────────────
         # OS 类比：Linux copy-on-write page dedup（KSM kernel samepage merging）

@@ -4071,6 +4071,22 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 top_k = _drr_select(positive, effective_top_k)
             else:
                 top_k = positive[:effective_top_k]
+            # iter842: post_suppress_pair_from_final (hard_deadline path)
+            if len(top_k) == 1 and len(final) >= 3:
+                _ps842_hd_top1_id = top_k[0][1][_CI_ID]
+                _ps842_hd_cands = [(float(c[_CI_IMP] or 0), c) for _, c in final
+                                   if c[_CI_ID] != _ps842_hd_top1_id
+                                   and (c[_CI_AC] or 0) < 30]
+                if _ps842_hd_cands:
+                    _ps842_hd_best = max(_ps842_hd_cands, key=lambda x: x[0])
+                    if _ps842_hd_best[0] >= 0.3:
+                        _ps842_hd_score = top_k[0][0] * 0.25
+                        top_k.append((_ps842_hd_score, _ps842_hd_best[1]))
+                        _deferred.log(DMESG_DEBUG, "retriever_daemon",
+                                      f"iter842_pair_from_final_hd: paired "
+                                      f"{_ps842_hd_best[1][_CI_ID][:12]} "
+                                      f"imp={_ps842_hd_best[0]:.2f}",
+                                      session_id=session_id, project=project)
             # ── iter689: score_empty_fallback (hard_deadline) ──
             # iter770: fallback_noise_gate — 硬性下限防止低分垃圾注入
             # iter771: tiny_db_fallback_relax — 小库降至 0.15
@@ -4630,6 +4646,21 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                               f"iter832_post_suppress_pair: paired {_ps_best[1][_CI_ID][:12]} "
                               f"s={_ps_best[0]:.3f} with top1={_ps_top1_id[:12]}",
                               session_id=session_id, project=project)
+        elif len(top_k) == 1 and len(final) >= 3:
+            # iter842: post_suppress_pair_from_final — 从 final 按 importance 兜底配对
+            _ps842_top1_id = top_k[0][1][_CI_ID]
+            _ps842_cands = [(float(c[_CI_IMP] or 0), c) for _, c in final
+                            if c[_CI_ID] != _ps842_top1_id
+                            and (c[_CI_AC] or 0) < 30]
+            if _ps842_cands:
+                _ps842_best = max(_ps842_cands, key=lambda x: x[0])
+                if _ps842_best[0] >= 0.3:
+                    _ps842_score = top_k[0][0] * 0.25
+                    top_k.append((_ps842_score, _ps842_best[1]))
+                    _deferred.log(DMESG_DEBUG, "retriever_daemon",
+                                  f"iter842_pair_from_final: paired {_ps842_best[1][_CI_ID][:12]} "
+                                  f"imp={_ps842_best[0]:.2f} with top1={_ps842_top1_id[:12]}",
+                                  session_id=session_id, project=project)
         if not top_k:
             # ── iter670: suppress_fallback — suppress 全灭时降级注入最佳 1 条 ──
             # iter829: fallback_rotation — 排除上次已注入 chunk 避免 same_hash 死循环
