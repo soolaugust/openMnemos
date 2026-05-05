@@ -4706,6 +4706,34 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                                 _rt663d_6h[_c663d_6h] = _rt663d_6h.get(_c663d_6h, 0) + 1
                     except Exception:
                         continue
+                # iter888: global_chunk_cross_project_suppress — global chunk 用全局计数
+                # 同 retriever.py：对 project='global' 的 chunk 用跨项目计数取 max。
+                _g888d_ids = set(r[0] for r in _sf663d_conn.execute(
+                    "SELECT id FROM memory_chunks WHERE project='global'").fetchall())
+                if _g888d_ids:
+                    _g888d_24h_c = {}
+                    _g888d_7d_c = {}
+                    _g888d_6h_c = {}
+                    _cut888d_6h = (_sf663d_now - _td663d(hours=6)).isoformat()
+                    for (_tk888d, _ts888d) in _sf663d_conn.execute(
+                            "SELECT top_k_json, timestamp FROM recall_traces "
+                            "WHERE injected=1 AND timestamp>?", (_cut663d_7d,)).fetchall():
+                        if not _tk888d: continue
+                        try:
+                            for _it888d in json.loads(_tk888d):
+                                _c888did = _it888d.get("id", "") if isinstance(_it888d, dict) else ""
+                                if _c888did in _g888d_ids:
+                                    _g888d_7d_c[_c888did] = _g888d_7d_c.get(_c888did, 0) + 1
+                                    if _ts888d and _ts888d > _cut663d_24h:
+                                        _g888d_24h_c[_c888did] = _g888d_24h_c.get(_c888did, 0) + 1
+                                    if _ts888d and _ts888d > _cut888d_6h:
+                                        _g888d_6h_c[_c888did] = _g888d_6h_c.get(_c888did, 0) + 1
+                        except Exception:
+                            continue
+                    for _gid888d in _g888d_ids:
+                        _rt663d_24h[_gid888d] = max(_rt663d_24h.get(_gid888d, 0), _g888d_24h_c.get(_gid888d, 0))
+                        _rt663d_7d[_gid888d] = max(_rt663d_7d.get(_gid888d, 0), _g888d_7d_c.get(_gid888d, 0))
+                        _rt663d_6h[_gid888d] = max(_rt663d_6h.get(_gid888d, 0), _g888d_6h_c.get(_gid888d, 0))
                 _sf663d_conn.close()
                 for _mk807 in set(_inmem_6h) | set(_inmem_24h) | set(_inmem_7d):
                     if _mk807 in _inmem_6h:

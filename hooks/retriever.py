@@ -4563,6 +4563,32 @@ def main():
                                     _rt663_24h[_c663] = _rt663_24h.get(_c663, 0) + 1
                     except Exception:
                         continue
+                # iter888: global_chunk_cross_project_suppress — global chunk 用全局计数
+                # 根因（数据驱动，2026-05-05）：iter835 per-project 过滤导致 global chunk 逃逸。
+                #   如 feishu-CLI constraint 在 3 个项目各注入 1-2 次 → per-project 计数不触发
+                #   suppress，但用户实际看到 4-5 次相同内容。
+                # 修复：对 project='global' 的 chunk，额外查全局计数取 max。
+                _g888_ids = set(r[0] for r in _sf663_conn.execute(
+                    "SELECT id FROM memory_chunks WHERE project='global'").fetchall())
+                if _g888_ids:
+                    _g888_24h_c = {}
+                    _g888_7d_c = {}
+                    for (_tk888, _ts888) in _sf663_conn.execute(
+                            "SELECT top_k_json, timestamp FROM recall_traces "
+                            "WHERE injected=1 AND timestamp>?", (_cut663_7d,)).fetchall():
+                        if not _tk888: continue
+                        try:
+                            for _it888 in json.loads(_tk888):
+                                _c888id = _it888.get("id", "") if isinstance(_it888, dict) else ""
+                                if _c888id in _g888_ids:
+                                    _g888_7d_c[_c888id] = _g888_7d_c.get(_c888id, 0) + 1
+                                    if _ts888 and _ts888 > _cut663_24h:
+                                        _g888_24h_c[_c888id] = _g888_24h_c.get(_c888id, 0) + 1
+                        except Exception:
+                            continue
+                    for _gid888 in _g888_ids:
+                        _rt663_24h[_gid888] = max(_rt663_24h.get(_gid888, 0), _g888_24h_c.get(_gid888, 0))
+                        _rt663_7d[_gid888] = max(_rt663_7d.get(_gid888, 0), _g888_7d_c.get(_gid888, 0))
                 _sf663_conn.close()
                 _pre663 = len(top_k)
                 # iter764: sync_small_db_relax — 同步 daemon iter704 小库放宽
