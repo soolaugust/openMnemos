@@ -4699,28 +4699,31 @@ def main():
                                       f"s={_sh_best_alt[0]:.3f} breaking hash lock",
                                       session_id=session_id, project=project)
             if not _sh_rotated:
-                # iter874→879: diversity_probe — same_hash 时从 DB 选低频高价值 chunk 打破 hash 锁定
+                # iter874→880: diversity_probe — same_hash 时从 DB 选低频高价值 chunk 打破 hash 锁定
                 # 根因（数据驱动，2026-05-05）：20/22 same_hash 中 iter859 因 s>0 过滤全空未触发，
                 #   diversity_probe 原先只对空 top_k 生效 → 非空 top_k same_hash 永远跳过。
-                # 修复：扩展到 top_k 非空场景——从 DB 选低频高价值 chunk 替换最低分条目。
+                # iter880: minute_rotation — LIMIT 1 总选同一 chunk → 轮转失效 → hash 再次锁定。
+                #   改用 LIMIT 10 + minute%N 分钟级轮转，确保每次选不同候选。
                 _sh_top_k_ids = set(c.get("id", "") if isinstance(c, dict) else c["id"]
                                     for _, c in top_k) if top_k else set()
                 try:
-                    # 排除当前 top_k 已有的 chunk
                     _dp_exclude = ",".join(f"'{x}'" for x in _sh_top_k_ids) if _sh_top_k_ids else "''"
-                    _dp_row = conn.execute(
+                    _dp_rows = conn.execute(
                         f"SELECT id, summary, content, chunk_type, importance, access_count "
                         f"FROM memory_chunks WHERE project=? AND chunk_state='ACTIVE' "
                         f"AND id NOT IN ({_dp_exclude}) "
-                        f"ORDER BY access_count ASC, importance DESC LIMIT 1",
+                        f"ORDER BY access_count ASC, importance DESC LIMIT 10",
                         (project,)
-                    ).fetchone()
-                    if _dp_row:
+                    ).fetchall()
+                    if _dp_rows:
+                        # 分钟级轮转：per-request 进程无状态，用当前分钟做 round-robin
+                        import time as _dp_time
+                        _dp_idx = int(_dp_time.time() // 60) % len(_dp_rows)
+                        _dp_row = _dp_rows[_dp_idx]
                         _dp_chunk = {"id": _dp_row[0], "summary": _dp_row[1],
                                      "content": _dp_row[2], "chunk_type": _dp_row[3] or "",
                                      "importance": _dp_row[4] or 0.5}
                         if top_k:
-                            # 替换最低分条目
                             _sh_min_idx = min(range(len(top_k)), key=lambda i: top_k[i][0])
                             top_k[_sh_min_idx] = (0.01, _dp_chunk)
                         else:
@@ -4734,8 +4737,9 @@ def main():
                         current_hash = hashlib.md5("|".join(_sh_new_ids).encode()).hexdigest()[:8]
                         _sh_rotated = True
                         _deferred.log(DMESG_DEBUG, "retriever",
-                                      f"iter879_diversity_probe: injecting "
+                                      f"iter880_diversity_probe_rotate: injecting "
                                       f"{_dp_chunk['id'][:12]} ac={_dp_row[5]} imp={_dp_row[4]:.2f} "
+                                      f"idx={_dp_idx}/{len(_dp_rows)} "
                                       f"replacing={'empty' if not _sh_top_k_ids else 'lowest'}",
                                       session_id=session_id, project=project)
                 except Exception:
