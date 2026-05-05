@@ -4031,6 +4031,32 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
             # 根因（用户可感知）：rescue 下限 0.15 导致 score=0.156 的不相关 PE 分析被注入，
             # 占用 context 空间干扰注意力。注入不相关内容比不注入更糟。
             # 原 iter697/698 rescue 机制已删除。
+            # ── iter830: daemon_pair_inject — 同步 retriever.py iter826/827 ──
+            # 根因（数据驱动，2026-05-05）：70% 注入为单条。daemon 路径缺失 pair_inject，
+            #   retriever.py 的 iter826/827 从未在 daemon 被触发。
+            if len(positive) == 1 and len(final) >= 3:
+                _pi_cands = [(s, c) for s, c in final
+                             if s > 0.05 and s < _min_thresh
+                             and c[_CI_ID] != positive[0][1][_CI_ID]]
+                if _pi_cands:
+                    _pi_best = max(_pi_cands, key=lambda x: x[0])
+                    positive.append(_pi_best)
+                    _deferred.log(DMESG_DEBUG, "retriever_daemon",
+                                  f"iter830_pair_inject_hd: paired {_pi_best[1][_CI_ID][:12]} "
+                                  f"s={_pi_best[0]:.3f} with top1 s={positive[0][0]:.3f}",
+                                  session_id=session_id, project=project)
+                else:
+                    _ip_cands = [(float(c[_CI_IMP] or 0), c) for _, c in final
+                                 if c[_CI_ID] != positive[0][1][_CI_ID]
+                                 and (c[_CI_AC] or 0) < 30]
+                    if _ip_cands:
+                        _ip_best = max(_ip_cands, key=lambda x: x[0])
+                        if _ip_best[0] >= 0.3:
+                            positive.append((positive[0][0] * 0.3, _ip_best[1]))
+                            _deferred.log(DMESG_DEBUG, "retriever_daemon",
+                                          f"iter830_imp_pair_hd: paired {_ip_best[1][_CI_ID][:12]} "
+                                          f"imp={_ip_best[0]:.2f} with top1 s={positive[0][0]:.3f}",
+                                          session_id=session_id, project=project)
             if _drr_enabled and len(positive) > effective_top_k:
                 top_k = _drr_select(positive, effective_top_k)
             else:
@@ -4194,6 +4220,30 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
         if not positive and _min_thresh > 0.30:
             positive = [(s, c) for s, c in final if s >= 0.30 and s > 0]
         # iter759: 移除 candidates_rescue（同 hard_deadline 路径）
+        # ── iter830: daemon_pair_inject — 同步 retriever.py iter826/827 (FULL path) ──
+        if len(positive) == 1 and len(final) >= 3:
+            _pi_cands_f = [(s, c) for s, c in final
+                           if s > 0.05 and s < _min_thresh
+                           and c[_CI_ID] != positive[0][1][_CI_ID]]
+            if _pi_cands_f:
+                _pi_best_f = max(_pi_cands_f, key=lambda x: x[0])
+                positive.append(_pi_best_f)
+                _deferred.log(DMESG_DEBUG, "retriever_daemon",
+                              f"iter830_pair_inject_full: paired {_pi_best_f[1][_CI_ID][:12]} "
+                              f"s={_pi_best_f[0]:.3f} with top1 s={positive[0][0]:.3f}",
+                              session_id=session_id, project=project)
+            else:
+                _ip_cands_f = [(float(c[_CI_IMP] or 0), c) for _, c in final
+                               if c[_CI_ID] != positive[0][1][_CI_ID]
+                               and (c[_CI_AC] or 0) < 30]
+                if _ip_cands_f:
+                    _ip_best_f = max(_ip_cands_f, key=lambda x: x[0])
+                    if _ip_best_f[0] >= 0.3:
+                        positive.append((positive[0][0] * 0.3, _ip_best_f[1]))
+                        _deferred.log(DMESG_DEBUG, "retriever_daemon",
+                                      f"iter830_imp_pair_full: paired {_ip_best_f[1][_CI_ID][:12]} "
+                                      f"imp={_ip_best_f[0]:.2f} with top1 s={positive[0][0]:.3f}",
+                                      session_id=session_id, project=project)
 
         if _drr_enabled and len(positive) > effective_top_k:
             top_k = _drr_select(positive, effective_top_k)
