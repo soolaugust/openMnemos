@@ -4604,25 +4604,55 @@ def main():
         except OSError:
             pass
         if current_hash == _read_hash() and _sid_inj_late:
-            _tlb_write(prompt_hash, current_hash, _get_db_mtime())  # 迭代57: TLB 回填
-            _tlb_bump_generation()  # iter583: FULL 完成后 bump generation
-            # 迭代61：PSI Noise Floor — skipped_same_hash 记录 duration_ms=0
-            # 迭代84：切换到写连接记录 trace + flush deferred logs
-            conn.close()
-            try:
-                wconn = open_db()
-                ensure_schema(wconn)
-                _write_trace(session_id, project, prompt_hash,
-                             candidates_count, top_k_data, 0, "skipped_same_hash",
-                             0, conn=wconn)
-                _deferred.flush(wconn)
-                wconn.commit()
-                wconn.close()
-            except Exception:
-                pass
-            # 迭代85：Shadow Trace（same_hash 路径也知道工作集）
-            _write_shadow_trace(project, [c["id"] for _, c in top_k], session_id)
-            sys.exit(0)
+            # iter859: same_hash_rotation — hash 锁定时从 suppress 前快照选替代候选
+            # 根因（数据驱动，2026-05-05）：git:a0ab16e8cafc 项目 33% trace 为 same_hash，
+            #   suppress 后仅剩固定 1-2 条 → hash 永远相同 → 知识永不更新。
+            # 修复：从 _pre_suppress_top_k 中选不在当前 top_k 的次优候选替换最低分条目。
+            #   替换后重新计算 hash，若仍相同则放弃（真的没有新知识）。
+            _sh_rotated = False
+            _sh_top_k_ids_set = set(c["id"] for _, c in top_k)
+            if _pre_suppress_top_k and len(_pre_suppress_top_k) > len(top_k):
+                _sh_alt_cands = [(s, c) for s, c in _pre_suppress_top_k
+                                 if c.get("id", "") not in _sh_top_k_ids_set and s > 0]
+                if _sh_alt_cands:
+                    _sh_best_alt = max(_sh_alt_cands, key=lambda x: x[0])
+                    # 替换 top_k 中最低分的条目
+                    _sh_min_idx = min(range(len(top_k)), key=lambda i: top_k[i][0])
+                    top_k[_sh_min_idx] = _sh_best_alt
+                    _sh_new_ids = sorted([c["id"] for _, c in top_k])
+                    _sh_new_hash = hashlib.md5("|".join(_sh_new_ids).encode()).hexdigest()[:8]
+                    if _sh_new_hash != current_hash:
+                        current_hash = _sh_new_hash
+                        top_k_data = [
+                            {"id": c["id"], "summary": c["summary"], "score": round(s, 4),
+                             "chunk_type": c.get("chunk_type", "")}
+                            for s, c in top_k
+                        ]
+                        _sh_rotated = True
+                        _deferred.log(DMESG_DEBUG, "retriever",
+                                      f"iter859_same_hash_rotation: swapped {_sh_best_alt[1].get('id','')[:12]} "
+                                      f"s={_sh_best_alt[0]:.3f} breaking hash lock",
+                                      session_id=session_id, project=project)
+            if not _sh_rotated:
+                _tlb_write(prompt_hash, current_hash, _get_db_mtime())  # 迭代57: TLB 回填
+                _tlb_bump_generation()  # iter583: FULL 完成后 bump generation
+                # 迭代61：PSI Noise Floor — skipped_same_hash 记录 duration_ms=0
+                # 迭代84：切换到写连接记录 trace + flush deferred logs
+                conn.close()
+                try:
+                    wconn = open_db()
+                    ensure_schema(wconn)
+                    _write_trace(session_id, project, prompt_hash,
+                                 candidates_count, top_k_data, 0, "skipped_same_hash",
+                                 0, conn=wconn)
+                    _deferred.flush(wconn)
+                    wconn.commit()
+                    wconn.close()
+                except Exception:
+                    pass
+                # 迭代85：Shadow Trace（same_hash 路径也知道工作集）
+                _write_shadow_trace(project, [c["id"] for _, c in top_k], session_id)
+                sys.exit(0)
 
         # 构造注入文本（按 chunk_type 加前缀标签）
         _TYPE_PREFIX = {
