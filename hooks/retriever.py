@@ -4118,15 +4118,23 @@ def main():
                     return False
                 # iter617: 24h burst suppress 也在 constraint 通道生效
                 # iter806: sync small_db_suppress_tighten
+                # iter903: constraint_24h_tighten — tiny_db 3→2
+                # 根因（数据驱动，2026-05-05）：39-chunk 库 24h 内 "Android 性能诊断"
+                #   "git commit author" 等与当前工作无关的 constraint 各注入 3 次。
+                #   constraint 通道只用 Jaccard>0.05 过滤（远弱于主路径 FTS5 评分），
+                #   24h=3 允许不相关 constraint 每天注入 2 次 → 63% 注入为无关知识。
+                #   收紧到 2：每个 constraint 24h 仅允许 1 次注入，第 2 次 suppress。
                 _cst_small_db = _db_chunk_count < 100
-                if _recent_24h_counts.get(_cid, 0) >= ((3 if _cst_tiny_db else 3) if _cst_small_db else 2):
+                if _recent_24h_counts.get(_cid, 0) >= ((2 if _cst_tiny_db else 3) if _cst_small_db else 2):
                     return False
                 # iter618: 7d rolling suppress 也在 constraint 通道生效
                 # iter806: 7/5 → 5/4 sync
                 # iter816: small_db_7d_relax — sync constraint path
                 # iter854: tiny_db_7d_relax_v2 — 阈值 5→7（sync）
                 # iter882: 7d_tighten_monopoly — tiny 7→3, small 8→4
-                if _recent_7d_counts.get(_cid, 0) >= ((3 if _cst_tiny_db else 4) if _cst_small_db else 3):
+                # iter903: constraint_7d_tighten — tiny 3→2（与 24h 联动）
+                #   7d=3 允许不相关 constraint 一周注入 2 次，降到 2 限制为 1 次/周。
+                if _recent_7d_counts.get(_cid, 0) >= ((2 if _cst_tiny_db else 4) if _cst_small_db else 3):
                     return False
                 # iter608: session-level constraint dedup — 早于全局 cap 拦截
                 _sinj = _session_injection_counts.get(_cid, 0)

@@ -4488,9 +4488,14 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                     return False
                 # iter618: 24h + 7d burst suppress 在 constraint 通道生效
                 # iter619: 阈值收紧 24h:3→2, 7d:8→5
+                # iter903: constraint_24h_tighten — tiny_db 场景下 24h/7d 均收紧到 2
+                # 根因（数据驱动，2026-05-05）：39-chunk 库 constraint 通道 Jaccard>0.05
+                #   门槛过低，不相关 constraint（Android/git/微信）24h 注入 3 次仍不 suppress。
+                #   63% 注入为与当前工作无关的知识。收紧到 2 限制每 constraint 24h/7d 仅 1 次。
+                _cst_tiny = _db_chunk_count < 50
                 if _recent_24h_counts.get(_cid, 0) >= 2:
                     return False
-                if _recent_7d_counts.get(_cid, 0) >= 3:
+                if _recent_7d_counts.get(_cid, 0) >= (2 if _cst_tiny else 3):
                     return False
                 # iter608: session-level constraint dedup
                 if _d_session_inj_counts.get(_cid, 0) >= _d_session_cap:
