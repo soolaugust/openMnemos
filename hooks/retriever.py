@@ -2417,7 +2417,11 @@ def main():
                 # 根因（数据驱动，2026-05-05）：25-chunk 库中 6 个核心 chunk 24h=3 被 suppress，
                 #   剩余 19 个 relevance 过低 → 空召回。日活跃项目每天使用 3 次同一知识是正常的。
                 #   6h>=3 和 7d>=5 仍控制短期 burst 和长期垄断。
-                elif _r24_cnt >= (4 if _tiny_db else (3 if score >= 0.5 else 2) if _small_db else (3 if score >= 0.5 else 2)):
+                # iter869: tiny_db_24h_sync_daemon — 与 daemon 对齐 4→3
+                # 根因（数据驱动，2026-05-05）：36-chunk 库 top6 chunk 各 7d 注入 4-6 次，
+                #   24h 阈值=4 导致同一 chunk 一天可注入 3 次仍不 suppress。
+                #   daemon 已用阈值=3（iter810），retriever.py 滞后。同步消除不一致。
+                elif _r24_cnt >= (3 if _tiny_db else (3 if score >= 0.5 else 2) if _small_db else (3 if score >= 0.5 else 2)):
                     score = 0.0
                     _hard_suppressed = True  # iter616
             # ── iter618: 7d_rolling_suppress — 长期慢性垄断 suppress ────────
@@ -4557,7 +4561,7 @@ def main():
                 # iter810: tiny_db_24h_relax — sync FULL final_gate
                 # iter837: tiny_db_24h_relax_v2 — 阈值 3→4（同步 _score_chunk）
                 top_k = [(s, c) for s, c in top_k
-                         if _rt663_24h.get(c["id"], 0) < (4 if _sf663_tiny_db else (3 if s >= 0.5 else 2) if _sf663_small_db else (3 if s >= 0.5 else 2))
+                         if _rt663_24h.get(c["id"], 0) < (3 if _sf663_tiny_db else (3 if s >= 0.5 else 2) if _sf663_small_db else (3 if s >= 0.5 else 2))
                          and _rt663_7d.get(c["id"], 0) < (7 if _sf663_tiny_db else (8 if s >= 0.5 else 6) if _sf663_small_db else (5 if s >= 0.5 else 3))]
                 if len(top_k) < _pre663:
                     _deferred.log(DMESG_WARN, "retriever",
@@ -4579,7 +4583,7 @@ def main():
             try:
                 _p24 = _rt663_24h.get(cid, 0)
                 _p7d = _rt663_7d.get(cid, 0)
-                _p24_lim = 4 if _sf663_tiny_db else (3 if score >= 0.5 else 2) if _sf663_small_db else (3 if score >= 0.5 else 2)
+                _p24_lim = 3 if _sf663_tiny_db else (3 if score >= 0.5 else 2) if _sf663_small_db else (3 if score >= 0.5 else 2)
                 _p7d_lim = 7 if _sf663_tiny_db else (8 if score >= 0.5 else 6) if _sf663_small_db else (5 if score >= 0.5 else 3)
                 return _p24 < _p24_lim and _p7d < _p7d_lim
             except NameError:
@@ -4755,7 +4759,7 @@ def main():
                 # iter837: tiny_db_24h_relax_v2 — 阈值 3→4（同步 _score_chunk）
                 top_k = [(s, c) for s, c in top_k
                          if sum(1 for t in _itl758.get(c["id"], []) if t > _cut758_6h) < 2  # iter865: 6h_tighten_tiny
-                         and sum(1 for t in _itl758.get(c["id"], []) if t > _cut758_24h) < (4 if _sf758_tiny_db else (3 if s >= 0.5 else 2) if _sf758_small_db else (3 if s >= 0.5 else 2))
+                         and sum(1 for t in _itl758.get(c["id"], []) if t > _cut758_24h) < (3 if _sf758_tiny_db else (3 if s >= 0.5 else 2) if _sf758_small_db else (3 if s >= 0.5 else 2))
                          and sum(1 for t in _itl758.get(c["id"], []) if t > _cut758_7d) < (7 if _sf758_tiny_db else (8 if s >= 0.5 else 6) if _sf758_small_db else (5 if s >= 0.5 else 3))]
                 if len(top_k) < _pre758:
                     _deferred.log(DMESG_WARN, "retriever",
@@ -4792,7 +4796,7 @@ def main():
                 _p24 = sum(1 for t in _ts_list if t > _cut758_24h)
                 _p7d = sum(1 for t in _ts_list if t > _cut758_7d)
                 _p6_lim = 3 if _sf758_tiny_db else 2
-                _p24_lim = 4 if _sf758_tiny_db else (3 if score >= 0.5 else 2) if _sf758_small_db else (3 if score >= 0.5 else 2)
+                _p24_lim = 3 if _sf758_tiny_db else (3 if score >= 0.5 else 2) if _sf758_small_db else (3 if score >= 0.5 else 2)
                 _p7d_lim = 7 if _sf758_tiny_db else (8 if score >= 0.5 else 6) if _sf758_small_db else (5 if score >= 0.5 else 3)
                 return _p6 < _p6_lim and _p24 < _p24_lim and _p7d < _p7d_lim
             except NameError:
