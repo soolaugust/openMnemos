@@ -1278,7 +1278,11 @@ def _is_quality_chunk(summary: str) -> bool:
                 # 数据驱动：7 个 ac=1 噪声含 "有价值知识占比"/"迭代器自己写入"/
                 #   "access_bonus"/"access_count=" — 系统内部度量，对用户零价值
                 "有价值知识占比", "迭代器自己写入", "access_bonus",
-                "access_count=", "chunk 库中", "单条注入率"]
+                "access_count=", "chunk 库中", "单条注入率",
+                # iter834: metric_snapshot_noise — 纯度量快照逃逸
+                # 数据驱动：2 条 ac=1 噪声 "zero_access_rate：0%"/"噪声占比：17%→0%"
+                #   特征：内部度量指标名 + 百分比值，无决策上下文
+                "zero_access_rate", "噪声占比", "空召回率", "注入垄断"]
     if any(kw in s for kw in noise_kw):
         return False
     placeholders = {"方案 X 是最优解", "extractor 升级", "KnowledgeRouter"}
@@ -1391,6 +1395,13 @@ def _is_quality_chunk(summary: str) -> bool:
     # 检测："> 纯中文标题词" 结尾，且不含技术细节（数字/代码/文件路径）
     if re.search(r'>\s*(?:[一二三四五六七八九十\d]+[、.]\s*)?(?:参考链接|相关文件|影响范围|引用|附录|索引|目录|链接)\s*$', s):
         return False
+    # ── iter834: bare_metric_value_gate — 纯度量标签+值行拦截 ──
+    # 根因（数据驱动）："zero_access_rate：0%"、"噪声占比：17% → 0%（...）"
+    #   特征：全文 = 度量名（含下划线或中文率/比/数） + 冒号 + 百分比/数字，无决策
+    # 匹配：word_metric：N% 或 X率/比/数：N%
+    if re.match(r'^[\w_]*(?:rate|ratio|count|访问率|噪声|占比|命中率|注入率|空召回)[：:]\s*\d', s, re.I):
+        if not re.search(r'(?:选择|决定|采用|因为|方案|根因|改为)', s):
+            return False
     # ── 迭代116：ftrace/调试计数器行过滤 ──
     # OS 类比：ftrace ring buffer 中的 event 数据，只在 debug session 有意义
     # 模式：word_cnt=N word_cnt=N ... — 多个 word=数字 键值对，是内核调试输出
