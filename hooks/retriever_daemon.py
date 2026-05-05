@@ -4737,12 +4737,14 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
         # 修复：suppress 过滤后如果 top_k=1，从 _pre_suppress_top_k 中选不同 chunk 配对。
         # iter851: suppress_aware_pair — 配对候选尊重 suppress_final_gate 的 24h/7d 判定
         def _pair_suppress_ok_d(cid, score):
-            """iter851: daemon 侧检查候选是否被 suppress_final_gate 过滤。"""
+            """iter851: daemon 侧检查候选是否被 suppress_final_gate 过滤。
+            iter884: pair_suppress_relax — 配对候选 7d 阈值放宽 +2。"""
             try:
                 _p24 = _rt663d_24h.get(cid, 0)
                 _p7d = _rt663d_7d.get(cid, 0)
                 _p24_lim = 3 if _sf663d_tiny_db else (3 if score >= 0.5 else 2) if _sf663d_small_db else (3 if score >= 0.5 else 2)
-                _p7d_lim = 5 if _sf663d_tiny_db else (5 if score >= 0.5 else 4) if _sf663d_small_db else (5 if score >= 0.5 else 3)
+                # iter884: pair 7d 放宽 +2
+                _p7d_lim = 5 if _sf663d_tiny_db else (7 if score >= 0.5 else 6) if _sf663d_small_db else (7 if score >= 0.5 else 5)
                 return _p24 < _p24_lim and _p7d < _p7d_lim
             except NameError:
                 return True

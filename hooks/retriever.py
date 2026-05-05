@@ -3276,7 +3276,7 @@ def main():
                                    and _session_injection_counts.get(c.get("id", ""), 0) < _pair_dedup_thresh_hd
                                    and _recent_6h_counts.get(c.get("id", ""), 0) < 2  # iter865
                                    and _recent_24h_counts.get(c.get("id", ""), 0) < (3 if _hd_tiny_db else 3)
-                                   and _recent_7d_counts.get(c.get("id", ""), 0) < (3 if _hd_tiny_db else 5)]
+                                   and _recent_7d_counts.get(c.get("id", ""), 0) < (5 if _hd_tiny_db else 7)]  # iter884: pair 7d relax +2
                 if _ps842_hd_cands:
                     _ps842_hd_best = max(_ps842_hd_cands, key=lambda x: x[0])
                     if _ps842_hd_best[0] >= 0.3:
@@ -4592,12 +4592,18 @@ def main():
         #   24h/7d suppress 计数，导致刚被 suppress_final_gate 移除的垄断 chunk 被重新注入。
         #   修复：候选过滤加入 _rt663_24h/_rt663_7d 检查（与 suppress_final_gate 阈值一致）。
         def _pair_suppress_ok(cid, score):
-            """iter851: 检查候选是否被 suppress_final_gate 过滤（复用已计算的实时计数）。"""
+            """iter851: 检查候选是否被 suppress_final_gate 过滤（复用已计算的实时计数）。
+            iter884: pair_suppress_relax — 配对候选放宽 7d 阈值（+2）
+              根因（数据驱动，2026-05-05）：38-chunk 库 59% 注入为单条。
+              _pair_suppress_ok 用与 suppress_final_gate 相同的 7d 阈值(tiny=3)，
+              但活跃 chunk 7d>=3 极普遍 → 配对候选全被过滤 → 单条逃逸。
+              配对是补充上下文非主注入，放宽 7d 阈值 +2 允许更多候选入选。"""
             try:
                 _p24 = _rt663_24h.get(cid, 0)
                 _p7d = _rt663_7d.get(cid, 0)
                 _p24_lim = 3 if _sf663_tiny_db else (3 if score >= 0.5 else 2) if _sf663_small_db else (3 if score >= 0.5 else 2)
-                _p7d_lim = 5 if _sf663_tiny_db else (8 if score >= 0.5 else 6) if _sf663_small_db else (5 if score >= 0.5 else 3)
+                # iter884: pair 7d 放宽 +2 — 配对非主注入，容忍更高频率
+                _p7d_lim = 5 if _sf663_tiny_db else (10 if score >= 0.5 else 8) if _sf663_small_db else (7 if score >= 0.5 else 5)
                 return _p24 < _p24_lim and _p7d < _p7d_lim
             except NameError:
                 return True  # suppress_final_gate 未执行（try 失败），不额外限制
@@ -4849,7 +4855,8 @@ def main():
         # 从 _pre_suppress_top_k_lite 快照中选次优配对，确保多知识组合上下文。
         # iter851: suppress_aware_pair — 候选尊重 suppress_final_gate_lite 的 timeline 判定
         def _pair_suppress_ok_lite(cid, score):
-            """iter851: LITE 路径检查候选是否被 suppress_final_gate_lite 过滤。"""
+            """iter851: LITE 路径检查候选是否被 suppress_final_gate_lite 过滤。
+            iter884: pair_suppress_relax — 配对候选 7d 阈值放宽 +2（同 FULL 路径）。"""
             try:
                 _ts_list = _itl758.get(cid, [])
                 _p6 = sum(1 for t in _ts_list if t > _cut758_6h)
@@ -4857,7 +4864,8 @@ def main():
                 _p7d = sum(1 for t in _ts_list if t > _cut758_7d)
                 _p6_lim = 3 if _sf758_tiny_db else 2
                 _p24_lim = 3 if _sf758_tiny_db else (3 if score >= 0.5 else 2) if _sf758_small_db else (3 if score >= 0.5 else 2)
-                _p7d_lim = 5 if _sf758_tiny_db else (8 if score >= 0.5 else 6) if _sf758_small_db else (5 if score >= 0.5 else 3)  # iter878: sync
+                # iter884: pair 7d 放宽 +2
+                _p7d_lim = 5 if _sf758_tiny_db else (10 if score >= 0.5 else 8) if _sf758_small_db else (7 if score >= 0.5 else 5)
                 return _p6 < _p6_lim and _p24 < _p24_lim and _p7d < _p7d_lim
             except NameError:
                 return True
