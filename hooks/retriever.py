@@ -4890,8 +4890,16 @@ def main():
                                   session_id=session_id, project=project)
                 # ── iter793: suppress_fallback_lite — LITE 路径 suppress 全灭降级 ──
                 # iter829: fallback_rotation (LITE path)
+                # iter891: fallback_7d_decay_lite — 对齐 FULL/daemon 的 7d 频率衰减
+                #   根因（数据驱动，2026-05-05）：LITE 路径 fallback 按纯 score 排序，
+                #   高频 chunk（如 import-90139 7d=7x）每次被 fallback 选中 → 垄断逃逸。
+                #   FULL 路径 (line 4707) 和 daemon 已有 score/(1+0.5*7d) 衰减。
+                #   修复：用 _itl758 timeline 数据计算 7d count，应用相同衰减公式。
                 if not top_k and _pre_suppress_top_k_lite:
-                    _fb_lite_sorted = sorted(_pre_suppress_top_k_lite, key=lambda x: x[0], reverse=True)
+                    _fb_lite_sorted = sorted(
+                        _pre_suppress_top_k_lite,
+                        key=lambda x: x[0] / (1 + 0.5 * sum(1 for t in _itl758.get(x[1].get("id", ""), []) if t > _cut758_7d)),
+                        reverse=True)
                     _fb_lite = _fb_lite_sorted[0]
                     _last_hash_lite = _read_hash()
                     if _last_hash_lite and len(_fb_lite_sorted) > 1:
