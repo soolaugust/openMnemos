@@ -2410,7 +2410,11 @@ def main():
                 # iter810: tiny_db_24h_relax — 小库统一阈值=3，不因 low-score 过早 suppress
                 # 根因：22 chunk 库中 score=0.3 的有价值知识被 24h>=2 suppress，
                 #   导致 14/20 次注入只有 1 条。小库知识密度高，重复注入是正常的。
-                elif _r24_cnt >= (3 if _tiny_db else (3 if score >= 0.5 else 2) if _small_db else (3 if score >= 0.5 else 2)):
+                # iter837: tiny_db_24h_relax_v2 — 阈值 3→4
+                # 根因（数据驱动，2026-05-05）：25-chunk 库中 6 个核心 chunk 24h=3 被 suppress，
+                #   剩余 19 个 relevance 过低 → 空召回。日活跃项目每天使用 3 次同一知识是正常的。
+                #   6h>=3 和 7d>=5 仍控制短期 burst 和长期垄断。
+                elif _r24_cnt >= (4 if _tiny_db else (3 if score >= 0.5 else 2) if _small_db else (3 if score >= 0.5 else 2)):
                     score = 0.0
                     _hard_suppressed = True  # iter616
             # ── iter618: 7d_rolling_suppress — 长期慢性垄断 suppress ────────
@@ -4415,8 +4419,9 @@ def main():
                 _sf663_tiny_db = _db_chunk_count < 40  # iter818: 边界 30→40
                 _sf663_small_db = _db_chunk_count < 100
                 # iter810: tiny_db_24h_relax — sync FULL final_gate
+                # iter837: tiny_db_24h_relax_v2 — 阈值 3→4（同步 _score_chunk）
                 top_k = [(s, c) for s, c in top_k
-                         if _rt663_24h.get(c["id"], 0) < (3 if _sf663_tiny_db else (3 if s >= 0.5 else 2) if _sf663_small_db else (3 if s >= 0.5 else 2))
+                         if _rt663_24h.get(c["id"], 0) < (4 if _sf663_tiny_db else (3 if s >= 0.5 else 2) if _sf663_small_db else (3 if s >= 0.5 else 2))
                          and _rt663_7d.get(c["id"], 0) < (5 if _sf663_tiny_db else (8 if s >= 0.5 else 6) if _sf663_small_db else (5 if s >= 0.5 else 3))]
                 if len(top_k) < _pre663:
                     _deferred.log(DMESG_WARN, "retriever",
@@ -4542,9 +4547,10 @@ def main():
                 #   缺少 6h 检查而逃逸。FULL 路径第 3183 行有 6h<2 但 LITE 路径遗漏。
                 # iter818: tiny_db_6h_relax — 6h 阈值分级
                 _cut758_6h = (_now758 - _td758(hours=6)).isoformat()
+                # iter837: tiny_db_24h_relax_v2 — 阈值 3→4（同步 _score_chunk）
                 top_k = [(s, c) for s, c in top_k
                          if sum(1 for t in _itl758.get(c["id"], []) if t > _cut758_6h) < (3 if _sf758_tiny_db else 2)  # iter818: 6h 分级
-                         and sum(1 for t in _itl758.get(c["id"], []) if t > _cut758_24h) < (3 if _sf758_tiny_db else (3 if s >= 0.5 else 2) if _sf758_small_db else (3 if s >= 0.5 else 2))
+                         and sum(1 for t in _itl758.get(c["id"], []) if t > _cut758_24h) < (4 if _sf758_tiny_db else (3 if s >= 0.5 else 2) if _sf758_small_db else (3 if s >= 0.5 else 2))
                          and sum(1 for t in _itl758.get(c["id"], []) if t > _cut758_7d) < (5 if _sf758_tiny_db else (8 if s >= 0.5 else 6) if _sf758_small_db else (5 if s >= 0.5 else 3))]
                 if len(top_k) < _pre758:
                     _deferred.log(DMESG_WARN, "retriever",
