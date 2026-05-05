@@ -1417,8 +1417,15 @@ def _is_quality_chunk(summary: str) -> bool:
         r'iter\d{2,}\s*(?:条目|记录|完成|已)',
         re.I
     )
+    # iter858: iter_prefix_gate — 拦截 "iterNNN: snake_case_name" 格式
+    # 根因（数据驱动，2026-05-05）：0fb5b43d "iter856: global_chunk_relevance_floor"
+    #   逃逸所有已有 gate（_internal_var_hits=1, noise_kw 无覆盖）。
+    #   特征：迭代器 commit message 标题被 conversation_summary 提取器捕获。
+    #   iter\d+[：:] 开头 100% 是迭代器版本标识，不含用户知识。
+    _ITER_PREFIX = re.compile(r'^iter\d+[：:_]', re.I)
     if (_ITER_METRIC_CHANGE.search(s) or _ITER_OPS_REPORT.search(s)
-            or _ITER_CONFIRM.search(s) or _ITER_LISTITEM_METRIC.search(s)):
+            or _ITER_CONFIRM.search(s) or _ITER_LISTITEM_METRIC.search(s)
+            or _ITER_PREFIX.match(s)):
         return False
     # ── iter638: wiki_section_heading_fragment — 碎片式 wiki 标题拦截 ──
     # 根因（数据驱动）：/migrate-memory 批量导入切分 wiki 时产出纯索引碎片，
