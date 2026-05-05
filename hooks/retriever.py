@@ -4829,6 +4829,45 @@ def main():
                                   f"imp={_ps842_lite_best[0]:.2f}",
                                   session_id=session_id, project=project)
 
+        # ── iter868: final_single_pair — 最终单条配对安全网 ──────────────────
+        # 根因（数据驱动，2026-05-05）：35% 注入仍为单条（12/34 traces），
+        #   iter826/827/840/842/864 pair 逻辑全部 0 触发。
+        #   原因：adaptive_floor 降低阈值后 positive>=2 进入 top_k，但后续
+        #   constraint/DRR/MMR/suppress_final_gate 逐步移除到只剩 1 条。
+        #   所有中间 pair 逻辑因 positive!=1 条件不满足而跳过。
+        # 修复：dedup 之前最终检查——top_k==1 且库>=6 chunk 时，从 DB 查同 project
+        #   低 access_count + 高 importance 的 chunk 补充配对。排除 top1 自身和
+        #   session 内已注入的 chunk。仅 <50 chunk 库启用。
+        if len(top_k) == 1 and _db_chunk_count >= 6 and _db_chunk_count < 50:
+            _f868_top1_id = top_k[0][1].get("id", "")
+            try:
+                import sqlite3 as _f868_sql
+                _f868_conn = _f868_sql.connect(str(STORE_DB))
+                _f868_rows = _f868_conn.execute(
+                    "SELECT id, summary, content, chunk_type, importance, access_count "
+                    "FROM memory_chunks WHERE project = ? AND chunk_state = 'ACTIVE' "
+                    "AND importance >= 0.5 AND id != ? "
+                    "ORDER BY access_count ASC, importance DESC LIMIT 6",
+                    (project, _f868_top1_id)).fetchall()
+                _f868_conn.close()
+                _f868_cands = [r for r in _f868_rows
+                               if _session_injection_counts.get(r[0], 0) < (_sysctl("retriever.session_dedup_threshold") or 2)]
+                if _f868_cands:
+                    # 轮转选择：用分钟数 % len 避免总选同一条
+                    _f868_idx = int(_now_ts[14:16]) % len(_f868_cands) if len(_now_ts) > 16 else 0
+                    _f868_pick = _f868_cands[_f868_idx]
+                    _f868_chunk = {"id": _f868_pick[0], "summary": _f868_pick[1],
+                                   "content": _f868_pick[2], "chunk_type": _f868_pick[3],
+                                   "importance": _f868_pick[4], "access_count": _f868_pick[5]}
+                    _f868_score = top_k[0][0] * 0.20
+                    top_k.append((_f868_score, _f868_chunk))
+                    _deferred.log(DMESG_DEBUG, "retriever",
+                                  f"iter868_final_single_pair: paired {_f868_pick[0][:12]} "
+                                  f"imp={_f868_pick[4]:.2f} ac={_f868_pick[5]}",
+                                  session_id=session_id, project=project)
+            except Exception:
+                pass  # best-effort
+
         # ── 迭代359：Session Injection Deduplication ──────────────────────
         # OS 类比：Linux copy-on-write page dedup（KSM kernel samepage merging）
         #   同一物理页被多次 map → 只在达到阈值后合并为单一只读页，避免重复 I/O。
