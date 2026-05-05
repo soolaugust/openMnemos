@@ -4928,8 +4928,13 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
         sys.stdout.write(_OUTPUT_HEADER + json.dumps(context_text, ensure_ascii=True) + "}}\n")
         _sessions_with_injection.add(session_id)  # iter804
         # iter807: daemon_inmem_suppress — 记录注入到进程内存
+        # iter873: inmem_suppress_realign — 用 accessed_ids（suppress 后）替代 top_k_ids（suppress 前）
+        # 根因（数据驱动，2026-05-05）：top_k_ids 在 suppress_final_gate 之前计算（line 4780），
+        #   suppress_fallback/pair_inject 可能替换 top_k 内容。_daemon_inject_log 记录旧 ID
+        #   导致：1) 被 suppress 的 chunk 虚假计数  2) 新增 chunk 漏记 → 连续注入逃逸。
+        # 修复：用 accessed_ids（iter871 在 suppress 后重新计算，line 4923）作为 ground truth。
         _now_ts = time.time()
-        for _iid807 in top_k_ids:
+        for _iid807 in accessed_ids:
             _daemon_inject_log.append((_iid807, _now_ts))
         # iter219: removed sys.stdout.flush() — no-op on StringIO (captured in _handle_connection)
         # iter173: persistent conn — do NOT close here; writeback will invalidate after write
