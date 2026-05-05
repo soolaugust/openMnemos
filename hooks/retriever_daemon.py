@@ -4405,9 +4405,12 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                     return False
                 _rel = _constraint_relevance(c)
                 # iter598: zero relevance gate — 与 query 零词重叠的 constraint 无条件拦截
-                # iter692: global_high_imp_exempt — global+imp>=0.9 豁免 zero_rel gate
-                _is_global_high = (c[_CI_CP] == "global" and (c[_CI_IMP] or 0) >= 0.9)
-                if _rel == 0 and not _is_global_high:
+                # iter850: remove global_high_imp_exempt — 数据驱动（2026-05-05）：
+                #   feishu CLI (imp=0.95) 和 git commit author (imp=0.95) 通过此豁免
+                #   在 memory-os/kernel 迭代中被无关注入 24h 4~5 次。
+                #   24h suppress 只在累积 >=2 后生效，前 2 次无条件逃逸。
+                #   根治：所有 constraint 统一要求最低 relevance，不再豁免。
+                if _rel == 0:
                     return False
                 _ac = c[_CI_AC] or 0
                 # iter611: two_phase_relevance_gate — ac>30 加速衰减（与 retriever.py 对齐）
@@ -4418,8 +4421,8 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                     _ac_penalty = min(0.20, _math.log1p(_ac - 10) * 0.04)
                 else:
                     _ac_penalty = 0.20 + min(0.20, _math.log1p(_ac - 30) * 0.06)
-                # iter765: global_high_imp 已通过 zero_rel 豁免，不应被 eff_min_rel 二次拦截
-                if _rel < _constraint_min_rel + _ac_penalty and not _is_global_high:
+                # iter850: 统一 min_rel gate（移除 global_high_imp 豁免）
+                if _rel < _constraint_min_rel + _ac_penalty:
                     return False
                 return (_rc / max(_bw_window, 1)) <= _thrash_max_pct
             _extra_constraints = [c for c in _extra_constraints if _ac_gated_d(c)]

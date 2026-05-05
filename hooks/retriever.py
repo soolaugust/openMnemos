@@ -4033,13 +4033,11 @@ def main():
                     return False
                 _rel = _constraint_relevance(c)
                 # iter598: zero relevance gate — 与 query 零词重叠的 constraint 无条件拦截
-                # iter692: global_high_imp_exempt — global+imp>=0.9 的通用约束豁免 zero_rel gate
-                #   根因（数据驱动，2026-05-04）：2 个 imp=0.9 global constraint（用户偏好、
-                #   memory 验证路径）被 supplement 加入候选池但 Jaccard=0 被拦截，永远 ac=0。
-                #   这些是跨项目通用约束，与 query 词不重叠是正常的（非相关性不足）。
-                #   24h/7d suppress 已足够控制垄断。
-                _is_global_high = (c.get("project") == "global" and (c.get("importance") or 0) >= 0.9)
-                if _rel == 0 and not _is_global_high:
+                # iter850: remove global_high_imp_exempt — 数据驱动（2026-05-05）：
+                #   feishu CLI (imp=0.95) 和 git commit author (imp=0.95) 通过此豁免
+                #   在 memory-os/kernel 迭代中被无关注入 24h 4~5 次。
+                #   根治：所有 constraint 统一要求最低 relevance，不再豁免。
+                if _rel == 0:
                     return False
                 _ac = _ac_abs
                 # iter641: two_phase_relevance_gate — 阈值与 constraint_ac_cap 对齐
@@ -4052,8 +4050,8 @@ def main():
                 else:
                     _ac_penalty = 0.20 + min(0.20, _m609.log1p(_ac - 15) * 0.06)
                 _eff_min_rel = _constraint_min_rel + _ac_penalty
-                # iter765: global_high_imp 已通过 zero_rel 豁免，不应被 eff_min_rel 二次拦截
-                if _rel < _eff_min_rel and not _is_global_high:
+                # iter850: 统一 min_rel gate（移除 global_high_imp 豁免）
+                if _rel < _eff_min_rel:
                     return False
                 return (_rc / max(_bw_window, 1)) <= _thrash_max_pct
             _extra_constraints = [c for c in _extra_constraints if _ac_gated(c)]
