@@ -4765,12 +4765,23 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 # iter813+810: short_burst + tiny_db_24h_relax — sync daemon final_gate
                 # iter818: tiny_db_6h_relax — 6h 分级
                 # iter883: full_final_gate_7d_sync — 对齐 hard_deadline iter882
+                # iter905: cross_project_suppress_tighten — daemon 路径同步
+                def _d905_7d_thresh(s, c):
+                    _cp = c[_CI_CP] or ""
+                    _cross = (_cp != project and _cp != "global")
+                    if _sf663d_tiny_db:
+                        _t = 4
+                    elif _sf663d_small_db:
+                        _t = 4 if s >= 0.5 else 3
+                    else:
+                        _t = 5 if s >= 0.5 else 3
+                    return max(2, _t - 2) if _cross else _t
                 top_k = [(s, c) for s, c in top_k
                          if _rt663d_6h.get(c[_CI_ID], 0) < 2  # iter865: 6h_tighten_tiny — 统一阈值 2
                          and _rt663d_24h.get(c[_CI_ID], 0) < (3 if _sf663d_tiny_db else (3 if s >= 0.5 else 2) if _sf663d_small_db else (3 if s >= 0.5 else 2))
                          # iter883: tiny 5→3, small 5/4→4/3（sync hard_deadline line 3268）
-                         # iter904: 7d_rebalance_tiny — tiny_db 7d 2→4
-                         and _rt663d_7d.get(c[_CI_ID], 0) < (4 if _sf663d_tiny_db else (4 if s >= 0.5 else 3) if _sf663d_small_db else (5 if s >= 0.5 else 3))]
+                         # iter905: cross_project_suppress_tighten — 跨项目 7d -2
+                         and _rt663d_7d.get(c[_CI_ID], 0) < _d905_7d_thresh(s, c)]
                 if len(top_k) < _pre663d:
                     _deferred.log(DMESG_WARN, "retriever_daemon",
                                   f"iter663_suppress_final_gate: filtered "
@@ -4785,11 +4796,22 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
             _pre887d = len(top_k)
             _fg887d_tiny = _db_chunk_count < 50
             _fg887d_small = _db_chunk_count < 100
+            # iter905: cross_project_suppress_tighten — daemon closure 路径同步
+            def _d887_7d_thresh(s, c):
+                _cp = c[_CI_CP] or ""
+                _cross = (_cp != project and _cp != "global")
+                if _fg887d_tiny:
+                    _t = 4
+                elif _fg887d_small:
+                    _t = 4 if s >= 0.5 else 3
+                else:
+                    _t = 5 if s >= 0.5 else 3
+                return max(2, _t - 2) if _cross else _t
             top_k = [(s, c) for s, c in top_k
                      if _recent_6h_counts.get(c[_CI_ID], 0) < 2
                      and _recent_24h_counts.get(c[_CI_ID], 0) < (3 if _fg887d_tiny else (3 if s >= 0.5 else 2) if _fg887d_small else (3 if s >= 0.5 else 2))
-                     # iter904: 7d_rebalance_tiny — tiny_db 7d 2→4
-                     and _recent_7d_counts.get(c[_CI_ID], 0) < (4 if _fg887d_tiny else (4 if s >= 0.5 else 3) if _fg887d_small else (5 if s >= 0.5 else 3))]
+                     # iter905: cross_project_suppress_tighten — 跨项目 7d -2
+                     and _recent_7d_counts.get(c[_CI_ID], 0) < _d887_7d_thresh(s, c)]
             if len(top_k) < _pre887d:
                 _deferred.log(DMESG_WARN, "retriever_daemon",
                               f"iter887_closure_fallback_suppress: filtered "

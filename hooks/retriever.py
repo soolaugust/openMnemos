@@ -3267,14 +3267,23 @@ def main():
                 # iter806: final_gate 24h/7d 阈值同步 small_db_suppress_tighten
                 # iter882: 7d_tighten_monopoly — tiny_db 20/15→3, small 8/6→4/3（sync daemon）
                 #   根因：tiny_db 7d=20 允许同一 chunk 注入 19 次，垄断根源。
+                # iter905: cross_project_suppress_tighten — hard_deadline 路径同步
+                def _hd905_7d_thresh(s, c):
+                    _cp = c.get("project", "")
+                    _cross = (_cp != project and _cp != "global")
+                    if _hd_tiny_db:
+                        _t = 4
+                    elif _hd_small_db:
+                        _t = 4 if s >= 0.5 else 3
+                    else:
+                        _t = 5 if s >= 0.5 else 3
+                    return max(2, _t - 2) if _cross else _t
                 top_k = [(s, c) for s, c in top_k
                          if _recent_6h_counts.get(c["id"], 0) < 2  # iter865: 6h_tighten_tiny — 统一阈值
                          and _recent_24h_counts.get(c["id"], 0) < (3 if _hd_tiny_db else (3 if s >= 0.5 else 2) if _hd_small_db else (3 if s >= 0.5 else 2))
                          # iter904: 7d_rebalance_tiny — tiny_db 7d 2→4
-                         #   根因（数据驱动，2026-05-05）：iter899 <2 导致 26-chunk 库 54% chunks
-                         #   被 suppress（7d 分布二值化：=1 有 10 个，>=3 有 14 个，无 =2）。
-                         #   结果：几乎所有检索空召回或 fallback 单条。<4 只 suppress 20%（真垄断）。
-                         and _recent_7d_counts.get(c["id"], 0) < (4 if _hd_tiny_db else (4 if s >= 0.5 else 3) if _hd_small_db else (5 if s >= 0.5 else 3))]
+                         # iter905: cross_project_suppress_tighten — 跨项目 7d -2
+                         and _recent_7d_counts.get(c["id"], 0) < _hd905_7d_thresh(s, c)]
             # iter842: post_suppress_pair_from_final (hard_deadline path)
             # iter851: suppress_aware_pair — 候选尊重 suppress_final_gate 阈值
             if len(top_k) == 1 and len(final) >= 3:
@@ -4661,10 +4670,25 @@ def main():
                 #   但 hard_deadline 路径已收紧到 <3。top chunk 7d=6 仍可经 FULL 路径逃逸。
                 #   主项目 23 chunk（tiny_db）中 top15 chunk 占 78% 注入位。
                 #   修复：tiny 5→3，small 8/6→4/3（与 hard_deadline line 3268 对齐）。
+                # iter905: cross_project_suppress_tighten — 跨项目非 global chunk 7d 阈值 -2
+                #   根因（数据驱动，2026-05-05）：42-chunk 库中 29 个 kernel chunk 与 memory-os 无关，
+                #   但因 FTS5 全库搜索 + session 恢复关键词匹配，7d=3-4 的 kernel chunk 持续注入。
+                #   修复：非本项目非 global chunk 7d 阈值收紧 2，加速 suppress 无关知识。
+                def _sf663_7d_thresh(s, c):
+                    _cp = c.get("project", "")
+                    _cross = (_cp != project and _cp != "global")
+                    if _sf663_tiny_db:
+                        _t = 4
+                    elif _sf663_small_db:
+                        _t = 4 if s >= 0.5 else 3
+                    else:
+                        _t = 5 if s >= 0.5 else 3
+                    return max(2, _t - 2) if _cross else _t
                 top_k = [(s, c) for s, c in top_k
                          if _rt663_24h.get(c["id"], 0) < (3 if _sf663_tiny_db else (3 if s >= 0.5 else 2) if _sf663_small_db else (3 if s >= 0.5 else 2))
                          # iter904: 7d_rebalance_tiny — tiny_db 7d 2→4
-                         and _rt663_7d.get(c["id"], 0) < (4 if _sf663_tiny_db else (4 if s >= 0.5 else 3) if _sf663_small_db else (5 if s >= 0.5 else 3))]
+                         # iter905: cross_project_suppress_tighten — 跨项目 7d -2
+                         and _rt663_7d.get(c["id"], 0) < _sf663_7d_thresh(s, c)]
                 if len(top_k) < _pre663:
                     _deferred.log(DMESG_WARN, "retriever",
                                   f"iter663_suppress_final_gate: filtered "
@@ -4681,11 +4705,23 @@ def main():
             _pre887 = len(top_k)
             _fg887_tiny = _db_chunk_count < 50
             _fg887_small = _db_chunk_count < 100
+            # iter905: cross_project_suppress_tighten — 闭包路径同步跨项目收紧
+            def _fg887_7d_thresh(s, c):
+                _cp = c.get("project", "")
+                _cross = (_cp != project and _cp != "global")
+                if _fg887_tiny:
+                    _t = 4
+                elif _fg887_small:
+                    _t = 4 if s >= 0.5 else 3
+                else:
+                    _t = 5 if s >= 0.5 else 3
+                return max(2, _t - 2) if _cross else _t
             top_k = [(s, c) for s, c in top_k
                      if _recent_6h_counts.get(c["id"], 0) < 2
                      and _recent_24h_counts.get(c["id"], 0) < (3 if _fg887_tiny else (3 if s >= 0.5 else 2) if _fg887_small else (3 if s >= 0.5 else 2))
                      # iter904: 7d_rebalance_tiny — tiny_db 7d 2→4
-                     and _recent_7d_counts.get(c["id"], 0) < (4 if _fg887_tiny else (4 if s >= 0.5 else 3) if _fg887_small else (5 if s >= 0.5 else 3))]
+                     # iter905: cross_project_suppress_tighten — 跨项目 7d -2
+                     and _recent_7d_counts.get(c["id"], 0) < _fg887_7d_thresh(s, c)]
             if len(top_k) < _pre887:
                 _deferred.log(DMESG_WARN, "retriever",
                               f"iter887_closure_fallback_suppress: filtered "
@@ -4986,13 +5022,23 @@ def main():
                 # iter818: tiny_db_6h_relax — 6h 阈值分级
                 _cut758_6h = (_now758 - _td758(hours=6)).isoformat()
                 # iter837: tiny_db_24h_relax_v2 — 阈值 3→4（同步 _score_chunk）
+                # iter905: cross_project_suppress_tighten — LITE 路径同步
+                def _lt905_7d_thresh(s, c):
+                    _cp = c.get("project", "")
+                    _cross = (_cp != project and _cp != "global")
+                    if _sf758_tiny_db:
+                        _t = 4
+                    elif _sf758_small_db:
+                        _t = 4 if s >= 0.5 else 3
+                    else:
+                        _t = 5 if s >= 0.5 else 3
+                    return max(2, _t - 2) if _cross else _t
                 top_k = [(s, c) for s, c in top_k
                          if sum(1 for t in _itl758.get(c["id"], []) if t > _cut758_6h) < 2  # iter865: 6h_tighten_tiny
                          and sum(1 for t in _itl758.get(c["id"], []) if t > _cut758_24h) < (3 if _sf758_tiny_db else (3 if s >= 0.5 else 2) if _sf758_small_db else (3 if s >= 0.5 else 2))
                          # iter885: lite_7d_sync_final_gate — 5/8/6→3/4/3 对齐 FULL suppress_final_gate iter883
-                         #   根因：LITE tiny_db 7d<5 允许 4 次，FULL/daemon 已收紧到 <3
-                         # iter904: 7d_rebalance_tiny — tiny_db 7d 2→4
-                         and sum(1 for t in _itl758.get(c["id"], []) if t > _cut758_7d) < (4 if _sf758_tiny_db else (4 if s >= 0.5 else 3) if _sf758_small_db else (5 if s >= 0.5 else 3))]
+                         # iter905: cross_project_suppress_tighten — 跨项目 7d -2
+                         and sum(1 for t in _itl758.get(c["id"], []) if t > _cut758_7d) < _lt905_7d_thresh(s, c)]
                 if len(top_k) < _pre758:
                     _deferred.log(DMESG_WARN, "retriever",
                                   f"iter758_suppress_final_gate_lite: filtered "
