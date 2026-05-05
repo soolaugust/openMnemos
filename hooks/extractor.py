@@ -1282,7 +1282,10 @@ def _is_quality_chunk(summary: str) -> bool:
                 # iter834: metric_snapshot_noise — 纯度量快照逃逸
                 # 数据驱动：2 条 ac=1 噪声 "zero_access_rate：0%"/"噪声占比：17%→0%"
                 #   特征：内部度量指标名 + 百分比值，无决策上下文
-                "zero_access_rate", "噪声占比", "空召回率", "注入垄断"]
+                "zero_access_rate", "噪声占比", "空召回率", "注入垄断",
+                # iter839: test_result_noise — 测试结果快照和迭代器修复行摘要
+                # 数据驱动：4 条 ac=0 噪声 "14/14 测试通过"/"修复：extractor.py +5 行"
+                "测试通过", "tests passed"]
     if any(kw in s for kw in noise_kw):
         return False
     placeholders = {"方案 X 是最优解", "extractor 升级", "KnowledgeRouter"}
@@ -1291,7 +1294,7 @@ def _is_quality_chunk(summary: str) -> bool:
     # ── 迭代74：Promotion Filter — 拦截不可复用的过程性记录 ──
     # OS 类比：Generational GC promotion filter — young gen 短命对象不提升到 old gen
     # V1 纯验证/测试报告（"N/N 通过"、"回归全绿"、"ALL PASSED"）
-    if re.match(r'^\d+/\d+\s*(?:通过|passed|全绿|green|新测试)', s, re.I):
+    if re.match(r'^\d+/\d+\s*(?:测试)?(?:通过|passed|全绿|green|新测试)', s, re.I):
         return False
     if re.match(r'^(?:验证|回归|测试|ALL\s*PASSED)[：:]\s*\d+', s, re.I):
         return False
@@ -1301,6 +1304,9 @@ def _is_quality_chunk(summary: str) -> bool:
         if not re.search(r'(?:选择|决定|采用|推荐|因为|替代|改用)', s):
             return False
     if re.match(r'^[\w_]+\s*(?:延迟|耗时)[：:]\s*[\d.]+\s*(?:ms|s)', s):
+        return False
+    # iter839: fix_line_gate — 迭代器修复行摘要 "修复：file.py +N 行，..."
+    if re.match(r'^修复[：:]\s*\S+\.\w+\s*\+\d+\s*行', s):
         return False
     # V3 HTML/XML 标签泄漏
     if s.startswith('<') and re.match(r'^<[a-z-]+', s):
