@@ -4539,9 +4539,10 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                     _ac_penalty = 0.20 + min(0.20, _math.log1p(_ac - 30) * 0.06)
                 # iter850: 统一 min_rel gate（移除 global_high_imp 豁免）
                 # iter856: global_chunk_relevance_floor — sync retriever.py
+                # iter937: global_relevance_floor_tighten — 0.03→0.05 (sync)
                 _eff_min_rel_d = _constraint_min_rel + _ac_penalty
                 if c.get("project") == "global":
-                    _eff_min_rel_d += 0.03
+                    _eff_min_rel_d += 0.05
                 if _rel < _eff_min_rel_d:
                     return False
                 return (_rc / max(_bw_window, 1)) <= _thrash_max_pct

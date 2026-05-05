@@ -4214,8 +4214,13 @@ def main():
                 #   global chunk 在非 home 项目中需要更强的语义关联才值得注入。
                 # 修复：global chunk 额外 +0.03 floor，使 eff_min_rel=0.08。
                 #   真正相关时（如 git commit author 在 commit query 中）Jaccard>0.10 仍通过。
+                # iter937: global_relevance_floor_tighten — 0.03→0.05
+                #   根因（数据驱动，2026-05-06）：36-chunk 库 feishu CLI 7d 仍注入 3 次到 kernel 项目。
+                #   Jaccard 0.054~0.09 的偶然词重叠仍通过 +0.03 floor（eff=0.08）。
+                #   提高到 +0.05（eff=0.10）：git commit author 在 kernel query 中 Jaccard>0.13（仍通过），
+                #   feishu CLI/memory 验证 在非相关项目中 Jaccard<0.10（被拦截）。
                 if c.get("project") == "global":
-                    _eff_min_rel += 0.03
+                    _eff_min_rel += 0.05
                 # iter850: 统一 min_rel gate（移除 global_high_imp 豁免）
                 if _rel < _eff_min_rel:
                     return False
