@@ -3260,11 +3260,12 @@ def main():
                 _hd_tiny_db = _db_chunk_count < 50  # iter848: 边界 40→50
                 _hd_small_db = _db_chunk_count < 100
                 # iter806: final_gate 24h/7d 阈值同步 small_db_suppress_tighten
-                # tiny_db 保持宽松兜底 (10/8, 20/15)；small_db 4/3→3/2 同步
+                # iter882: 7d_tighten_monopoly — tiny_db 20/15→3, small 8/6→4/3（sync daemon）
+                #   根因：tiny_db 7d=20 允许同一 chunk 注入 19 次，垄断根源。
                 top_k = [(s, c) for s, c in top_k
                          if _recent_6h_counts.get(c["id"], 0) < 2  # iter865: 6h_tighten_tiny — 统一阈值
-                         and _recent_24h_counts.get(c["id"], 0) < ((10 if s >= 0.5 else 8) if _hd_tiny_db else (3 if s >= 0.5 else 2) if _hd_small_db else (3 if s >= 0.5 else 2))
-                         and _recent_7d_counts.get(c["id"], 0) < ((20 if s >= 0.5 else 15) if _hd_tiny_db else (8 if s >= 0.5 else 6) if _hd_small_db else (5 if s >= 0.5 else 3))]
+                         and _recent_24h_counts.get(c["id"], 0) < (3 if _hd_tiny_db else (3 if s >= 0.5 else 2) if _hd_small_db else (3 if s >= 0.5 else 2))
+                         and _recent_7d_counts.get(c["id"], 0) < (3 if _hd_tiny_db else (4 if s >= 0.5 else 3) if _hd_small_db else (5 if s >= 0.5 else 3))]
             # iter842: post_suppress_pair_from_final (hard_deadline path)
             # iter851: suppress_aware_pair — 候选尊重 suppress_final_gate 阈值
             if len(top_k) == 1 and len(final) >= 3:
@@ -3274,8 +3275,8 @@ def main():
                                    and (c.get("access_count", 0) or 0) < 30
                                    and _session_injection_counts.get(c.get("id", ""), 0) < _pair_dedup_thresh_hd
                                    and _recent_6h_counts.get(c.get("id", ""), 0) < 2  # iter865
-                                   and _recent_24h_counts.get(c.get("id", ""), 0) < ((10 if float(c.get("importance",0) or 0) >= 0.5 else 8) if _hd_tiny_db else 3)
-                                   and _recent_7d_counts.get(c.get("id", ""), 0) < ((20 if float(c.get("importance",0) or 0) >= 0.5 else 15) if _hd_tiny_db else 5)]
+                                   and _recent_24h_counts.get(c.get("id", ""), 0) < (3 if _hd_tiny_db else 3)
+                                   and _recent_7d_counts.get(c.get("id", ""), 0) < (3 if _hd_tiny_db else 5)]
                 if _ps842_hd_cands:
                     _ps842_hd_best = max(_ps842_hd_cands, key=lambda x: x[0])
                     if _ps842_hd_best[0] >= 0.3:
@@ -4096,7 +4097,8 @@ def main():
                 # iter806: 7/5 → 5/4 sync
                 # iter816: small_db_7d_relax — sync constraint path
                 # iter854: tiny_db_7d_relax_v2 — 阈值 5→7（sync）
-                if _recent_7d_counts.get(_cid, 0) >= ((7 if _cst_tiny_db else 8) if _cst_small_db else 3):
+                # iter882: 7d_tighten_monopoly — tiny 7→3, small 8→4
+                if _recent_7d_counts.get(_cid, 0) >= ((3 if _cst_tiny_db else 4) if _cst_small_db else 3):
                     return False
                 # iter608: session-level constraint dedup — 早于全局 cap 拦截
                 _sinj = _session_injection_counts.get(_cid, 0)

@@ -3713,7 +3713,11 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 elif _recent_24h_counts.get(_cid, 0) >= (3 if _s672_tiny else (3 if score >= 0.5 else 2) if _s672_small else (3 if score >= 0.5 else 2)):
                     score = 0.0
                 # iter854: tiny_db_7d_relax_v2 — 阈值 5→7（sync retriever.py）
-                elif _recent_7d_counts.get(_cid, 0) >= (5 if _s672_tiny else (5 if score >= 0.5 else 4) if _s672_small else (5 if score >= 0.5 else 3)):
+                # iter882: 7d_tighten_monopoly — tiny_db 5→3, small_db 5/4→4/3
+                #   数据驱动（2026-05-05）：23 chunk DB 中 top chunk inj7d=6，
+                #   阈值 5 允许 4 次注入才 suppress，垄断 chunk 高 FTS 基分仍胜出。
+                #   收紧到 3 使同一 chunk 7d 内最多注入 2 次后 hard suppress。
+                elif _recent_7d_counts.get(_cid, 0) >= (3 if _s672_tiny else (4 if score >= 0.5 else 3) if _s672_small else (5 if score >= 0.5 else 3)):
                     score = 0.0
                 # iter622: saturation_absolute_suppress — access_count >= 30 永久 suppress
                 elif (chunk[_CI_AC] or 0) >= 30:
@@ -3807,7 +3811,8 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 elif _recent_24h_counts.get(_cid, 0) >= (3 if _s672d_tiny else (3 if score >= 0.5 else 2) if _s672d_small else (3 if score >= 0.5 else 2)):
                     score = 0.0
                 # iter854: tiny_db_7d_relax_v2 — 阈值 5→7（sync retriever.py）
-                elif _recent_7d_counts.get(_cid, 0) >= (5 if _s672d_tiny else (5 if score >= 0.5 else 4) if _s672d_small else (5 if score >= 0.5 else 3)):
+                # iter882: 7d_tighten_monopoly — sync FTS path
+                elif _recent_7d_counts.get(_cid, 0) >= (3 if _s672d_tiny else (4 if score >= 0.5 else 3) if _s672d_small else (5 if score >= 0.5 else 3)):
                     score = 0.0
                 # iter622: saturation_absolute_suppress — access_count >= 30 永久 suppress
                 elif (chunk.get("access_count", 0) or 0) >= 30:
