@@ -3552,7 +3552,14 @@ def main():
             # iterB17：拦截以结论词开头的截断句（"所以X"/"因此X" 缺少前提部分，不是完整因果链）
             # OS 类比：TCP 的 ACK-only segment 校验 — 无 data payload 的段不算有效信息
             # 人类记忆：encoding specificity — 没有"因为"的"所以"无法被因果查询检索命中
-            if re.match(r'^(?:所以|因此|故此|于是|故而)[，,\s]', _cc_summary):
+            # iter836: conclusion_fragment_widen — 拓宽结论词正则 + 短句门控
+            # 根因（数据驱动，2026-05-05）：7 个零访问 causal_chain 碎片逃逸：
+            #   "所以不会 crash" / "所以先设置 sched" — "所以"后非[，,\s]绕过旧正则。
+            #   avg_len=51 chars（正常有价值 chain avg=708），独立碎片无检索价值。
+            # 修复：(1) 结论词后不限定分隔符 (2) <120 字短句直接拒绝
+            if re.match(r'^(?:所以|因此|故此|于是|故而|答案[：:])', _cc_summary):
+                continue
+            if len(_cc_summary) < 120:
                 continue
             # 同理：以询问词开头的不是因果链（"你的判断是？"）
             if re.match(r'^你[的是]?', _cc_summary) and '？' in _cc_summary[:30]:
