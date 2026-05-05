@@ -4061,6 +4061,14 @@ def main():
                 else:
                     _ac_penalty = 0.20 + min(0.20, _m609.log1p(_ac - 15) * 0.06)
                 _eff_min_rel = _constraint_min_rel + _ac_penalty
+                # iter856: global_chunk_relevance_floor — global chunk 跨项目注入需更高相关性
+                # 根因（数据驱动，2026-05-05）：feishu CLI (global) 在 kernel 项目中
+                #   因 prompt 含 "feishu"+"禁止" 偶然词重叠 Jaccard=0.054 通过 min_rel=0.05。
+                #   global chunk 在非 home 项目中需要更强的语义关联才值得注入。
+                # 修复：global chunk 额外 +0.03 floor，使 eff_min_rel=0.08。
+                #   真正相关时（如 git commit author 在 commit query 中）Jaccard>0.10 仍通过。
+                if c.get("project") == "global":
+                    _eff_min_rel += 0.03
                 # iter850: 统一 min_rel gate（移除 global_high_imp 豁免）
                 if _rel < _eff_min_rel:
                     return False
