@@ -4415,6 +4415,32 @@ def main():
                                   session_id=session_id, project=project)
 
             if not top_k:
+                # iter902: db_ultimate_fallback — 直接从 DB 选 1 条兜底，消灭空召回
+                # 根因（数据驱动，2026-05-05）：31% trace 空召回，candidates=10-14 全被
+                #   suppress/gate 清空，iter792 依赖 in-memory final（也被清空）无法触发。
+                # 修复：绕过 suppress，直接 DB 查最高 importance + 最低 access_count 的 chunk。
+                #   空召回=系统零价值；注入 1 条有用知识远优于零注入。
+                try:
+                    _dbuf_row = conn.execute(
+                        "SELECT id, summary, content, chunk_type, importance "
+                        "FROM memory_chunks WHERE project=? AND chunk_state='ACTIVE' "
+                        "ORDER BY importance DESC, access_count ASC LIMIT 1",
+                        (project,)
+                    ).fetchone()
+                    if _dbuf_row:
+                        _dbuf_chunk = {"id": _dbuf_row[0], "summary": _dbuf_row[1],
+                                       "content": _dbuf_row[2], "chunk_type": _dbuf_row[3] or "",
+                                       "importance": _dbuf_row[4] or 0.5}
+                        top_k = [(0.001, _dbuf_chunk)]
+                        _deferred.log(DMESG_WARN, "retriever",
+                                      f"iter902_db_ultimate_fallback: "
+                                      f"id={_dbuf_row[0][:12]} imp={_dbuf_row[4]:.2f} "
+                                      f"bypassed_suppress project={project}",
+                                      session_id=session_id, project=project)
+                except Exception:
+                    pass
+
+            if not top_k:
                 # 迭代84：关闭只读连接，flush deferred logs
                 conn.close()
                 if len(_deferred) > 0:

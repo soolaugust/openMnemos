@@ -4906,9 +4906,31 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                               f"suppressed, fallback to best={_fb[1][_CI_ID][:12]}",
                               session_id=session_id, project=project)
             else:
-                # iter780: empty_result_tlb — 写入空结果标记避免重复空转
-                _tlb_write(prompt_hash, "__empty__", _get_db_mtime())
-                return
+                # iter902: db_ultimate_fallback — 直接从 DB 选 1 条兜底，消灭空召回
+                # 根因（数据驱动，2026-05-05）：31% trace 空召回，_pre_suppress_top_k 为空
+                #   说明 suppress 在评分阶段就全部清零 → fallback 链无候选。
+                # 修复：绕过 suppress，直接 DB 查最高 importance 的 chunk 注入。
+                try:
+                    _dbuf_row = conn.execute(
+                        "SELECT id, summary, content, chunk_type, importance, "
+                        "COALESCE(access_count,0), created_at, 0.0, COALESCE(lru_gen,0), project "
+                        "FROM memory_chunks WHERE project=? AND chunk_state='ACTIVE' "
+                        "ORDER BY importance DESC, access_count ASC LIMIT 1",
+                        (project,)
+                    ).fetchone()
+                    if _dbuf_row:
+                        top_k = [(0.001, _dbuf_row)]
+                        _deferred.log(DMESG_WARN, "retriever_daemon",
+                                      f"iter902_db_ultimate_fallback: "
+                                      f"id={_dbuf_row[0][:12]} imp={_dbuf_row[4]:.2f} "
+                                      f"bypassed_suppress project={project}",
+                                      session_id=session_id, project=project)
+                except Exception:
+                    pass
+                if not top_k:
+                    # iter780: empty_result_tlb — 写入空结果标记避免重复空转
+                    _tlb_write(prompt_hash, "__empty__", _get_db_mtime())
+                    return
         top_k_ids = sorted([c[_CI_ID] for _, c in top_k])  # iter235
         # iter217: crc32 faster than md5 (~0.712us vs ~1.107us, same 8-char hex format)
         current_hash = '%08x' % zlib.crc32("|".join(top_k_ids).encode())
