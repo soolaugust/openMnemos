@@ -1273,7 +1273,12 @@ def _is_quality_chunk(summary: str) -> bool:
                 #   FTS/BM25 权重提升/闭包捕获/检索稀疏性 — 系统自引用无用户价值
                 "pair_inject", "single-chunk", "suppress 分母",
                 "检索稀疏性", "闭包捕获", "importance_pair",
-                "注入为单条", "组合上下文", "预期量化"]
+                "注入为单条", "组合上下文", "预期量化",
+                # iter833: iterator_metric_noise_v3 — 漏网的迭代器自评/度量快照
+                # 数据驱动：7 个 ac=1 噪声含 "有价值知识占比"/"迭代器自己写入"/
+                #   "access_bonus"/"access_count=" — 系统内部度量，对用户零价值
+                "有价值知识占比", "迭代器自己写入", "access_bonus",
+                "access_count=", "chunk 库中", "单条注入率"]
     if any(kw in s for kw in noise_kw):
         return False
     placeholders = {"方案 X 是最优解", "extractor 升级", "KnowledgeRouter"}
