@@ -5042,6 +5042,20 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 # 根因（数据驱动）：_top_k_data/_accessed_ids 偶发同时为空，写入
                 #   injected=1,top_k_json=[] 的空 trace 污染 recall_counts 统计。
                 # 修复：跳过 trace 写入（保留 dmesg 可观测性）。
+                # iter881: json_empty_guard — tuple 非空但 json 序列化为 [] 时也拦截
+                # 根因（数据驱动，2026-05-05）：8/55 injected trace 的 top_k_json='[]'，
+                #   _effective_top_k 为非空 tuple 但内容在序列化时丢失（闭包 generator 问题）。
+                #   iter800 的 `not _effective_top_k` 只检查 truthiness，无法拦截此情况。
+                # 修复：额外检查序列化结果是否实质为空；为空时用 _accessed_ids 重建。
+                if _effective_top_k and _accessed_ids:
+                    import json as _json_chk
+                    _chk_json = _json_chk.dumps(_effective_top_k, ensure_ascii=False)
+                    if _chk_json == '[]' or _chk_json == 'null':
+                        _effective_top_k = [{"id": cid} for cid in _accessed_ids]
+                        dmesg_log(_wconn, DMESG_WARN, "retriever",
+                                  f"iter881_json_empty_guard: top_k serialized empty, "
+                                  f"rebuilt from accessed_ids={len(_accessed_ids)}",
+                                  session_id=_session_id, project=_project)
                 if _effective_injected == 1 and not _effective_top_k:
                     for level, subsystem, message, sid, proj, extra in _deferred_buf:
                         try:
