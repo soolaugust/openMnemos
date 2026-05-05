@@ -4159,8 +4159,11 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                                   session_id=session_id, project=project)
                 else:
                     # iter694: suppress_pierce_fallback (hard_deadline path)
+                    # iter901: pierce_anti_monopoly — 同 normal path
+                    _spf_hd_7d_lim = 2 if _db_chunk_count < 50 else 3
                     _spf_hd = [(c[_CI_IMP] or 0.5, c) for _, c in final
-                               if (c[_CI_AC] or 0) < 30]
+                               if (c[_CI_AC] or 0) < 30
+                               and _recent_7d_counts.get(c[_CI_ID], 0) < _spf_hd_7d_lim]
                     if _spf_hd:
                         _spf_hd_best = max(_spf_hd, key=lambda x: x[0])
                         top_k = [(_spf_hd_best[0], _spf_hd_best[1])]
@@ -4612,8 +4615,14 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                     #   用户视角：有知识但系统拒绝给出 = 质量损失。
                     # 修复：绕过 suppress score，按 chunk importance 选最佳 1 条（跳过 AC>=30 硬约束）。
                     # 安全性：仍受 iter630 monopoly_post_filter + iter663 suppress_final_gate 保护。
+                    # iter901: pierce_anti_monopoly — pierce 不得选 7d 已达阈值的垄断 chunk
+                    #   根因（数据驱动，2026-05-05）：pierce 按 importance 选最高 → 垄断 chunk
+                    #   (高 imp + 高 7d) 反复被 pierce → suppress_final_gate 只看 <阈值 放行。
+                    #   修复：pierce 候选排除 7d >= 阈值的 chunk，让位给低频但新鲜的知识。
+                    _spf_7d_lim = 2 if _db_chunk_count < 50 else 3
                     _spf_candidates = [(c[_CI_IMP] or 0.5, c) for _, c in final
-                                       if (c[_CI_AC] or 0) < 30]
+                                       if (c[_CI_AC] or 0) < 30
+                                       and _recent_7d_counts.get(c[_CI_ID], 0) < _spf_7d_lim]
                     if _spf_candidates:
                         _spf_best = max(_spf_candidates, key=lambda x: x[0])
                         top_k = [(_spf_best[0], _spf_best[1])]
