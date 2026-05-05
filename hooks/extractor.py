@@ -2282,6 +2282,34 @@ def _write_chunk(chunk_type: str, summary: str, project: str, session_id: str,
     # 修复：在 _write_chunk 内部统一检查，任何路径都无法绕过。
     if not _is_quality_chunk(summary):
         return
+    # iter897: iter_metric_report_gate — 拦截迭代器数值对比/统计报告
+    # 数据驱动（2026-05-05）：今日写入 11 chunk 中 10 条是迭代器自身产出的指标对比
+    #   如 "噪声 chunk 占比 19%→3%"、"exp_decay 除数 /3→/2"、"单条注入率 54%"。
+    #   逃逸 self-ref gate 原因：用"正常语言"表达内部概念，术语匹配不足。
+    # 修复：检测"数值变化/百分比对比"模式 + 无外部领域锚点 → 拒绝。
+    #   仅对 decision/reasoning_chain/causal_chain 生效（不影响 procedure/qe）。
+    if chunk_type in ("decision", "reasoning_chain", "causal_chain"):
+        _has_metric_pattern = re.search(
+            r'(?:\d+%?\s*[→➜→>]\s*\d+%?'  # X→Y / X%→Y%
+            r'|\d+/\d+\s*[=＝(（]'          # X/Y= / X/Y(
+            r'|残留\s*\d+%'                  # 残留 N%
+            r'|iter\d{3}.*(?:已|自愈|清理|修复)'  # iter8xx 已自愈
+            r'|(?:占比|注入率|命中率|逃逸率)\s*[:：]?\s*\d+%'  # 指标: N%
+            r'|(?:旧|新)公式.*\d+%'          # 旧/新公式 N%
+            r'|\d+%\s*(?:降到|升到|降至|升至)'  # N% 降到
+            r'|(?:从|自)\s*\d+%\s*(?:降|升|变))',  # 从 N% 降/升
+            summary
+        )
+        if _has_metric_pattern:
+            _has_ext_domain = re.search(
+                r'(?:kernel|sched|CPU|Android|feishu|飞书|patch|线程|进程|调度|'
+                r'binder|LKMM|scx|qos|migration|MTK|vendor|AOSP|'
+                r'Proxy.Execution|uclamp|cpufreq|thermal|cgroup|'
+                r'公众号|微信|curl|HTTP|API|gRPC)',
+                summary, re.I
+            )
+            if not _has_ext_domain:
+                return
     importance_map = {
         "decision": 0.85,
         "reasoning_chain": 0.80,
