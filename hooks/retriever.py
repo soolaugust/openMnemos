@@ -3128,10 +3128,13 @@ def main():
             #   0.00009 级别，恰好通过极低 threshold。绝对零分门槛不可绕过。
             positive = [(s, c) for s, c in final if s >= _min_thresh and s > 0]
             # iter826: single_result_pair_inject (hard_deadline path)
+            # iter843: pair_dedup_aware — 配对时排除已达 session dedup 阈值的 chunk
+            _pair_dedup_thresh_hd = _sysctl("retriever.session_dedup_threshold") or 2
             if len(positive) == 1 and len(final) >= 3:
                 _pair_cands_hd = [(s, c) for s, c in final
                                   if s > 0.05 and s < _min_thresh
-                                  and c.get("id") != positive[0][1].get("id")]
+                                  and c.get("id") != positive[0][1].get("id")
+                                  and _session_injection_counts.get(c.get("id", ""), 0) < _pair_dedup_thresh_hd]
                 if _pair_cands_hd:
                     _pair_best_hd = max(_pair_cands_hd, key=lambda x: x[0])
                     positive.append(_pair_best_hd)
@@ -3139,7 +3142,8 @@ def main():
                     # iter827: importance_pair_fallback (hard_deadline path)
                     _imp_pairs_hd = [(float(c.get("importance", 0) or 0), c) for _, c in final
                                      if c.get("id") != positive[0][1].get("id")
-                                     and (c.get("access_count", 0) or 0) < 30]
+                                     and (c.get("access_count", 0) or 0) < 30
+                                     and _session_injection_counts.get(c.get("id", ""), 0) < _pair_dedup_thresh_hd]
                     if _imp_pairs_hd:
                         _imp_best_hd = max(_imp_pairs_hd, key=lambda x: x[0])
                         if _imp_best_hd[0] >= 0.3:
@@ -3198,7 +3202,8 @@ def main():
                 _fb_pair_hd_top1_id = positive[0][1].get("id", "")
                 _fb_pair_hd_cands = [(float(c.get("importance", 0) or 0), c) for _, c in final
                                      if c.get("id") != _fb_pair_hd_top1_id
-                                     and (c.get("access_count", 0) or 0) < 30]
+                                     and (c.get("access_count", 0) or 0) < 30
+                                     and _session_injection_counts.get(c.get("id", ""), 0) < _pair_dedup_thresh_hd]
                 if _fb_pair_hd_cands:
                     _fb_pair_hd_best = max(_fb_pair_hd_cands, key=lambda x: x[0])
                     if _fb_pair_hd_best[0] >= 0.3:
@@ -3245,7 +3250,8 @@ def main():
                 _ps842_hd_top1_id = top_k[0][1].get("id", "")
                 _ps842_hd_cands = [(float(c.get("importance", 0) or 0), c) for _, c in final
                                    if c.get("id") != _ps842_hd_top1_id
-                                   and (c.get("access_count", 0) or 0) < 30]
+                                   and (c.get("access_count", 0) or 0) < 30
+                                   and _session_injection_counts.get(c.get("id", ""), 0) < _pair_dedup_thresh_hd]
                 if _ps842_hd_cands:
                     _ps842_hd_best = max(_ps842_hd_cands, key=lambda x: x[0])
                     if _ps842_hd_best[0] >= 0.3:
@@ -3758,6 +3764,12 @@ def main():
                                       session_id=session_id, project=project)
         # iter620: zero_score_absolute_gate (FULL path) — 同 hard_deadline 路径
         positive = [(s, c) for s, c in final if s >= _min_thresh and s > 0]
+        # iter843: pair_dedup_aware — 配对候选预过滤 dedup threshold
+        # 根因（数据驱动，2026-05-05）：55% 注入仅 1 条。iter826/827/840 配对成功后，
+        #   session_dedup(iter359, threshold=2) 事后移除配对 chunk → 单条逃逸。
+        #   配对选中的 chunk 在当前 session 已注入 >=threshold 次时，配对无效。
+        # 修复：配对候选筛选时排除已达 dedup 阈值的 chunk，选真正"新鲜"的组合。
+        _pair_dedup_thresh = _sysctl("retriever.session_dedup_threshold") or 2
         # iter826: single_result_pair_inject — 单条结果时补充次优候选
         # 根因（数据驱动，2026-05-05）：48h 内 50% 注入只有 1 条 chunk，
         #   cands=29-33 中仅 1 条过 _min_thresh（其余 score=0 被 suppress 或 relevance 极低）。
@@ -3767,7 +3779,8 @@ def main():
         if len(positive) == 1 and len(final) >= 3:
             _pair_candidates = [(s, c) for s, c in final
                                 if s > 0.05 and s < _min_thresh
-                                and c.get("id") != positive[0][1].get("id")]
+                                and c.get("id") != positive[0][1].get("id")
+                                and _session_injection_counts.get(c.get("id", ""), 0) < _pair_dedup_thresh]
             if _pair_candidates:
                 _pair_best = max(_pair_candidates, key=lambda x: x[0])
                 positive.append(_pair_best)
@@ -3783,7 +3796,8 @@ def main():
                 #   的象征性 score，确保组合上下文。排除 access_count>=30 的过饱和 chunk。
                 _imp_pairs = [(float(c.get("importance", 0) or 0), c) for _, c in final
                               if c.get("id") != positive[0][1].get("id")
-                              and (c.get("access_count", 0) or 0) < 30]
+                              and (c.get("access_count", 0) or 0) < 30
+                              and _session_injection_counts.get(c.get("id", ""), 0) < _pair_dedup_thresh]
                 if _imp_pairs:
                     _imp_best = max(_imp_pairs, key=lambda x: x[0])
                     if _imp_best[0] >= 0.3:  # importance 下限，避免注入低价值 chunk
@@ -3843,7 +3857,8 @@ def main():
             _fb_pair_top1_id = positive[0][1].get("id", "")
             _fb_pair_cands = [(float(c.get("importance", 0) or 0), c) for _, c in final
                               if c.get("id") != _fb_pair_top1_id
-                              and (c.get("access_count", 0) or 0) < 30]
+                              and (c.get("access_count", 0) or 0) < 30
+                              and _session_injection_counts.get(c.get("id", ""), 0) < _pair_dedup_thresh]
             if _fb_pair_cands:
                 _fb_pair_best = max(_fb_pair_cands, key=lambda x: x[0])
                 if _fb_pair_best[0] >= 0.3:
@@ -4486,7 +4501,8 @@ def main():
         if len(top_k) == 1 and len(_pre_suppress_top_k) >= 2:
             _ps_top1_id = top_k[0][1].get("id", "")
             _ps_candidates = [(s, c) for s, c in _pre_suppress_top_k
-                              if c.get("id", "") != _ps_top1_id and s > 0]
+                              if c.get("id", "") != _ps_top1_id and s > 0
+                              and _session_injection_counts.get(c.get("id", ""), 0) < _pair_dedup_thresh]
             if _ps_candidates:
                 _ps_best = max(_ps_candidates, key=lambda x: x[0])
                 top_k.append(_ps_best)
@@ -4505,7 +4521,8 @@ def main():
             _ps842_top1_id = top_k[0][1].get("id", "")
             _ps842_cands = [(float(c.get("importance", 0) or 0), c) for _, c in final
                             if c.get("id") != _ps842_top1_id
-                            and (c.get("access_count", 0) or 0) < 30]
+                            and (c.get("access_count", 0) or 0) < 30
+                            and _session_injection_counts.get(c.get("id", ""), 0) < _pair_dedup_thresh]
             if _ps842_cands:
                 _ps842_best = max(_ps842_cands, key=lambda x: x[0])
                 if _ps842_best[0] >= 0.3:
@@ -4651,7 +4668,8 @@ def main():
         if len(top_k) == 1 and len(_pre_suppress_top_k_lite) >= 2:
             _ps_lite_top1_id = top_k[0][1].get("id", "")
             _ps_lite_cands = [(s, c) for s, c in _pre_suppress_top_k_lite
-                              if c.get("id", "") != _ps_lite_top1_id and s > 0]
+                              if c.get("id", "") != _ps_lite_top1_id and s > 0
+                              and _session_injection_counts.get(c.get("id", ""), 0) < _pair_dedup_thresh]
             if _ps_lite_cands:
                 _ps_lite_best = max(_ps_lite_cands, key=lambda x: x[0])
                 top_k.append(_ps_lite_best)
@@ -4664,7 +4682,8 @@ def main():
             _ps842_lite_top1_id = top_k[0][1].get("id", "")
             _ps842_lite_cands = [(float(c.get("importance", 0) or 0), c) for _, c in final
                                  if c.get("id") != _ps842_lite_top1_id
-                                 and (c.get("access_count", 0) or 0) < 30]
+                                 and (c.get("access_count", 0) or 0) < 30
+                                 and _session_injection_counts.get(c.get("id", ""), 0) < _pair_dedup_thresh]
             if _ps842_lite_cands:
                 _ps842_lite_best = max(_ps842_lite_cands, key=lambda x: x[0])
                 if _ps842_lite_best[0] >= 0.3:
