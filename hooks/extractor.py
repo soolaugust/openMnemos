@@ -2183,6 +2183,13 @@ def _write_chunk(chunk_type: str, summary: str, project: str, session_id: str,
     # 阈值 15 字：生产中最短合法 chunk summary 为 19 字（test），wiki import 有 content_override 不受影响。
     if not content_override and len(summary) < 15:
         return
+    # iter844: table_fragment_gate — 表格行碎片拒绝写入
+    # 数据驱动（2026-05-05）：e0bd5a39 content="| extractor gate 覆盖 | ... |"
+    #   是 markdown 表格行碎片（44字，绕过 <15 阈值），ac=2 但零用户价值。
+    #   被 retriever 连续 2 次单条注入，挤占了有价值知识的注入配额。
+    # 修复：无 content_override 时，summary 以 '|' 开头 → 表格碎片 → 拒绝。
+    if not content_override and summary.lstrip().startswith('|'):
+        return
     # iter607: _write_chunk 内置 quality gate — 最终防线
     # 根因（数据驱动，2026-05-03）：causal_chain/decision 绕过调用方的 _is_quality_chunk
     # 检查直接写入 store（6 个零访问迭代器噪声 chunk 在 gate 部署前写入）。
