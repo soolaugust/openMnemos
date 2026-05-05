@@ -1406,7 +1406,11 @@ def _is_quality_chunk(summary: str) -> bool:
         r'Timeline\s*条目|知识完全不可见|存量噪声|迭代器.*噪声|noise.gate|'
         # iter679: retriever 内部逻辑术语 — 迭代器描述自身算法修改
         r'FTS5\s*scor|min_thresh|positive=\[\]|constraint_fallback|'
-        r'空率|_score_chunk|fallback.*inject|suppress.*全[灭空])',
+        r'空率|_score_chunk|fallback.*inject|suppress.*全[灭空]|'
+        # iter930: meta_self_ref — 知识库自述/系统内部组件名逃逸
+        # 根因：b2b446a1 "量化改善：知识库纯度 100%...extractor 阶段被拦截" 逃逸所有 gate
+        r'知识库\s*(?:纯度|质量|健康)|零价值\s*chunk|噪声\s*写入|'
+        r'extractor\s*(?:阶段|拦截|过滤)|retriever\s*(?:阶段|注入|召回))',
         re.I
     )
     if _ITERATOR_DIAG_KW.search(s):

@@ -4797,8 +4797,10 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                                   f"iter663_suppress_final_gate: filtered "
                                   f"{_pre663d - len(top_k)} chunks (24h/7d realtime)",
                                   session_id=session_id, project=project)
-            except Exception:
-                pass
+            except Exception as _e663d:
+                _deferred.log(DMESG_WARN, "retriever_daemon",
+                              f"iter663_suppress_final_gate_EXCEPTION: {type(_e663d).__name__}: {_e663d}",
+                              session_id=session_id, project=project)
         # ── iter887: suppress_final_gate_closure_fallback — 闭包快照兜底 ──
         # 根因（数据驱动，2026-05-05）：suppress_final_gate 实时 DB 查询在 try/except
         #   中静默失败时，垄断 chunk 逃逸。用启动时闭包快照 _recent_6h/_24h/_7d_counts 兜底。
