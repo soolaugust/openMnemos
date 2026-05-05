@@ -4070,6 +4070,31 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                                           f"iter830_imp_pair_hd: paired {_ip_best[1][_CI_ID][:12]} "
                                           f"imp={_ip_best[0]:.2f} with top1 s={positive[0][0]:.3f}",
                                           session_id=session_id, project=project)
+            # iter864: diversity_pair_from_db (hard_deadline path)
+            if len(positive) == 1 and _db_chunk_count < 50:
+                _top1_id_hd = positive[0][1][_CI_ID]
+                try:
+                    import sqlite3 as _div_sql_hd
+                    _div_conn_hd = _div_sql_hd.connect(str(STORE_DB))
+                    _div_rows_hd = _div_conn_hd.execute(
+                        "SELECT id, summary, content, chunk_type, importance, access_count "
+                        "FROM memory_chunks WHERE project = ? AND chunk_state = 'ACTIVE' "
+                        "AND importance >= 0.5 AND id != ? "
+                        "ORDER BY access_count ASC, importance DESC LIMIT 3",
+                        (project, _top1_id_hd)).fetchall()
+                    _div_conn_hd.close()
+                    if _div_rows_hd:
+                        _div_pick_hd = _div_rows_hd[0]
+                        _div_chunk_hd = (_div_pick_hd[0], _div_pick_hd[1], _div_pick_hd[2],
+                                        _div_pick_hd[4], 0, 0, _div_pick_hd[5], None, None, None,
+                                        _div_pick_hd[3], None)
+                        positive.append((positive[0][0] * 0.25, _div_chunk_hd))
+                        _deferred.log(DMESG_DEBUG, "retriever_daemon",
+                                      f"iter864_diversity_pair_hd: db_pick {_div_pick_hd[0][:12]} "
+                                      f"imp={_div_pick_hd[4]:.2f} ac={_div_pick_hd[5]}",
+                                      session_id=session_id, project=project)
+                except Exception:
+                    pass
             if _drr_enabled and len(positive) > effective_top_k:
                 top_k = _drr_select(positive, effective_top_k)
             else:
@@ -4275,6 +4300,34 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                                       f"iter830_imp_pair_full: paired {_ip_best_f[1][_CI_ID][:12]} "
                                       f"imp={_ip_best_f[0]:.2f} with top1 s={positive[0][0]:.3f}",
                                       session_id=session_id, project=project)
+        # iter864: diversity_pair_from_db — 同步 retriever.py
+        # 根因：52% 单条注入，6/20 chunk 从未曝光（FTS 未命中 → 不在 final）。
+        # 修复：positive 仍为单条时从 DB 查同 project 低频高 importance chunk 配对。
+        if len(positive) == 1 and _db_chunk_count < 50:
+            _top1_id_d = positive[0][1][_CI_ID]
+            try:
+                import sqlite3 as _div_sql_d
+                _div_conn_d = _div_sql_d.connect(str(STORE_DB))
+                _div_rows_d = _div_conn_d.execute(
+                    "SELECT id, summary, content, chunk_type, importance, access_count "
+                    "FROM memory_chunks WHERE project = ? AND chunk_state = 'ACTIVE' "
+                    "AND importance >= 0.5 AND id != ? "
+                    "ORDER BY access_count ASC, importance DESC LIMIT 3",
+                    (project, _top1_id_d)).fetchall()
+                _div_conn_d.close()
+                if _div_rows_d:
+                    _div_pick_d = _div_rows_d[0]
+                    _div_chunk_d = (_div_pick_d[0], _div_pick_d[1], _div_pick_d[2],
+                                   _div_pick_d[4], 0, 0, _div_pick_d[5], None, None, None,
+                                   _div_pick_d[3], None)
+                    _div_score_d = positive[0][0] * 0.25
+                    positive.append((_div_score_d, _div_chunk_d))
+                    _deferred.log(DMESG_DEBUG, "retriever_daemon",
+                                  f"iter864_diversity_pair: db_pick {_div_pick_d[0][:12]} "
+                                  f"imp={_div_pick_d[4]:.2f} ac={_div_pick_d[5]}",
+                                  session_id=session_id, project=project)
+            except Exception:
+                pass
 
         if _drr_enabled and len(positive) > effective_top_k:
             top_k = _drr_select(positive, effective_top_k)

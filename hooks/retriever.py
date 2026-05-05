@@ -3823,6 +3823,50 @@ def main():
                                       f"iter827_imp_pair: paired {_imp_best[1].get('id','')[:12]} "
                                       f"imp={_imp_best[0]:.2f} with top1 s={positive[0][0]:.3f}",
                                       session_id=session_id, project=project)
+        # iter864: diversity_pair_from_db — FTS 未命中的高 importance chunk 曝光
+        # 根因（数据驱动，2026-05-05）：33-chunk 库中 6/20 从未被注入（imp 0.64~0.88），
+        #   因 FTS 从未命中它们 → 不在 final → iter827 无法选到 → 永远零曝光。
+        #   52% 注入为单条，组合上下文严重不足。
+        # 修复：positive 仍为单条时，从 DB 查同 project 的、24h 未注入的、高 importance
+        #   chunk 作为 diversity pair。给予 top1*0.25 的低 score，确保不喧宾夺主。
+        #   排除 top1 自身、session 内已注入的 chunk。仅 tiny_db(<50) 启用（大库 FTS 覆盖足够）。
+        if len(positive) == 1 and _db_chunk_count < 50:
+            _top1_id = positive[0][1].get("id", "")
+            try:
+                import sqlite3 as _div_sql
+                _div_conn = _div_sql.connect(str(STORE_DB))
+                # 查同 project 中 importance >= 0.5、非 top1、未被 session 内注入的 chunk
+                _div_rows = _div_conn.execute(
+                    "SELECT id, summary, content, chunk_type, importance, access_count "
+                    "FROM memory_chunks WHERE project = ? AND chunk_state = 'ACTIVE' "
+                    "AND importance >= 0.5 AND id != ? "
+                    "ORDER BY access_count ASC, importance DESC LIMIT 5",
+                    (project, _top1_id)).fetchall()
+                _div_conn.close()
+                # 过滤 session 内已注入的 和 24h 已注入 >=3 次的
+                _div_cands = []
+                for _dr in _div_rows:
+                    _dr_id = _dr[0]
+                    if _session_injection_counts.get(_dr_id, 0) >= _pair_dedup_thresh:
+                        continue
+                    _tl_24h = sum(1 for t in _injection_timeline.get(_dr_id, [])
+                                  if t > (_now_ts[:10] if len(_now_ts) > 10 else _now_ts))  # rough 24h
+                    if _tl_24h >= 3:
+                        continue
+                    _div_cands.append(_dr)
+                if _div_cands:
+                    _div_pick = _div_cands[0]  # lowest access_count, highest importance
+                    _div_chunk = {"id": _div_pick[0], "summary": _div_pick[1],
+                                  "content": _div_pick[2], "chunk_type": _div_pick[3],
+                                  "importance": _div_pick[4], "access_count": _div_pick[5]}
+                    _div_score = positive[0][0] * 0.25
+                    positive.append((_div_score, _div_chunk))
+                    _deferred.log(DMESG_DEBUG, "retriever",
+                                  f"iter864_diversity_pair: db_pick {_div_pick[0][:12]} "
+                                  f"imp={_div_pick[4]:.2f} ac={_div_pick[5]} with top1 s={positive[0][0]:.3f}",
+                                  session_id=session_id, project=project)
+            except Exception:
+                pass  # best-effort, don't break retrieval
         # iter695: threshold_degrade — 阈值过高全灭时降级到默认 0.30
         if not positive and _min_thresh > 0.30:
             positive = [(s, c) for s, c in final if s >= 0.30 and s > 0]
