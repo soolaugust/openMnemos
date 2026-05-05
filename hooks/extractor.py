@@ -1299,7 +1299,12 @@ def _is_quality_chunk(summary: str) -> bool:
                 #   包含 NOISE_FLOOR/noise_chunk_rate/constraint 豁免逻辑 等内部实现描述
                 "NOISE_FLOOR", "noise_chunk", "chunk_rate",
                 "豁免逻辑", "_is_global", "constraint 无条件豁免",
-                "修复：移除", "修复：6 处"]
+                "修复：移除", "修复：6 处",
+                # iter877: iterator_self_eval_noise — 迭代器自评效果预测/度量预期
+                # 数据驱动（2026-05-05）：2 条 ac=0/1 噪声 "效果：7d=5-6 的垄断 chunk 评分降至..."
+                #   "预期效果：7d=4 的 chunk 评分降至 56%..." — 自评预期，对用户零检索价值
+                "零注入 chunk", "注入机会", "评分降至", "知识覆盖多样性",
+                "垄断 chunk"]
     if any(kw in s for kw in noise_kw):
         return False
     # iter853: internal_var_gate — 含 memory-os 内部变量名/常量名的 summary 拦截
