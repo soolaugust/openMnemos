@@ -135,7 +135,10 @@ def _seal_check_reject(text: str) -> bool:
                     '_seal_check', '_vma_validate', 'insert_chunk',
                     # iter757: 补充 memory-os 内部变量名漏网
                     'hard_cap', 'inject_hard', 'suppress_fallback',
-                    'bandwidth_throttle', 'score_chunk', 'final_gate')
+                    'bandwidth_throttle', 'score_chunk', 'final_gate',
+                    # iter890: iterator_param_tuning_noise — 漏网的迭代器参数/机制名
+                    'diversity_pair', 'suppress', 'fallback_rotation',
+                    'closure_fallback', 'pair_dedup')
     _tl = text.lower()
     if any(ci in _tl for ci in _code_idents):
         return True
@@ -149,7 +152,9 @@ def _seal_check_reject(text: str) -> bool:
     # iter607: memoryos_meta — 中文内部概念关键词拦截
     # 根因：_code_idents 拦截英文标识符，但中文描述的内部概念（"注入垄断"、"零访问"）漏网。
     _META_CN = ('注入垄断', '零访问', '写入门控', '噪声写入', '去垄断',
-                '垄断现象', '垄断 chunk')
+                '垄断现象', '垄断 chunk',
+                # iter890: iterator_param_tuning — 衰减/阈值/触发率 调参记录
+                '衰减到', '触发率', '垄断率', '注入位')
     if any(m in text for m in _META_CN):
         return True
     # iter786: memoryos_arch_selfref — 拦截 memory-os 架构自描述
