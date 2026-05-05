@@ -5324,6 +5324,9 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                     _wconn.commit()
                     _wconn.close()
                     return
+                # iter917: write_trace_empty_guard — 对齐 retriever.py，防空 top_k 污染统计
+                if _effective_injected and not _effective_top_k:
+                    _effective_injected = 0
                 store_insert_trace(_wconn, {
                     "id": str(uuid_mod.uuid4()),
                     "timestamp": datetime.now(timezone.utc).isoformat(),

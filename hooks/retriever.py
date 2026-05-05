@@ -1290,6 +1290,11 @@ def _write_trace(session_id: str, project: str, prompt_hash: str,
     写 recall_traces 记录。
     v8 迭代21：委托 store.py（VFS 统一数据访问层）。
     """
+    # iter917: write_trace_empty_guard — injected=1 但 top_k 为空时降级为 injected=0
+    # 根因：suppress 全灭后多个路径仍调用 _write_trace(injected=1, top_k=[])
+    #   污染 recall_counts 统计（bw_window 分母膨胀→suppress 比例失真）。
+    if injected and not top_k_data:
+        injected = 0
     should_close = conn is None
     try:
         if conn is None:
