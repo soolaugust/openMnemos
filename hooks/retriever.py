@@ -5313,15 +5313,31 @@ def main():
         #   0.08 阈值过低未过滤任何噪声。提升到 0.12 过滤 40% 低相关性注入。
         _score_floor = 0.12
         if len(top_k) > 0 and _db_chunk_count > 5:
+            _sf_pre_len = len(top_k)
             _sf_above = [(s, c) for s, c in top_k if s >= _score_floor]
             if _sf_above:
                 if len(_sf_above) < len(top_k):
+                    # iter926: pair_preserve — 保护配对不被 score_floor 砍到单条
+                    # 根因（数据驱动，2026-05-06）：54% 注入为单条。iter868/895 配对
+                    #   score=top1*0.20（如 top1=0.15 → pair=0.03），低于 floor=0.12 被移除。
+                    #   导致 pair 机制零生效，用户始终只看到单点知识。
+                    # 修复：过滤前 >=2 条 → 过滤后 =1 条时，保留被移除中最高分的 1 条配对。
+                    if _sf_pre_len >= 2 and len(_sf_above) == 1:
+                        _sf_below = [(s, c) for s, c in top_k if s < _score_floor]
+                        if _sf_below:
+                            _sf_kept_pair = max(_sf_below, key=lambda x: x[0])
+                            _sf_above.append(_sf_kept_pair)
+                            _deferred.log(DMESG_DEBUG, "retriever",
+                                          f"iter926_pair_preserve: kept pair "
+                                          f"{_sf_kept_pair[1].get('id','')[:12]} s={_sf_kept_pair[0]:.3f}",
+                                          session_id=session_id, project=project)
                     _sf_removed = len(top_k) - len(_sf_above)
                     top_k = _sf_above
-                    _deferred.log(DMESG_DEBUG, "retriever",
-                                  f"iter910_score_floor_gate: removed {_sf_removed} chunks "
-                                  f"below score_floor={_score_floor}",
-                                  session_id=session_id, project=project)
+                    if _sf_removed > 0:
+                        _deferred.log(DMESG_DEBUG, "retriever",
+                                      f"iter910_score_floor_gate: removed {_sf_removed} chunks "
+                                      f"below score_floor={_score_floor}",
+                                      session_id=session_id, project=project)
             else:
                 # 全部低于阈值：保留最高分 1 条
                 _sf_best = max(top_k, key=lambda x: x[0])
