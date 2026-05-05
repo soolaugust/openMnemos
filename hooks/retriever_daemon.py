@@ -3544,6 +3544,12 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
             # OS 类比：TLB hit — 预计算表查找，跳过 math.log2 call
             # iter233: _ac < 21 → _ac <= 20 (equivalent; clarifies table max index = 20)
             ab = _AB_TABLE[_ac] if _ac < 64 else _sc_ab_cap  # iter251: 64-entry table covers 100% corpus
+            # iter831: access_diminishing_return — 高频 chunk 的 access_bonus 衰减
+            # 根因（数据驱动，2026-05-05）：ac>=8 的 chunk 占据 top_k 半数席位，
+            #   ab 已 cap 到 0.20 无惩罚，导致高频 chunk 评分优势固化。
+            # 修复：ac>8 时 ab 乘以 1/(1+(ac-8)*0.1)，ac=12→0.71x, ac=20→0.45x
+            if _ac > 8:
+                ab *= 1.0 / (1.0 + (_ac - 8) * 0.1)
             # freshness_bonus
             # iter234: strength reduction — age_ca / _sc_fb_grc → age_ca * _sc_fb_scale (hoisted per-request)
             # _sc_fb_scale = _sc_fb_max / _sc_fb_grc precomputed; result: _sc_fb_max - age_ca * _sc_fb_scale
@@ -3724,6 +3730,9 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
             eff_imp = _eff if _eff >= _sc_floor else _sc_floor
             rec = 1.0 / (1.0 + age_la)
             ab = _AB_TABLE[_ac] if _ac < 64 else _sc_ab_cap  # iter251: 64-entry table covers 100% corpus
+            # iter831: access_diminishing_return (dict path)
+            if _ac > 8:
+                ab *= 1.0 / (1.0 + (_ac - 8) * 0.1)
             fb = _sc_fb_max - age_ca * _sc_fb_scale  # iter254: drop grace guard (corpus max age_ca = 1.2d avg)
             if _ac == 0 and age_ca >= _sc_sv_min:
                 _sv_ratio = (age_ca - _sc_sv_min) / _sc_sv_rmp_safe

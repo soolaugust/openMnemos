@@ -158,11 +158,19 @@ def access_bonus(access_count: int) -> float:
     OS 类比：MMU Accessed bit 置位 + kswapd 扫描计数。
     log2(1 + count) × 0.05，上限 0.2。
     避免线性增长导致高频 chunk 垄断。
+
+    iter831: access_diminishing_return — ac>8 时衰减 bonus，
+    防止高频 chunk 的 access_bonus 固化为 0.20 不变的永久优势。
+    ac=10→0.83x, ac=12→0.71x, ac=20→0.45x
     """
     if access_count <= 0:
         return 0.0
     _l = _LOG2_1P[access_count] if access_count < _LOG2_TABLE_SIZE else math.log2(1 + access_count)
-    return min(_AB_CAP, _l * 0.05)
+    ab = min(_AB_CAP, _l * 0.05)
+    # iter831: diminishing return for over-exposed chunks
+    if access_count > 8:
+        ab *= 1.0 / (1.0 + (access_count - 8) * 0.1)
+    return ab
 
 
 def freshness_bonus(created_at: str) -> float:
