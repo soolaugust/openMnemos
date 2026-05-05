@@ -1325,7 +1325,13 @@ def _is_quality_chunk(summary: str) -> bool:
                 # iter935: quantitative_expectation_noise — "量化预期" 词序逃逸
                 # 数据驱动（2026-05-06）：2 条 ac=0 噪声 "量化预期：空召回 16→0 条/7d"
                 #   逃逸原因："预期量化效果"已拦截但 "量化预期" 词序不同漏网。
-                "量化预期"]
+                "量化预期",
+                # iter942: impl_fix_detail_noise — 迭代器修复细节/代码片段逃逸
+                # 数据驱动（2026-05-06）：5 条 ac=0 噪声逃逸：
+                #   "修复（4 处，<10 行改动）"/"条件：positive[0][0] >= 0.15"
+                #   "imp_pair_top1_gate"/"score<0.10 占比从 14.8%"
+                #   根因："修复：" 前缀只拦截冒号形式，括号形式逃逸；代码索引 [0][0] 无覆盖。
+                "修复（", "score<", "占比从"]
     if any(kw in s for kw in noise_kw):
         return False
     # iter853: internal_var_gate — 含 memory-os 内部变量名/常量名的 summary 拦截
