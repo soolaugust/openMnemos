@@ -4829,14 +4829,16 @@ def main():
             _dp895_top1_id = _dp895_top1.get("id", "")
             _dp895_top1_type = _dp895_top1.get("chunk_type", "")
             try:
+                # iter924: pair_type_relax — 放宽 chunk_type 限制为仅 id 去重
+                # 根因（数据驱动，2026-05-06）：54% 单条注入。decision 占库 52%，
+                #   chunk_type != top1_type 排除过半候选 → 配对失败。
                 _dp895_exclude = f"'{_dp895_top1_id}'"
                 _dp895_rows = conn.execute(
                     f"SELECT id, summary, content, chunk_type, importance, access_count "
                     f"FROM memory_chunks WHERE project=? AND chunk_state='ACTIVE' "
                     f"AND id NOT IN ({_dp895_exclude}) "
-                    f"AND chunk_type != ? "
                     f"ORDER BY importance DESC, access_count ASC LIMIT 5",
-                    (project, _dp895_top1_type)
+                    (project,)
                 ).fetchall()
                 # 过滤 7d 过高的候选
                 _dp895_7d = _rt663_7d if '_rt663_7d' in dir() and _rt663_7d else _recent_7d_counts
@@ -4938,12 +4940,16 @@ def main():
             _pf914_top1_id = _pf914_top1.get("id", "")
             _pf914_top1_type = _pf914_top1.get("chunk_type", "")
             try:
+                # iter924: pair_type_relax — 放宽 chunk_type 限制为仅 id 去重
+                # 根因（数据驱动，2026-05-06）：54% 单条注入。24-chunk 库中 decision 占 52%，
+                #   chunk_type != top1_type 排除过半候选 → 7d 过滤后常为空 → 配对失败。
+                # 修复：仅排除 id 相同的 chunk，允许同类型不同知识配对。
                 _pf914_rows = conn.execute(
                     f"SELECT id, summary, content, chunk_type, importance, access_count "
                     f"FROM memory_chunks WHERE project=? AND chunk_state='ACTIVE' "
-                    f"AND id != ? AND chunk_type != ? "
+                    f"AND id != ? "
                     f"ORDER BY importance DESC, access_count ASC LIMIT 5",
-                    (project, _pf914_top1_id, _pf914_top1_type)
+                    (project, _pf914_top1_id)
                 ).fetchall()
                 _pf914_7d = _rt663_7d if '_rt663_7d' in dir() and _rt663_7d else _recent_7d_counts
                 # iter923: pair_7d_align_final_gate — 对齐 suppress_final_gate 阈值
