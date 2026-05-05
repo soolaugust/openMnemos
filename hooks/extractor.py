@@ -1312,7 +1312,12 @@ def _is_quality_chunk(summary: str) -> bool:
                 # iter906: suppress_tuning_noise — 漏网的 suppress 调参/效果记录
                 # 数据驱动（2026-05-05）：6 条 ac=1 噪声逃逸，含 suppress 调参记录
                 #   "修复：阈值 2→4"/"tiny_db (<50"/"7d 内 31% 完整检索返回空结果"
-                "7d>=", "7d >=", "tiny_db", "完整检索返回空", "全被 suppress"]
+                "7d>=", "7d >=", "tiny_db", "完整检索返回空", "全被 suppress",
+                # iter912: expected_effect_noise — 迭代器"预期效果"预测逃逸
+                # 数据驱动（2026-05-06）：3 条 ac=1 噪声 "预期效果：额外 suppress 14 次/7d"
+                #   / "预期效果：约 15% 极低分注入被拦截" — 迭代器自评预测，用户零价值。
+                #   逃逸原因：不含 suppress_fallback/注入率/tiny_db 等精确关键词。
+                "预期效果", "预期量化效果", "量化改善"]
     if any(kw in s for kw in noise_kw):
         return False
     # iter853: internal_var_gate — 含 memory-os 内部变量名/常量名的 summary 拦截
