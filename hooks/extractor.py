@@ -3621,7 +3621,13 @@ def main():
         # 根因：conversation_summary 平均 content=63 chars，FTS5 token 不足 → acc≈1.24。
         # 修复：同 iter324 causal_chain 策略，±1 邻居聚合，目标 content≈200 chars。
         # OS 类比：Linux readahead — 预读相邻 page，减少 random I/O。
-        _qualified_summaries = [s for s in conv_summaries if _is_quality_chunk(s)]
+        # iter845: conv_summary_min_density — 短摘要碎片拦截
+        # 根因（数据驱动，2026-05-05）：4 条 ac=0 conversation_summary 长度 13~26 字，
+        #   如 "Claude Code 的持久记忆插件"(13字)、"通用 AI 记忆引擎（SDK + API）"(17字)
+        #   信息密度过低，无法独立检索命中。阈值 30 字 ≈ 一个完整中文句子最低要求。
+        _cs_min_len = 30
+        _qualified_summaries = [s for s in conv_summaries
+                                if _is_quality_chunk(s) and len(s.strip()) >= _cs_min_len]
         for _cs_idx, summary in enumerate(_qualified_summaries):
             imp = _throttled_importance(0.65)
             # 构建聚合 content：前节点 + 当前 + 后节点（±1 邻居）
