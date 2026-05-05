@@ -3368,11 +3368,19 @@ def main():
                                   session_id=session_id, project=project)
             # ── iter677: positive_empty_best_fallback (hard_deadline) ──
             # iter681: 移除 24h/7d suppress 检查 — 最后防线不应被 suppress 过杀
+            # iter945: fallback_monopoly_gate — 恢复 7d ceiling 防止垄断 chunk 经此逃逸
+            #   根因（数据驱动，2026-05-06）：PE chunk 7d=5/6 时仍被注入，逃逸路径：
+            #   suppress_final_gate 全灭 → iter670 fallback ceiling=3 也过滤 → iter677 无 7d 检查直取 final[0]。
+            #   修复：从 final 中排除 7d >= ceiling 的 chunk，对齐 suppress_final_gate。
             if not top_k and final:
-                _pebf_best_hd = final[0]
-                _pebf_score_hd = _pebf_best_hd[0]
-                _pebf_id_hd = _pebf_best_hd[1].get("id", "")
-                if _pebf_score_hd >= 0.20:
+                _pebf_ceiling_hd = 3 if _db_chunk_count < 50 else (4 if _db_chunk_count < 100 else 5)
+                _pebf_cands_hd = [(s, c) for s, c in final
+                                  if _recent_7d_counts.get(c.get("id", ""), 0) < _pebf_ceiling_hd
+                                  and s >= 0.20]
+                if _pebf_cands_hd:
+                    _pebf_best_hd = _pebf_cands_hd[0]
+                    _pebf_score_hd = _pebf_best_hd[0]
+                    _pebf_id_hd = _pebf_best_hd[1].get("id", "")
                     top_k = [_pebf_best_hd]
                     _deferred.log(DMESG_INFO, "retriever",
                                   f"iter677_positive_empty_best_fallback_hd: "
@@ -4459,11 +4467,17 @@ def main():
             # 修复：从 final 取最高分候选，score >= 0.20 即注入 1 条。
             # iter681: 移除 24h/7d suppress 检查 — 与 constraint_fallback 同理，
             #   此为最后防线。suppress 过杀是 67% 空召回的根因。
+            # iter945: fallback_monopoly_gate — 恢复 7d ceiling 防止垄断 chunk 经此逃逸
+            #   与 hard_deadline 路径对齐。排除 7d >= ceiling 后取最佳。
             if not top_k and final:
-                _pebf_best = final[0]  # final 已按 score desc 排序
-                _pebf_score = _pebf_best[0]
-                _pebf_id = _pebf_best[1].get("id", "")
-                if _pebf_score >= 0.20:
+                _pebf_ceiling = 3 if _db_chunk_count < 50 else (4 if _db_chunk_count < 100 else 5)
+                _pebf_cands = [(s, c) for s, c in final
+                               if _recent_7d_counts.get(c.get("id", ""), 0) < _pebf_ceiling
+                               and s >= 0.20]
+                if _pebf_cands:
+                    _pebf_best = _pebf_cands[0]  # final 已按 score desc 排序
+                    _pebf_score = _pebf_best[0]
+                    _pebf_id = _pebf_best[1].get("id", "")
                     top_k = [_pebf_best]
                     _deferred.log(DMESG_INFO, "retriever",
                                   f"iter677_positive_empty_best_fallback: "
