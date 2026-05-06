@@ -2479,7 +2479,9 @@ def _write_chunk(chunk_type: str, summary: str, project: str, session_id: str,
             r'|(?:占比|注入率|命中率|逃逸率)\s*[:：]?\s*\d+%'  # 指标: N%
             r'|(?:旧|新)公式.*\d+%'          # 旧/新公式 N%
             r'|\d+%\s*(?:降到|升到|降至|升至)'  # N% 降到
-            r'|(?:从|自)\s*\d+%\s*(?:降|升|变))',  # 从 N% 降/升
+            r'|(?:从|自)\s*\d+%\s*(?:降|升|变)'  # 从 N% 降/升
+            r'|\d+\s*次.*\(\d+%\)'  # iter1022: N次...M次(X%) 统计报告格式
+            r'|\d+\s*次.*\d+\s*次.*\d+%)',  # iter1022: N次中M次 X% 变体
             summary
         )
         if _has_metric_pattern:
