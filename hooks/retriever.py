@@ -4230,10 +4230,13 @@ def main():
             elif _cp != project:  # cross-project
                 _cap = min(_cap, max(2, _pair_7d_ceiling - 2))
             else:
+                # iter1034: pair_context_relax — 本项目 pair cap 放宽
+                # 根因（数据驱动，2026-05-07）：24-chunk 库 10/24 chunk 因 ac>=7/10 → cap=4/3
+                #   被 pair 排除，导致 48% 注入为单条。本项目知识作为配对上下文有价值，
+                #   suppress_final_gate 已控制垄断（score=0 不可能进 pair_candidates s>0.10）。
+                # 修复：本项目 ac>=10 惩罚 -2→-1，ac>=7 移除惩罚。
                 _l_ac = c.get("access_count", 0) or 0
                 if _l_ac >= 10:
-                    _cap = min(_cap, max(2, _pair_7d_ceiling - 2))
-                elif _l_ac >= 7:
                     _cap = min(_cap, max(2, _pair_7d_ceiling - 1))
             return _cap
         if len(positive) == 1 and len(final) >= 3:
@@ -4314,11 +4317,10 @@ def main():
                         continue
                     # iter1011: per-chunk saturated cap for diversity pair
                     # Note: _dr from query WHERE project=?, so always local project
+                    # iter1034: pair_context_relax — 同步放宽（同 _pair_7d_cap 本项目逻辑）
                     _dr_ac = _dr[5]  # access_count from query
                     _dr_cap = _div_7d_ceiling
                     if _dr_ac >= 10:
-                        _dr_cap = min(_dr_cap, max(2, _div_7d_ceiling - 2))
-                    elif _dr_ac >= 7:
                         _dr_cap = min(_dr_cap, max(2, _div_7d_ceiling - 1))
                     if _div_7d.get(_dr_id, 0) >= _dr_cap:
                         continue
