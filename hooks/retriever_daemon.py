@@ -3723,8 +3723,8 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 # iter971: tiny 4→3 去垄断
                 elif _recent_7d_counts.get(_cid, 0) >= (3 if _s672_tiny else (4 if score >= 0.5 else 3) if _s672_small else (5 if score >= 0.5 else 3)):
                     score = 0.0
-                # iter622: saturation_absolute_suppress — access_count >= 30 永久 suppress
-                elif (chunk[_CI_AC] or 0) >= 30:
+                # iter981: saturation_widen — ac>=12 永久 suppress（从 30→15→12）
+                elif (chunk[_CI_AC] or 0) >= 12:
                     score = 0.0
             return score
 
@@ -3822,8 +3822,8 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 # iter971: tiny 4→3 去垄断（sync suppress_final_gate）
                 elif _recent_7d_counts.get(_cid, 0) >= (3 if _s672d_tiny else (4 if score >= 0.5 else 3) if _s672d_small else (5 if score >= 0.5 else 3)):
                     score = 0.0
-                # iter622: saturation_absolute_suppress — access_count >= 30 永久 suppress
-                elif (chunk.get("access_count", 0) or 0) >= 30:
+                # iter981: saturation_widen — ac>=12 永久 suppress（从 30→15→12）
+                elif (chunk.get("access_count", 0) or 0) >= 12:
                     score = 0.0
             return score
 
@@ -4518,8 +4518,8 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 pass
             def _ac_gated_d(c):
                 _cid = c[_CI_ID]
-                # iter622: access_count >= 30 永久 suppress（constraint 通道同步）
-                if (c[_CI_AC] or 0) >= 30:
+                # iter981: saturation_widen — ac>=12 suppress（constraint 通道同步）
+                if (c[_CI_AC] or 0) >= 12:
                     return False
                 # iter618: 24h + 7d burst suppress 在 constraint 通道生效
                 # iter619: 阈值收紧 24h:3→2, 7d:8→5
@@ -4692,9 +4692,9 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
         # 根因：评分阶段的 suppress（24h/7d/AC>=30）可能因查询失败、缓存、
         #   或 forced_constraint 路径逃逸。此 post-filter 直接读 chunk 字段，
         #   不依赖外部查询，是所有路径的最终汇聚点。
-        # 条件：access_count >= 30 的 chunk 不得出现在最终注入列表中。
+        # iter981: 条件：access_count >= 12 的 chunk 不得出现在最终注入列表中。
         _pre_postfilter = len(top_k)
-        top_k = [(s, c) for s, c in top_k if (c[_CI_AC] or 0) < 30]
+        top_k = [(s, c) for s, c in top_k if (c[_CI_AC] or 0) < 12]
         # ── iter663: suppress_final_gate — 24h/7d suppress 实时 DB 兜底 ──
         # 根因同 retriever.py：_score_chunk 内 24h/7d suppress 依赖进程启动时
         #   一次性计算的计数。并发 session timeline 写入无锁 → 读到旧值 → 逃逸。

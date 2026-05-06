@@ -2248,7 +2248,7 @@ def main():
                     _acc_ee = _get_live_ac(chunk.get("id", ""))
                     if _acc_ee is None:
                         _acc_ee = chunk.get("access_count", 0) or 0
-                    if _acc_ee >= 15:  # iter980: 30→15 对齐主路径
+                    if _acc_ee >= 12:  # iter981: 15→12 对齐主路径
                         return 0.0
                 return float(chunk.get("importance", 0.5)) * 0.1  # 极低相关性：快速降权
             # 迭代322: Query-Conditioned Importance — 动态 α
@@ -2317,19 +2317,19 @@ def main():
             _acc = _get_live_ac(chunk.get("id", ""))
             if _acc is None:
                 _acc = chunk.get("access_count", 0) or 0
-            # iter980: saturation_tighten — 降低绝对 suppress 阈值 + 渐进衰减
-            # 根因（数据驱动，2026-05-06）：top6 chunk 占 55% 注入（shadow_traces 197/143/143…），
-            #   但 access_count 仅 10-12（update_accessed 频次远低于实际注入次数），
-            #   原阈值 >=30 永远不触发。7d suppress 窗口滑动后垄断 chunk 每周重新注入 3 次。
-            # 修复：suppress 阈值 30→15，新增 10-15 渐进衰减区间 score*=0.3-0.6。
-            #   AC=10 chunk 立即受 0.6 衰减，AC=12 受 0.4，AC>=15 永久 suppress。
-            #   让长尾低频知识有机会进入 top-K。
-            if not _micro_db and _acc >= 15:
+            # iter981: saturation_widen — 扩大渐进衰减区间覆盖 ac=7-9 垄断 chunk
+            # 根因（数据驱动，2026-05-06）：ac=7 的 import-90139 在 67 trace 中注入 6 次(9%)，
+            #   ac=9 的 0aff0d67 同样 6 次(9%)——iter980 的 ac>=10 起始点完全未覆盖。
+            #   7d suppress 窗口滑动后这些 chunk 每周重新注入 4-6 次。
+            # 修复：suppress 阈值 15→12，渐进区间 10-15→7-12。
+            #   AC=7→*0.6, AC=8→*0.5, AC=9→*0.4, AC=10→*0.3, AC=11→*0.2, AC>=12 suppress。
+            #   Top-5 垄断 chunk 全部受衰减，长尾低频知识获得注入机会。
+            if not _micro_db and _acc >= 12:
                 score = 0.0
                 _hard_suppressed = True
-            elif not _micro_db and _acc >= 10:
-                # 渐进衰减：AC=10→*0.6, AC=11→*0.5, AC=12→*0.4, AC=13→*0.3, AC=14→*0.2
-                score *= max(0.2, 0.6 - 0.1 * (_acc - 10))
+            elif not _micro_db and _acc >= 7:
+                # 渐进衰减：AC=7→*0.6, AC=8→*0.5, AC=9→*0.4, AC=10→*0.3, AC=11→*0.2
+                score *= max(0.2, 0.6 - 0.1 * (_acc - 7))
             # ── 迭代333：TMV Multiplicative Saturation Discount ──────────────
             # 信息论基础：高 access_count chunk 已被 agent "内化"，边际信息趋零。
             # OS 类比：NUMA remote node penalty — acc 越高越像"远端内存"，成本高于收益。
@@ -3441,6 +3441,9 @@ def main():
                                         if _recent_7d_counts.get(c.get("id", ""), 0) < _omf_ceil_hd]
                         if _omf_filt_hd:
                             top_k = _omf_filt_hd
+                        else:
+                            # iter981: omf_least_monopoly_fallback (hard_deadline path)
+                            top_k = [min(top_k, key=lambda x: _recent_7d_counts.get(x[1].get("id", ""), 0))]
                     _TYPE_PREFIX = {"decision": "[决策]", "excluded_path": "[排除]",
                                     "reasoning_chain": "[推理]", "conversation_summary": "[摘要]",
                                     "task_state": "", "design_constraint": "⚠️ [约束]"}
@@ -5736,6 +5739,15 @@ def main():
                                   f"iter975_output_monopoly_filter: {len(top_k)}->{len(_omf_filtered)}",
                                   session_id=session_id, project=project)
                 top_k = _omf_filtered
+            else:
+                # iter981: omf_least_monopoly_fallback — 全候选超 ceiling 时，
+                # 选 7d count 最低的 1 条（而非放弃过滤让垄断 chunk 全部通过）。
+                # 根因：24-chunk 库 13/21 注入 chunk 7d>=3 → _omf_filtered=[] → 不过滤 →
+                #   OMF 从未触发（0/31 traces）。
+                top_k = [min(top_k, key=lambda x: _omf_7d_src.get(x[1].get("id", ""), 0))]
+                _deferred.log(DMESG_DEBUG, "retriever",
+                              f"iter981_omf_least_monopoly_fallback: {len(top_k)}->1, picked 7d={_omf_7d_src.get(top_k[0][1].get('id',''), 0)}",
+                              session_id=session_id, project=project)
 
         constraint_items = []
         normal_items = []
