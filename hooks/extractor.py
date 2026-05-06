@@ -2566,6 +2566,25 @@ def _write_chunk(chunk_type: str, summary: str, project: str, session_id: str,
             if not _txn_managed:
                 conn.commit()
             return
+        # iter964: substring_dedup_gate — 子串/超串去重
+        # 根因（数据驱动，2026-05-06）：5 条 zero-access chunk 中 3 条是库内已有 chunk
+        #   的子串片段。already_exists/merge_similar 无法捕获子串关系。
+        # 修复：新 summary 与已有 chunk summary 存在子串包含关系（≥30字）→ 拒绝写入。
+        _s_norm = re.sub(r'\s+', '', summary)
+        if len(_s_norm) >= 30:
+            _existing_summaries = conn.execute(
+                "SELECT summary FROM memory_chunks WHERE chunk_type=? LIMIT 200",
+                (chunk_type,)
+            ).fetchall()
+            for (_es,) in _existing_summaries:
+                _es_norm = re.sub(r'\s+', '', _es)
+                if len(_es_norm) >= 30 and (_s_norm in _es_norm or _es_norm in _s_norm):
+                    dmesg_log(conn, DMESG_DEBUG, "extractor",
+                              f"iter964_substring_dedup: '{summary[:30]}' subset",
+                              session_id=session_id, project=project)
+                    if not _txn_managed:
+                        conn.commit()
+                    return
         # iter784: session_burst_cap — 同 session 同 chunk_type 短期写入过多时合并
         #   根因（数据驱动，2026-05-04）：session e3e4392b 在 2 分钟内写了 5 条 decision，
         #   4 条同秒写入。Jaccard 去重无法捕捉"同话题不同细节"的变体。
