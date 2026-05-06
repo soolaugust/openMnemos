@@ -3691,7 +3691,8 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
             # iter898: small_db_diversity_boost — <50 库 factor 0.35→0.55
             _r7d_sc = _recent_7d_counts.get(_cid, 0)
             if _r7d_sc > 0 and _db_chunk_count > 5:
-                _dp_factor = 0.55 if _db_chunk_count < 50 else 0.35
+                # iter969: diversity_factor_align_small_db — <100 统一 0.55
+                _dp_factor = 0.55 if _db_chunk_count < 100 else 0.35
                 score *= 1.0 / (1.0 + _r7d_sc * _dp_factor)
             # iter618: 24h + 7d burst suppress（daemon 此前完全缺失）
             # iter619: 阈值收紧 24h:3→2, 7d:8→5
@@ -3795,7 +3796,8 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
             # iter898: small_db_diversity_boost — <50 库 factor 0.35→0.55
             _r7d_sd = _recent_7d_counts.get(_cid, 0)
             if _r7d_sd > 0 and _db_chunk_count > 5:
-                _dp_factor_d = 0.55 if _db_chunk_count < 50 else 0.35
+                # iter969: diversity_factor_align_small_db
+                _dp_factor_d = 0.55 if _db_chunk_count < 100 else 0.35
                 score *= 1.0 / (1.0 + _r7d_sd * _dp_factor_d)
             # iter618: 24h + 7d burst suppress（daemon 此前完全缺失）
             # iter619: 阈值收紧 24h:3→2, 7d:8→5
@@ -4988,10 +4990,11 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 _ult_where = f" AND id NOT IN ({_ult_placeholders})" if _ult_exclude else ''
                 try:
                     # iter938: ultimate_fallback_rotation — 分钟级轮转（同步 retriever.py）
+                    # iter969: fallback_include_global — 包含 global chunks 避免小库空召回
                     _dbuf_rows = conn.execute(
                         "SELECT id, summary, content, chunk_type, importance, "
                         "COALESCE(access_count,0), created_at, 0.0, COALESCE(lru_gen,0), project "
-                        f"FROM memory_chunks WHERE project=? AND chunk_state='ACTIVE'{_ult_where} "
+                        f"FROM memory_chunks WHERE (project=? OR project='global') AND chunk_state='ACTIVE'{_ult_where} "
                         "ORDER BY importance DESC, access_count ASC LIMIT 5",
                         (project, *_ult_exclude)
                     ).fetchall()
@@ -5022,10 +5025,11 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                     _esc_ph = ','.join(['?'] * len(_esc_exclude)) if _esc_exclude else ''
                     _esc_where = f" AND id NOT IN ({_esc_ph})" if _esc_exclude else ''
                     try:
+                        # iter969: fallback_include_global — escalation 同步包含 global
                         _esc_row = conn.execute(
                             "SELECT id, summary, content, chunk_type, importance, "
                             "COALESCE(access_count,0), created_at, 0.0, COALESCE(lru_gen,0), project "
-                            f"FROM memory_chunks WHERE project=? AND chunk_state='ACTIVE'{_esc_where} "
+                            f"FROM memory_chunks WHERE (project=? OR project='global') AND chunk_state='ACTIVE'{_esc_where} "
                             "ORDER BY access_count ASC, importance DESC LIMIT 1",
                             (project, *_esc_exclude)
                         ).fetchone()

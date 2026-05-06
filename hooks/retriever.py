@@ -2381,7 +2381,12 @@ def main():
             #   0.55 使 7d=4→31%, 7d=5→27%, 7d=6→23%，有效让位给低频 chunk。
             _r7d_dp = _recent_7d_counts.get(chunk.get("id", ""), 0)
             if _r7d_dp > 0 and _db_chunk_count > 5:
-                _dp_factor = 0.55 if _db_chunk_count < 50 else 0.35
+                # iter969: diversity_factor_align_small_db — <100 统一 0.55
+                # 根因（数据驱动，2026-05-06）：51-chunk 库（刚越过 50 边界）
+                #   用 0.35 导致 7d=6 衰减仅 32%，高 FTS base 仍垄断注入。
+                #   <50 用 0.55 使 7d=6→23%，但 51 和 49 不应有跳变。
+                #   统一 <100 用 0.55：7d=4→31%, 7d=5→27%, 7d=6→23%。
+                _dp_factor = 0.55 if _db_chunk_count < 100 else 0.35
                 score *= 1.0 / (1.0 + _r7d_dp * _dp_factor)
             # ── iter614: temporal_burst_suppression — 24h 注入频率 cap ─────────
             # 同一 chunk 在 24h 内注入 >=2 次 → suppress（score=0）
@@ -4969,7 +4974,8 @@ def main():
                 #   修复：用 _rt663_7d（如已计算）替代 _recent_7d_counts，ceiling 对齐 final_gate。
                 _fb_7d = _rt663_7d if '_rt663_7d' in dir() and _rt663_7d else _recent_7d_counts
                 _fb_24h = _rt663_24h if '_rt663_24h' in dir() and _rt663_24h else _recent_24h_counts
-                _fb_ceiling = 3 if _db_chunk_count < 50 else (4 if _db_chunk_count < 100 else 5)
+                # iter969: fallback_ceiling_align_final_gate — tiny_db 3→4 对齐 suppress_final_gate
+                _fb_ceiling = 4 if _db_chunk_count < 50 else (4 if _db_chunk_count < 100 else 5)
                 _fb_cap = [(s, c) for s, c in _pre_suppress_top_k
                            if _fb_7d.get(c.get("id", ""), 0) < _fb_ceiling
                            and _fb_24h.get(c.get("id", ""), 0) < 3]
@@ -5002,7 +5008,11 @@ def main():
             if not top_k:
                 # iter902+916: db_ultimate_fallback — 排除 7d 垄断 chunk
                 _fb_7d_ult = _rt663_7d if '_rt663_7d' in dir() and _rt663_7d else _recent_7d_counts
-                _ult_ceiling = 3 if _db_chunk_count < 50 else (4 if _db_chunk_count < 100 else 5)
+                # iter969: fallback_ceiling_align_final_gate — 对齐 suppress_final_gate 7d 阈值
+                # 根因（数据驱动，2026-05-06）：tiny_db ceiling=3 比 suppress_final_gate(4) 更严格，
+                #   导致主门禁放过的 7d=3 chunk 被 fallback 排除 → 21 次/7d 空召回（41%）。
+                # 修复：ceiling 对齐 final_gate（tiny 3→4），fallback 不应比主门禁更紧。
+                _ult_ceiling = 4 if _db_chunk_count < 50 else (4 if _db_chunk_count < 100 else 5)
                 _ult_exclude = [cid for cid, cnt in _fb_7d_ult.items() if cnt >= _ult_ceiling]
                 _ult_placeholders = ','.join(['?'] * len(_ult_exclude)) if _ult_exclude else ''
                 _ult_where = f" AND id NOT IN ({_ult_placeholders})" if _ult_exclude else ''
@@ -5012,9 +5022,13 @@ def main():
                     #   总选同一 chunk（最高 imp），直到 7d 达 ceiling 才换下一个。
                     #   36-chunk 库中 top3 imp chunk 轮流垄断 fallback 位。
                     # 修复：LIMIT 5 + minute%N 轮转，确保 fallback 多样性。
+                    # iter969: fallback_include_global — 小库 fallback 包含 global chunks
+                    # 根因（数据驱动，2026-05-06）：abspath:51963532bc1b（1 自有 chunk）9 次空召回。
+                    #   WHERE project=? 排除 6 个 global chunk → fallback 空 → 空召回。
+                    # 修复：查询条件加 OR project='global'，与 FTS 检索范围一致。
                     _dbuf_rows = conn.execute(
                         "SELECT id, summary, content, chunk_type, importance "
-                        f"FROM memory_chunks WHERE project=? AND chunk_state='ACTIVE'{_ult_where} "
+                        f"FROM memory_chunks WHERE (project=? OR project='global') AND chunk_state='ACTIVE'{_ult_where} "
                         "ORDER BY importance DESC, access_count ASC LIMIT 5",
                         (project, *_ult_exclude)
                     ).fetchall()
@@ -5047,9 +5061,10 @@ def main():
                     _esc_ph = ','.join(['?'] * len(_esc_exclude)) if _esc_exclude else ''
                     _esc_where = f" AND id NOT IN ({_esc_ph})" if _esc_exclude else ''
                     try:
+                        # iter969: fallback_include_global — escalation 同步包含 global
                         _esc_row = conn.execute(
                             "SELECT id, summary, content, chunk_type, importance "
-                            f"FROM memory_chunks WHERE project=? AND chunk_state='ACTIVE'{_esc_where} "
+                            f"FROM memory_chunks WHERE (project=? OR project='global') AND chunk_state='ACTIVE'{_esc_where} "
                             "ORDER BY access_count ASC, importance DESC LIMIT 1",
                             (project, *_esc_exclude)
                         ).fetchone()
