@@ -2408,8 +2408,12 @@ def _write_chunk(chunk_type: str, summary: str, project: str, session_id: str,
     # 根因（数据驱动，2026-05-06）：extractor_pool 路径的 iter956 gate 在部署前写入 13 条碎片。
     #   iter836 在 extractor.py 的 _qualified_chains 路径有效，但 pool 路径和未来路径无法保证。
     # 修复：_write_chunk 内统一拦截 causal_chain/reasoning_chain <120 字 + 结论词开头碎片。
-    #   有 content_override 时说明已构建了 rich content（邻节点聚合），不受此限制。
-    if chunk_type in ("causal_chain", "reasoning_chain") and not content_override:
+    #   有 content_override 且确实包含额外内容时才豁免（邻节点聚合 rich content）。
+    # iter970: content_echo_bypass_fix — content_override==summary 时视同无 override
+    #   根因（数据驱动，2026-05-06）：21 条碎片 ac=0，content==summary 但因 content_override
+    #   参数非空绕过 <120 gate。修复：比较实际内容，echo 时不豁免。
+    _has_rich_content = content_override and content_override.strip() != summary.strip()
+    if chunk_type in ("causal_chain", "reasoning_chain") and not _has_rich_content:
         _s_stripped = summary.strip()
         if re.match(r'^(?:所以|因此|故此|于是|故而|答案[：:]|总结[：:])', _s_stripped):
             return
