@@ -6103,13 +6103,18 @@ def main():
         #   causal_chain/reasoning_chain 等无前缀 chunk 完全逃逸。
         # 修复：同 chunk_type 最多保留 2 条（7d 最低优先），释放注入位给不同类型。
         #   design_constraint 豁免（本身就是高价值约束，不应被限制）。micro_db 豁免。
+        # iter1016: dc_saturated_group_cap — ac>=7 的 design_constraint 不再豁免
+        #   根因（数据驱动，2026-05-07）：11 个 design_constraint 占 7d 注入 52%（32/62）。
+        #   ac>=7 表明 agent 已多次内化该约束（git commit ac=9, Android ac=10），无需每次注入。
+        #   修复：仅 ac<7 的新鲜 constraint 无条件保留；ac>=7 进入正常 type_group_cap 竞争。
         if top_k and len(top_k) > 2 and not _micro_db:
             _tgc_7d = _rt663_7d if '_rt663_7d' in dir() and _rt663_7d else _recent_7d_counts
             _tgc_type_slots = {}  # chunk_type -> [(7d, idx)]
             _tgc_keep = set()
             for _tgc_i, (_tgc_s, _tgc_c) in enumerate(top_k):
                 _tgc_ct = _tgc_c.get("chunk_type", "")
-                if _tgc_ct == "design_constraint":
+                # iter1016: only exempt fresh constraints (ac<7); saturated ones compete normally
+                if _tgc_ct == "design_constraint" and (_tgc_c.get("access_count", 0) or 0) < 7:
                     _tgc_keep.add(_tgc_i)
                     continue
                 _tgc_cid = _tgc_c.get("id", "")

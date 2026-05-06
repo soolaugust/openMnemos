@@ -5308,12 +5308,14 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
         # 根因（数据驱动，2026-05-07）：79% 多条注入存在同 chunk_type >=2 条群体垄断。
         #   iter1013 只覆盖有 [topic] 前缀的 18% chunk，其余完全逃逸。
         # 修复：同 chunk_type 最多保留 2 条（7d 最低优先）。design_constraint 豁免。
+        # iter1016: dc_saturated_group_cap — ac>=7 的 design_constraint 不再豁免
         if top_k and len(top_k) > 2 and _db_chunk_count > 5:
             _tgc_type_slots = {}  # chunk_type -> [(7d, idx)]
             _tgc_keep = set()
             for _tgc_i, (_tgc_s, _tgc_c) in enumerate(top_k):
                 _tgc_ct = _tgc_c[_CI_CT] or ""
-                if _tgc_ct == "design_constraint":
+                # iter1016: only exempt fresh constraints (ac<7)
+                if _tgc_ct == "design_constraint" and (_tgc_c[_CI_AC] or 0) < 7:
                     _tgc_keep.add(_tgc_i)
                     continue
                 _tgc_cid = _tgc_c[_CI_ID]
