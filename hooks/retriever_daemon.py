@@ -4837,7 +4837,17 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                         _t = 6 if s >= 0.5 else 4  # iter1000: sync retriever.py
                     else:
                         _t = 5 if s >= 0.5 else 3
-                    return max(2, _t - 2) if _cross else _t
+                    if _cross:
+                        return max(2, _t - 2)
+                    # iter1017: daemon_local_saturated_suppress — sync retriever.py iter1009
+                    # 根因：daemon suppress_final_gate 缺少 local_saturated_suppress，
+                    #   ac=10 的已内化 chunk（Android诊断/PE活跃问题）7d=5 逃逸（阈值=6）。
+                    _lac = c[_CI_AC] or 0
+                    if _lac >= 10:
+                        return max(2, _t - 2)
+                    elif _lac >= 7:
+                        return max(2, _t - 1)
+                    return _t
                 # iter1015: daemon_micro_db_final_gate_bypass — 对齐 retriever.py line 5052
                 # 根因（数据驱动，2026-05-07）：<=5 chunk 项目经 daemon 路径时 suppress_final_gate
                 #   无 micro_db 豁免 → global chunk 被 7d suppress 全灭。FULL/LITE 已有 bypass。
@@ -4876,7 +4886,15 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                     _t = 6 if s >= 0.5 else 4  # iter1000: sync retriever.py
                 else:
                     _t = 5 if s >= 0.5 else 3
-                return max(2, _t - 2) if _cross else _t
+                if _cross:
+                    return max(2, _t - 2)
+                # iter1017: daemon_local_saturated_suppress — sync retriever.py iter1009
+                _lac = c[_CI_AC] or 0
+                if _lac >= 10:
+                    return max(2, _t - 2)
+                elif _lac >= 7:
+                    return max(2, _t - 1)
+                return _t
             top_k = [(s, c) for s, c in top_k
                      if _recent_6h_counts.get(c[_CI_ID], 0) < 2
                      and _recent_24h_counts.get(c[_CI_ID], 0) < (3 if _fg887d_tiny else (3 if s >= 0.5 else 2) if _fg887d_small else (3 if s >= 0.5 else 2))
