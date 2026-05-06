@@ -5426,12 +5426,17 @@ def main():
                     else:
                         _t = 5 if s >= 0.5 else 3
                     return max(2, _t - 2) if _cross else _t
-                top_k = [(s, c) for s, c in top_k
-                         if sum(1 for t in _itl758.get(c["id"], []) if t > _cut758_6h) < 2  # iter865: 6h_tighten_tiny
-                         and sum(1 for t in _itl758.get(c["id"], []) if t > _cut758_24h) < (3 if _sf758_tiny_db else (3 if s >= 0.5 else 2) if _sf758_small_db else (3 if s >= 0.5 else 2))
-                         # iter885: lite_7d_sync_final_gate — 5/8/6→3/4/3 对齐 FULL suppress_final_gate iter883
-                         # iter905: cross_project_suppress_tighten — 跨项目 7d -2
-                         and sum(1 for t in _itl758.get(c["id"], []) if t > _cut758_7d) < _lt905_7d_thresh(s, c)]
+                # iter1002: lite_micro_db_bypass — LITE 路径同步 FULL 的 micro_db bypass(line 4863)
+                # 根因（数据驱动，2026-05-06）：git:78dc99a5695f（2 自有 chunk）LITE 路径 5/6 空召回。
+                #   FULL 路径 iter968 已加 micro_db bypass，但 LITE 路径遗漏 → global chunk 被 7d suppress 全灭。
+                # 修复：<=5 chunk 库跳过 suppress_final_gate_lite（与 FULL line 4863 对齐）。
+                if _db_chunk_count > 5:
+                    top_k = [(s, c) for s, c in top_k
+                             if sum(1 for t in _itl758.get(c["id"], []) if t > _cut758_6h) < 2  # iter865: 6h_tighten_tiny
+                             and sum(1 for t in _itl758.get(c["id"], []) if t > _cut758_24h) < (3 if _sf758_tiny_db else (3 if s >= 0.5 else 2) if _sf758_small_db else (3 if s >= 0.5 else 2))
+                             # iter885: lite_7d_sync_final_gate — 5/8/6→3/4/3 对齐 FULL suppress_final_gate iter883
+                             # iter905: cross_project_suppress_tighten — 跨项目 7d -2
+                             and sum(1 for t in _itl758.get(c["id"], []) if t > _cut758_7d) < _lt905_7d_thresh(s, c)]
                 if len(top_k) < _pre758:
                     _deferred.log(DMESG_WARN, "retriever",
                                   f"iter758_suppress_final_gate_lite: filtered "
