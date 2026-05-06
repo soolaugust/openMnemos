@@ -5998,6 +5998,13 @@ def main():
         if len(top_k) == 1 and _db_chunk_count >= 6 and _db_chunk_count < 50:
             _f868_top1_id = top_k[0][1].get("id", "")
             try:
+                # iter1035: lite_pair_now_ts_fix — LITE 路径 _now_ts 未定义导致 NameError
+                # 根因（数据驱动，2026-05-07）：LITE 50% 单条率。_now_ts 在 FULL 路径 line 4294
+                #   定义（diversity_pair_from_db 内部），LITE 路径在 line 6626 才定义。
+                #   iter868 在两者之间 → LITE 路径 NameError → except pass 静默吞掉 → 配对零触发。
+                if '_now_ts' not in dir():
+                    from datetime import datetime as _dt1035, timezone as _tz1035
+                    _now_ts = _dt1035.now(_tz1035.utc).isoformat()
                 import sqlite3 as _f868_sql
                 _f868_conn = _f868_sql.connect(str(STORE_DB))
                 _f868_rows = _f868_conn.execute(
