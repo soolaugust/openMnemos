@@ -1661,7 +1661,11 @@ def _is_quality_chunk(summary: str) -> bool:
         # 根因（数据驱动，2026-05-06）：5 条 ac=0 reasoning_chain/causal_chain 全关于
         #   project ID 漂移机制，含 resolve_project/CLAUDE_CWD/insert_chunk 等内部术语。
         r'project.?ID|resolve_project|CLAUDE_CWD|insert_chunk|already_exists|merge_similar|'
-        r'被动注入|注入覆盖率)',
+        r'被动注入|注入覆盖率|'
+        # iter958: session_suppress_internal_gate — 拦截 suppress 内部运维因果链
+        # 根因（数据驱动，2026-05-06）：3 条 ac=0 causal_chain 关于 session-dedup/7d timeline
+        #   内部机制，含 "7d timeline 记录"/"session 内多次检索"/"suppress 误杀" 等。
+        r'timeline.*记录|session.*检索.*chunk|suppress.*误杀|session.dedup)',
         s, re.I
     )
     if len(_SELF_REF_TERMS) >= 2:
@@ -1890,6 +1894,11 @@ def _is_tool_insight_noise(text: str) -> bool:
     #   产生与原 chunk 内容重复的回声（实测 3 条 ac=0）。
     # 特征：以 "imp=" 开头（chunk metadata 前缀格式）
     if re.match(r'^imp=[\d.]+\s+stab=', text):
+        return True
+    # iter958: build_error_gate — 拦截 make/compiler 构建错误行
+    # 根因（数据驱动，2026-05-06）：1 条 ac=0 tool_insight "make: *** [Makefile:210: ..."
+    #   构建错误是临时状态，修复后无复用价值。
+    if re.match(r'^make\s*:', text) or re.search(r'(?:error|Error):\s+.*(?:undefined|redeclar|implicit|expected)', text):
         return True
     # iter951: retriever_perf_gate — 拦截 memory-os 自身性能/实现细节
     # 根因（数据驱动，2026-05-06）：4 条 ac=0 tool_insight 全是 retriever 性能指标
