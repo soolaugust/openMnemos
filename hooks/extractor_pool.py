@@ -430,7 +430,8 @@ def _run_extraction_pipeline(payload: dict) -> dict:
                 # 根因（数据驱动，2026-05-06）：extractor_pool 路径缺少 causal_chain/reasoning_chain
                 #   的 120 字门控和结论词拦截，21 条碎片 chunk（avg 55 字）逃逸写入 DB。
                 #   extractor.py line 3795-3797 有独立的结论词+长度门控，此处同步。
-                if chunk_type in ("causal_chain", "reasoning_chain"):
+                # iter999: excluded_path_gate_sync — excluded_path 同等门控
+                if chunk_type in ("causal_chain", "reasoning_chain", "excluded_path"):
                     _t_stripped = t.strip()
                     # 结论词开头 → 不完整因果链
                     if _re.match(r'^(?:所以|因此|故此|于是|故而|答案[：:])', _t_stripped):

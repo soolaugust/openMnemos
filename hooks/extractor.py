@@ -2438,7 +2438,10 @@ def _write_chunk(chunk_type: str, summary: str, project: str, session_id: str,
     #   根因（数据驱动，2026-05-06）：21 条碎片 ac=0，content==summary 但因 content_override
     #   参数非空绕过 <120 gate。修复：比较实际内容，echo 时不豁免。
     _has_rich_content = content_override and content_override.strip() != summary.strip()
-    if chunk_type in ("causal_chain", "reasoning_chain") and not _has_rich_content:
+    # iter999: excluded_path_gate_sync — excluded_path 纳入同等 <120 gate
+    # 数据驱动（2026-05-06）：010d34ee excluded_path "67% 候选导致 rotation 全部失败→hash 锁定"
+    #   52 字系统内部分析，逃逸 causal/reasoning gate（不在检查范围），ac=0 零用户价值。
+    if chunk_type in ("causal_chain", "reasoning_chain", "excluded_path") and not _has_rich_content:
         _s_stripped = summary.strip()
         if re.match(r'^(?:所以|因此|故此|于是|故而|答案[：:]|总结[：:])', _s_stripped):
             return
