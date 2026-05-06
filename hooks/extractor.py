@@ -3639,6 +3639,12 @@ def main():
         # 跳过 conversation_summary（最低信息密度）
         conv_summaries = []
 
+    # iter976: disable_conversation_summary — 生产数据证明 100% 零访问率
+    # 根因（数据驱动，2026-05-06）：9/9 conversation_summary chunk access_count=0，
+    #   内容为纯疑问句或推理碎片，不含答案无法独立检索。
+    # 修复：全局禁用该类型写入，节省 ~10% 存储 + 消除垄断竞争。
+    conv_summaries = []
+
     if not decisions and not excluded and not reasoning and not conv_summaries and not constraints and not causal_chains:
         # 仍然写缺页日志（即使本轮没有提取物，也可能有知识缺口）
         _write_page_fault_log(page_faults, session_id)
