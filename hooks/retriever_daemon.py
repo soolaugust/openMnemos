@@ -3723,9 +3723,11 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 # iter971: tiny 4→3 去垄断
                 elif _recent_7d_counts.get(_cid, 0) >= (3 if _s672_tiny else (4 if score >= 0.5 else 3) if _s672_small else (5 if score >= 0.5 else 3)):
                     score = 0.0
-                # iter981: saturation_widen — ac>=12 永久 suppress（从 30→15→12）
+                # iter989: saturation_widen — ac>=5 渐进衰减，ac>=12 suppress
                 elif (chunk[_CI_AC] or 0) >= 12:
                     score = 0.0
+                elif (chunk[_CI_AC] or 0) >= 5:
+                    score *= max(0.2, 0.8 - 0.1 * ((chunk[_CI_AC] or 0) - 5))
             return score
 
         def _score_chunk_dict(chunk, relevance):
@@ -3822,9 +3824,11 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 # iter971: tiny 4→3 去垄断（sync suppress_final_gate）
                 elif _recent_7d_counts.get(_cid, 0) >= (3 if _s672d_tiny else (4 if score >= 0.5 else 3) if _s672d_small else (5 if score >= 0.5 else 3)):
                     score = 0.0
-                # iter981: saturation_widen — ac>=12 永久 suppress（从 30→15→12）
+                # iter989: saturation_widen — ac>=5 渐进衰减，ac>=12 suppress
                 elif (chunk.get("access_count", 0) or 0) >= 12:
                     score = 0.0
+                elif (chunk.get("access_count", 0) or 0) >= 5:
+                    score *= max(0.2, 0.8 - 0.1 * ((chunk.get("access_count", 0) or 0) - 5))
             return score
 
         def _gc_dict_to_ci(c):
@@ -4518,7 +4522,7 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 pass
             def _ac_gated_d(c):
                 _cid = c[_CI_ID]
-                # iter981: saturation_widen — ac>=12 suppress（constraint 通道同步）
+                # iter989: saturation_widen — ac>=12 suppress（constraint 通道同步）
                 if (c[_CI_AC] or 0) >= 12:
                     return False
                 # iter618: 24h + 7d burst suppress 在 constraint 通道生效

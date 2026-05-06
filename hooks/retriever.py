@@ -2317,19 +2317,18 @@ def main():
             _acc = _get_live_ac(chunk.get("id", ""))
             if _acc is None:
                 _acc = chunk.get("access_count", 0) or 0
-            # iter981: saturation_widen — 扩大渐进衰减区间覆盖 ac=7-9 垄断 chunk
-            # 根因（数据驱动，2026-05-06）：ac=7 的 import-90139 在 67 trace 中注入 6 次(9%)，
-            #   ac=9 的 0aff0d67 同样 6 次(9%)——iter980 的 ac>=10 起始点完全未覆盖。
-            #   7d suppress 窗口滑动后这些 chunk 每周重新注入 4-6 次。
-            # 修复：suppress 阈值 15→12，渐进区间 10-15→7-12。
-            #   AC=7→*0.6, AC=8→*0.5, AC=9→*0.4, AC=10→*0.3, AC=11→*0.2, AC>=12 suppress。
-            #   Top-5 垄断 chunk 全部受衰减，长尾低频知识获得注入机会。
+            # iter981→989: saturation_widen — 渐进衰减区间 ac>=7→ac>=5
+            # iter989 根因（数据驱动，2026-05-06）：ac=5-6 的 3 个 chunk 在 iter981 后仍逃逸，
+            #   "memory 验证路径"(ac=6) 5/6 后 2x 注入，因 ac<7 完全无衰减。
+            #   85-chunk 库中 ac=5-6 仅 3 个，轻度衰减(*0.8/*0.7)不会空召回。
+            # 修复：起始点 7→5，suppress 阈值保持 12。
+            #   AC=5→*0.8, AC=6→*0.7, AC=7→*0.6, AC=8→*0.5, ..., AC=11→*0.2, AC>=12 suppress。
             if not _micro_db and _acc >= 12:
                 score = 0.0
                 _hard_suppressed = True
-            elif not _micro_db and _acc >= 7:
-                # 渐进衰减：AC=7→*0.6, AC=8→*0.5, AC=9→*0.4, AC=10→*0.3, AC=11→*0.2
-                score *= max(0.2, 0.6 - 0.1 * (_acc - 7))
+            elif not _micro_db and _acc >= 5:
+                # 渐进衰减：AC=5→*0.8, AC=6→*0.7, AC=7→*0.6, ..., AC=11→*0.2
+                score *= max(0.2, 0.8 - 0.1 * (_acc - 5))
             # ── 迭代333：TMV Multiplicative Saturation Discount ──────────────
             # 信息论基础：高 access_count chunk 已被 agent "内化"，边际信息趋零。
             # OS 类比：NUMA remote node penalty — acc 越高越像"远端内存"，成本高于收益。
