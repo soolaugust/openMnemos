@@ -2405,6 +2405,14 @@ def _write_chunk(chunk_type: str, summary: str, project: str, session_id: str,
     # 特征：以 - 或 -- 开头的 CLI flag 格式，无知识价值。
     if not content_override and re.match(r'^-{1,2}[\w-]+=', summary.lstrip()):
         return
+    # iter1007: write_chunk_quality_gate — 统一入口质量门控
+    # 根因（数据驱动，2026-05-06）：11 个 ac=0 噪声 chunk 全部通过 _is_quality_decision
+    #   （含百分比数字即通过）但实为迭代器内部调参记录（"suppress 率：70%→26%"）。
+    #   _is_quality_chunk 的 noise_kw 列表已能拦截，但 _write_chunk 入口未调用。
+    #   extractor_pool(line 427) 有独立调用，extractor.py 各路径不统一。
+    # 修复：_write_chunk 入口统一调用 _is_quality_chunk，作为最后防线。
+    if not _is_quality_chunk(summary[:120]):
+        return
     # iter984: ephemeral_realtime_gate — 实时行情/股票数据拒绝写入
     # 数据驱动（2026-05-06）：c05860a8 "创业板指 5日涨幅 -1.16%≤1%，跳过扫描"
     #   是纯实时市场数据快照，隔天即无效，无持久知识价值。
