@@ -1362,6 +1362,19 @@ def _is_quality_chunk(summary: str) -> bool:
            and not re.match(r'^\[[^\[\]]{1,30}\]', s) \
            and '()' not in s:
             return False
+    # ── iter974: contextless_assertion_gate — 拦截对话碎片短句 ──
+    # 数据驱动（2026-05-06）：7 个 chunk 以指示/连接词开头 + <60字 + 无技术锚点，
+    #   脱离对话上下文不可独立理解（如 "所以 sched store 也已经 globally complete"）。
+    #   这些碎片被 FTS 宽泛匹配后高频注入，挤占真正有价值的知识槽位。
+    # 修复：指示/连接词开头 + 短于 60 字 + 无文件路径/量化/代码引用 → 拒绝。
+    _CONTEXTLESS_STARTS = re.compile(
+        r'^(?:所以|一样的|也就是|这样|那么|这个|那个|同样|确实|其实|用的|人会|'
+        r'就是说|说白了|总之就是|换句话说|简单来说)\s*')
+    if _CONTEXTLESS_STARTS.match(s) and len(s) < 60:
+        if not re.search(r'[\w./]+\.(?:py|js|ts|json|db|sql|yaml|toml|sh|md)\b', s) \
+           and not re.search(r'\d+(?:\.\d+)?(?:%|ms|s|MB|GB|次|条|个|行|倍|x)', s) \
+           and not re.search(r'`[^`]+`', s):
+            return False
     placeholders = {"方案 X 是最优解", "extractor 升级", "KnowledgeRouter"}
     if s in placeholders:
         return False

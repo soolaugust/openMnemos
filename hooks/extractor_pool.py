@@ -180,6 +180,13 @@ def _seal_check_reject(text: str) -> bool:
     # "量化改善" / "量化:" 开头 — 迭代器自评总结
     if _re.match(r'^量化[：:改]', text):
         return True
+    # iter974: contextless_assertion_gate — 指示/连接词开头短句碎片
+    if _re.match(r'^(?:所以|一样的|也就是|这样|那么|这个|那个|同样|确实|其实|用的|人会|'
+                 r'就是说|说白了|总之就是|换句话说|简单来说)\s*', text) and len(text) < 60:
+        if not _re.search(r'[\w./]+\.(?:py|js|ts|json|db|sql|yaml|toml|sh|md)\b', text) \
+           and not _re.search(r'\d+(?:\.\d+)?(?:%|ms|s|MB|GB|次|条|个|行|倍|x)', text) \
+           and not _re.search(r'`[^`]+`', text):
+            return True
     return False
 
 
