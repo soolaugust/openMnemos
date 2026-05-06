@@ -4216,6 +4216,24 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                                         if _recent_7d_counts.get(c[_CI_ID], 0) < _omf_ceil_hd]
                         if _omf_filt_hd:
                             top_k = _omf_filt_hd
+                    # iter1013: topic_group_dedup (hard_deadline path)
+                    if len(top_k) > 1 and _db_chunk_count > 5:
+                        _tgd_seen_hd = {}
+                        _tgd_res_hd = []
+                        for _ts, _tc in top_k:
+                            _tsum = (_tc[_CI_SUM] or "")
+                            _tkey = _tsum.split("]")[0] + "]" if _tsum.startswith("[") and "]" in _tsum else None
+                            if not _tkey or _tkey not in _tgd_seen_hd:
+                                _tgd_res_hd.append((_ts, _tc))
+                                if _tkey:
+                                    _tgd_seen_hd[_tkey] = _tc[_CI_ID]
+                            else:
+                                if _recent_7d_counts.get(_tc[_CI_ID], 0) < _recent_7d_counts.get(_tgd_seen_hd[_tkey], 0):
+                                    _tgd_res_hd = [(s, c) for s, c in _tgd_res_hd if c[_CI_ID] != _tgd_seen_hd[_tkey]]
+                                    _tgd_res_hd.append((_ts, _tc))
+                                    _tgd_seen_hd[_tkey] = _tc[_CI_ID]
+                        if _tgd_res_hd and len(_tgd_res_hd) < len(top_k):
+                            top_k = _tgd_res_hd
                     # iter238: _TYPE_PREFIX hoisted to module level (was local dict, 0.356us → 0.128us)
                     inject_lines = ["【相关历史记录（BM25 召回）】"]
                     constraint_items, normal_items = [], []
@@ -5254,6 +5272,32 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 _deferred.log(DMESG_DEBUG, "retriever_daemon",
                               f"iter987_omf_graduated_fallback: {len(_omf_sorted)}->{len(top_k)}",
                               session_id=session_id, project=project)
+
+        # ── iter1013: topic_group_dedup — 同主题群体去垄断 ─────────────────────
+        # 根因（数据驱动，2026-05-07）：同主题多条各 7d<ceiling 但群体垄断。
+        # 修复：summary [topic] 前缀做 group key，同 topic 最多保留 1 条。
+        if top_k and len(top_k) > 1 and _db_chunk_count > 5:
+            _tgd_seen = {}  # topic_key -> chunk_id
+            _tgd_result = []
+            for _tgd_s, _tgd_c in top_k:
+                _tgd_sum = (_tgd_c[_CI_SUM] or "")
+                _tgd_key = _tgd_sum.split("]")[0] + "]" if _tgd_sum.startswith("[") and "]" in _tgd_sum else None
+                if not _tgd_key or _tgd_key not in _tgd_seen:
+                    _tgd_result.append((_tgd_s, _tgd_c))
+                    if _tgd_key:
+                        _tgd_seen[_tgd_key] = _tgd_c[_CI_ID]
+                else:
+                    _tgd_cur_7d = _recent_7d_counts.get(_tgd_c[_CI_ID], 0)
+                    _tgd_exist_7d = _recent_7d_counts.get(_tgd_seen[_tgd_key], 0)
+                    if _tgd_cur_7d < _tgd_exist_7d:
+                        _tgd_result = [(s, c) for s, c in _tgd_result if c[_CI_ID] != _tgd_seen[_tgd_key]]
+                        _tgd_result.append((_tgd_s, _tgd_c))
+                        _tgd_seen[_tgd_key] = _tgd_c[_CI_ID]
+            if len(_tgd_result) < len(top_k):
+                _deferred.log(DMESG_DEBUG, "retriever_daemon",
+                              f"iter1013_topic_group_dedup: {len(top_k)}->{len(_tgd_result)}",
+                              session_id=session_id, project=project)
+                top_k = _tgd_result if _tgd_result else top_k[:1]
 
         # ── Build context text ──
         # iter238: _TYPE_PREFIX now module-level constant (see definition near _CONSTRAINT_RE)

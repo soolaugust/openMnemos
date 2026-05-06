@@ -3589,6 +3589,24 @@ def main():
                             # iter987: omf_graduated_fallback (hard_deadline path)
                             _omf_sorted_hd = sorted(top_k, key=lambda x: _recent_7d_counts.get(x[1].get("id", ""), 0))
                             top_k = _omf_sorted_hd[:min(2, len(_omf_sorted_hd))]
+                    # iter1013: topic_group_dedup (hard_deadline path)
+                    if len(top_k) > 1 and not _micro_db:
+                        _tgd_seen_hd = {}
+                        _tgd_res_hd = []
+                        for _ts, _tc in top_k:
+                            _tsum = (_tc.get("summary") or "")
+                            _tkey = _tsum.split("]")[0] + "]" if _tsum.startswith("[") and "]" in _tsum else None
+                            if not _tkey or _tkey not in _tgd_seen_hd:
+                                _tgd_res_hd.append((_ts, _tc))
+                                if _tkey:
+                                    _tgd_seen_hd[_tkey] = _tc.get("id", "")
+                            else:
+                                if _recent_7d_counts.get(_tc.get("id", ""), 0) < _recent_7d_counts.get(_tgd_seen_hd[_tkey], 0):
+                                    _tgd_res_hd = [(s, c) for s, c in _tgd_res_hd if c.get("id", "") != _tgd_seen_hd[_tkey]]
+                                    _tgd_res_hd.append((_ts, _tc))
+                                    _tgd_seen_hd[_tkey] = _tc.get("id", "")
+                        if _tgd_res_hd and len(_tgd_res_hd) < len(top_k):
+                            top_k = _tgd_res_hd
                     _TYPE_PREFIX = {"decision": "[决策]", "excluded_path": "[排除]",
                                     "reasoning_chain": "[推理]", "conversation_summary": "[摘要]",
                                     "task_state": "", "design_constraint": "⚠️ [约束]"}
@@ -6047,6 +6065,37 @@ def main():
                 _deferred.log(DMESG_DEBUG, "retriever",
                               f"iter987_omf_graduated_fallback: {len(_omf_sorted)}->{len(top_k)}, 7d={[_omf_7d_src.get(x[1].get('id',''), 0) for x in top_k]}",
                               session_id=session_id, project=project)
+
+        # ── iter1013: topic_group_dedup — 同主题群体去垄断 ─────────────────────
+        # 根因（数据驱动，2026-05-07）：3 条 quantitative_evidence（migration +125%）各 7d=4
+        #   不触发 per-chunk suppress（ceiling=5），但群体占注入 12/62=19%。
+        #   per-chunk suppress 无法解决"同主题多条各自不超阈值但群体垄断"。
+        # 修复：用 summary 中 [topic] 前缀做 group key，同 topic 最多保留 1 条
+        #   （7d 最低者优先），释放注入位给不同主题。micro_db 豁免。
+        if top_k and len(top_k) > 1 and not _micro_db:
+            _tgd_7d = _rt663_7d if '_rt663_7d' in dir() and _rt663_7d else _recent_7d_counts
+            _tgd_seen = {}  # topic_key -> chunk_id
+            _tgd_result = []
+            for _tgd_s, _tgd_c in top_k:
+                _tgd_sum = (_tgd_c.get("summary") or "")
+                # 提取 [xxx] 前缀作为 topic key
+                _tgd_key = _tgd_sum.split("]")[0] + "]" if _tgd_sum.startswith("[") and "]" in _tgd_sum else None
+                if not _tgd_key or _tgd_key not in _tgd_seen:
+                    _tgd_result.append((_tgd_s, _tgd_c))
+                    if _tgd_key:
+                        _tgd_seen[_tgd_key] = _tgd_c.get("id", "")
+                else:
+                    _tgd_cur_7d = _tgd_7d.get(_tgd_c.get("id", ""), 0)
+                    _tgd_exist_7d = _tgd_7d.get(_tgd_seen[_tgd_key], 0)
+                    if _tgd_cur_7d < _tgd_exist_7d:
+                        _tgd_result = [(s, c) for s, c in _tgd_result if c.get("id", "") != _tgd_seen[_tgd_key]]
+                        _tgd_result.append((_tgd_s, _tgd_c))
+                        _tgd_seen[_tgd_key] = _tgd_c.get("id", "")
+            if len(_tgd_result) < len(top_k):
+                _deferred.log(DMESG_DEBUG, "retriever",
+                              f"iter1013_topic_group_dedup: {len(top_k)}->{len(_tgd_result)}",
+                              session_id=session_id, project=project)
+                top_k = _tgd_result if _tgd_result else top_k[:1]
 
         constraint_items = []
         normal_items = []
