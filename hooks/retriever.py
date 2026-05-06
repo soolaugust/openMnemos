@@ -3288,7 +3288,8 @@ def main():
             #   → 24h>=2 条件不满足 → suppress 被绕过。
             #   实测：import-6cc32f2ff 24h 注入 4 次（应在第 3 次被拦截）。
             # 修复：hard_deadline 路径用闭包变量做零成本兜底。
-            if top_k:
+            # iter968: micro_db bypass — hard_deadline 路径同步
+            if top_k and _db_chunk_count > 5:
                 # iter767: tiered_small_db — 分级小库阈值
                 _hd_tiny_db = _db_chunk_count < 50  # iter848: 边界 40→50
                 _hd_small_db = _db_chunk_count < 100
@@ -4782,11 +4783,18 @@ def main():
                     else:
                         _t = 5 if s >= 0.5 else 3
                     return max(2, _t - 2) if _cross else _t
-                top_k = [(s, c) for s, c in top_k
-                         if _rt663_24h.get(c["id"], 0) < (3 if _sf663_tiny_db else (3 if s >= 0.5 else 2) if _sf663_small_db else (3 if s >= 0.5 else 2))
-                         # iter904: 7d_rebalance_tiny — tiny_db 7d 2→4
-                         # iter905: cross_project_suppress_tighten — 跨项目 7d -2
-                         and _rt663_7d.get(c["id"], 0) < _sf663_7d_thresh(s, c)]
+                # iter968: micro_db_final_gate_bypass — <=5 自有 chunk 库跳过 final_gate
+                # 根因（数据驱动，2026-05-06）：git:78dc99a5695f（2 自有 chunk）空注入率 86%（6/7）。
+                #   _score_chunk 阶段 micro_db bypass(line 2230) 让 global chunk 正常评分，
+                #   但 suppress_final_gate 无 micro_db 豁免 → 7d>=4 的 global chunk 全灭。
+                #   唯一知识源被 suppress = 系统对该项目完全无用。
+                # 修复：与 _score_chunk micro_db bypass 对齐，<=5 chunk 库不执行 final_gate。
+                if _db_chunk_count > 5:
+                    top_k = [(s, c) for s, c in top_k
+                             if _rt663_24h.get(c["id"], 0) < (3 if _sf663_tiny_db else (3 if s >= 0.5 else 2) if _sf663_small_db else (3 if s >= 0.5 else 2))
+                             # iter904: 7d_rebalance_tiny — tiny_db 7d 2→4
+                             # iter905: cross_project_suppress_tighten — 跨项目 7d -2
+                             and _rt663_7d.get(c["id"], 0) < _sf663_7d_thresh(s, c)]
                 if len(top_k) < _pre663:
                     _deferred.log(DMESG_WARN, "retriever",
                                   f"iter663_suppress_final_gate: filtered "
@@ -4801,7 +4809,8 @@ def main():
         #   中静默失败时，7d count≥3 的垄断 chunk 逃逸（实测 14 个 chunk 应被 suppress）。
         #   hard_deadline 路径有 _recent_7d_counts 闭包兜底（line 3266），FULL 路径缺失。
         # 修复：在实时 DB suppress 之后，用启动时闭包快照 _recent_6h/_24h/_7d_counts 二次过滤。
-        if top_k:
+        # iter968: micro_db bypass 同步到 closure_fallback（与 suppress_final_gate 对齐）
+        if top_k and _db_chunk_count > 5:
             _pre887 = len(top_k)
             _fg887_tiny = _db_chunk_count < 50
             _fg887_small = _db_chunk_count < 100
