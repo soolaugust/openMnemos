@@ -1999,6 +1999,20 @@ def _vfs_write_protect(summary: str) -> bool:
     #   extractor._is_quality_chunk 行 1306 已有此规则，但 direct/MCP 写入路径绕过。
     if '→' in s and _RE_VFS_SELFREF.search(s) and _re_vfs.search(r'\d+%?\s*→\s*\d+%?', s):
         return True
+    # iter1030: vfs_combo_gate — 同步 extractor iter1026 运行时术语组合检测
+    # 根因（数据驱动，2026-05-07）：7 条 ac=0 噪声经 direct/MCP 路径绕过 extractor，
+    #   含"垄断项目 7d=3"/"per-project 7d 注入占比"/"type_concentration_penalty"等。
+    #   extractor 的 combo_gate 对 source_type=direct 无效——VFS 层必须同步。
+    # 修复：检测 >=3 个 memory-os 运行时术语 → 拒绝写入。
+    _mos_hits = sum(1 for _t in (
+        '次注入', '注入中', 'suppress', 'per-project',
+        '候选池', '内化', 'ac=', 'ac<', 'ac>',
+        '7d ', '24h ', '注入位', 'global chunk', 'supplement',
+        'FTS', 'final_gate', '空召回', '垄断', '衰减',
+        'concentration', '_penalty', '_suppress',
+    ) if _t in s)
+    if _mos_hits >= 3:
+        return True
     return False
 
 
