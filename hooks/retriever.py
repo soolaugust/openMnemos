@@ -3981,10 +3981,17 @@ def main():
         #   后续 _ac_gated / 24h/7d suppress 仍正常控制垄断。
         try:
             _existing_ids = {c.get("id") for c in all_constraints}
+            # iter1025: supplement_ac_internalized_gate — ac>=4 已内化不再 supplement
+            # 根因（数据驱动，2026-05-07）：global constraint supplement 无条件拉取
+            #   importance>=0.7 的 global constraint 到候选池。feishu CLI(ac=4,7d=4)、
+            #   memory验证(ac=6,7d=4)、git commit(ac=9,7d=4) 等已内化约束仍通过
+            #   supplement → Jaccard=0.02 也能逃逸 → 在 kernel 项目等不相关场景被注入。
+            #   ac>=4 表明 agent 已多次见过该知识，supplement 路径不应再补充。
+            # 修复：ac<4 才允许 supplement（新 constraint 仍可被发现）。
             _gc_sup_rows = conn.execute(
                 "SELECT * FROM memory_chunks WHERE chunk_state='ACTIVE' "
                 "AND project='global' AND chunk_type='design_constraint' "
-                "AND importance >= 0.7 AND COALESCE(access_count, 0) < 30 "
+                "AND importance >= 0.7 AND COALESCE(access_count, 0) < 4 "
                 "ORDER BY importance DESC LIMIT 3"
             ).fetchall()
             if _gc_sup_rows:

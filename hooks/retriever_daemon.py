@@ -4530,13 +4530,16 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
         #   从未进入 final → 永远不被强制注入。补充到 all_constraints 后走正常 gate。
         try:
             _gc_existing_ids = {c[_CI_ID] for c in all_constraints}
+            # iter1025: supplement_ac_internalized_gate — ac>=4 已内化不再 supplement
+            # 根因（数据驱动，2026-05-07）：ac>=4 的 global constraint 已被 agent 充分内化，
+            #   通过 supplement 路径绕过 FTS 相关性 → 在不相关项目注入。ac<4 = 新知识仍可发现。
             _gc_sup = conn.execute(
                 "SELECT id, summary, content, importance, last_accessed, "
                 "chunk_type, COALESCE(access_count,0), created_at, "
                 "0.0, COALESCE(lru_gen,0), project, verification_status, confidence_score "
                 "FROM memory_chunks WHERE project='global' "
                 "AND chunk_type='design_constraint' AND importance >= 0.7 "
-                "AND COALESCE(access_count,0) < 30 "
+                "AND COALESCE(access_count,0) < 4 "
                 "ORDER BY importance DESC LIMIT 3"
             ).fetchall()
             for _gc_r in _gc_sup:
