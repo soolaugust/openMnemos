@@ -6097,6 +6097,35 @@ def main():
                               session_id=session_id, project=project)
                 top_k = _tgd_result if _tgd_result else top_k[:1]
 
+        # ── iter1014: type_group_cap — 同 chunk_type 群体占比限制 ─────────────────
+        # 根因（数据驱动，2026-05-07）：79% 多条注入存在同 chunk_type >=2 条群体垄断。
+        #   iter1013 topic_group_dedup 只看 [topic] 前缀（覆盖 18% chunk），
+        #   causal_chain/reasoning_chain 等无前缀 chunk 完全逃逸。
+        # 修复：同 chunk_type 最多保留 2 条（7d 最低优先），释放注入位给不同类型。
+        #   design_constraint 豁免（本身就是高价值约束，不应被限制）。micro_db 豁免。
+        if top_k and len(top_k) > 2 and not _micro_db:
+            _tgc_7d = _rt663_7d if '_rt663_7d' in dir() and _rt663_7d else _recent_7d_counts
+            _tgc_type_slots = {}  # chunk_type -> [(7d, idx)]
+            _tgc_keep = set()
+            for _tgc_i, (_tgc_s, _tgc_c) in enumerate(top_k):
+                _tgc_ct = _tgc_c.get("chunk_type", "")
+                if _tgc_ct == "design_constraint":
+                    _tgc_keep.add(_tgc_i)
+                    continue
+                _tgc_cid = _tgc_c.get("id", "")
+                _tgc_r7d = _tgc_7d.get(_tgc_cid, 0)
+                _tgc_type_slots.setdefault(_tgc_ct, []).append((_tgc_r7d, _tgc_i))
+            for _tgc_ct, _tgc_slots in _tgc_type_slots.items():
+                _tgc_slots.sort()  # 7d 升序，保留最低 2 条
+                for _tgc_r7d, _tgc_idx in _tgc_slots[:2]:
+                    _tgc_keep.add(_tgc_idx)
+            if len(_tgc_keep) < len(top_k):
+                _tgc_new = [top_k[i] for i in sorted(_tgc_keep)]
+                _deferred.log(DMESG_DEBUG, "retriever",
+                              f"iter1014_type_group_cap: {len(top_k)}->{len(_tgc_new)}",
+                              session_id=session_id, project=project)
+                top_k = _tgc_new if _tgc_new else top_k[:1]
+
         constraint_items = []
         normal_items = []
         for _, c in top_k:
