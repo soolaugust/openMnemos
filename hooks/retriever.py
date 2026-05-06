@@ -2550,8 +2550,14 @@ def main():
                 #   6h/24h burst suppress 仍有效，7d 过紧导致核心知识被永久封锁。
                 _suppress_7d_thresh = 5 if _tiny_db else (6 if score >= 0.5 else 4) if _small_db else (5 if score >= 0.5 else 3)  # iter1000: tiny_db 3→5 去垄断反转
                 # iter993: global_chunk_suppress_tighten — global chunk 阈值 -1
+                # iter1006: global_saturated_suppress_tighten — ac>=4 的 global chunk 阈值 -2
+                # 根因（数据驱动，2026-05-06）：feishu CLI(ac=4,7d=4)、memory验证(ac=6,7d=4)、
+                #   git commit(ac=9,7d=4) 等已内化的工具约束仍逃逸 7d suppress（阈值=4）。
+                #   ac>=4 表明 agent 已多次见过该知识，边际信息为零，应更早 suppress。
+                # 修复：ac>=4 的 global chunk 阈值 -2（与 cross 同级），ac<4 保持 -1。
                 if chunk.get("project", "") == "global":
-                    _suppress_7d_thresh = max(2, _suppress_7d_thresh - 1)
+                    _g_ac = _acc if _acc is not None else (chunk.get("access_count", 0) or 0)
+                    _suppress_7d_thresh = max(2, _suppress_7d_thresh - (2 if _g_ac >= 4 else 1))
                 if _r7d_cnt >= _suppress_7d_thresh:
                     score = 0.0
                     _hard_suppressed = True
@@ -3390,10 +3396,12 @@ def main():
                     else:
                         _t = 5 if s >= 0.5 else 3
                     # iter993: global_chunk_suppress_tighten — sync FULL path
+                    # iter1006: global_saturated_suppress_tighten — sync hard_deadline
                     if _cross:
                         return max(2, _t - 2)
                     elif _is_global:
-                        return max(2, _t - 1)
+                        _g_ac = c.get("access_count", 0) or 0
+                        return max(2, _t - (2 if _g_ac >= 4 else 1))
                     return _t
                 top_k = [(s, c) for s, c in top_k
                          if _recent_6h_counts.get(c["id"], 0) < 2  # iter865: 6h_tighten_tiny — 统一阈值
@@ -4898,14 +4906,15 @@ def main():
                     else:
                         _t = 5 if s >= 0.5 else 3
                     # iter993: global_chunk_suppress_tighten — global chunk 阈值 -1
-                    # 根因（数据驱动，2026-05-06）：feishu CLI/memory验证/git commit 等 global 约束
-                    #   在 kernel 项目 7d=4 但阈值=3 时刚好被 suppress；换 session 后又逃逸。
-                    #   global chunk 用全局计数(iter888)却享受本项目阈值，导致工具约束垄断注入位。
-                    # 修复：global chunk 阈值 -1（比 cross -2 宽松，但比本项目更严格）。
+                    # iter1006: global_saturated_suppress_tighten — ac>=4 的 global chunk -2
+                    # 根因（数据驱动，2026-05-06）：feishu CLI(ac=4)/memory验证(ac=6)/git commit(ac=9)
+                    #   已内化的工具约束 7d=4 仍逃逸（阈值=4），垄断注入位。
+                    # 修复：ac>=4 的 global chunk 与 cross 同级(-2)，ac<4 保持 -1。
                     if _cross:
                         return max(2, _t - 2)
                     elif _is_global:
-                        return max(2, _t - 1)
+                        _g_ac = c.get("access_count", 0) or 0
+                        return max(2, _t - (2 if _g_ac >= 4 else 1))
                     return _t
                 # iter968: micro_db_final_gate_bypass — <=5 自有 chunk 库跳过 final_gate
                 # 根因（数据驱动，2026-05-06）：git:78dc99a5695f（2 自有 chunk）空注入率 86%（6/7）。
@@ -4952,10 +4961,12 @@ def main():
                 else:
                     _t = 5 if s >= 0.5 else 3
                 # iter993: global_chunk_suppress_tighten — sync closure_fallback
+                # iter1006: global_saturated_suppress_tighten — sync closure_fallback
                 if _cross:
                     return max(2, _t - 2)
                 elif _is_global:
-                    return max(2, _t - 1)
+                    _g_ac = c.get("access_count", 0) or 0
+                    return max(2, _t - (2 if _g_ac >= 4 else 1))
                 return _t
             top_k = [(s, c) for s, c in top_k
                      if _recent_6h_counts.get(c["id"], 0) < 2
