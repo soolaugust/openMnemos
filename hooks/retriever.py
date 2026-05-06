@@ -2568,7 +2568,12 @@ def main():
                 #   根因是 6h>=2 无差别 suppress 不区分库大小。
                 #   修复：tiny_db(<40) 6h 阈值 2→3，与 24h 阈值对齐。
                 _r6h_cnt = _recent_6h_counts.get(chunk.get("id", ""), 0)
-                _6h_thresh = 2  # iter865: 6h_tighten_tiny — 统一阈值
+                # iter1042: saturated_6h_cap — ac>=7 已内化 chunk 6h 仅允许 1 次
+                # 数据驱动（2026-05-07）：session 6ca148eb 中 5 个 ac>=7 chunk 各被注入 2x，
+                #   间隔 56min-5h。6h 阈值=2 意味着允许 2 次（count=1 < 2 不 suppress）。
+                #   ac>=7 表明 agent 已多次内化，同 6h 窗口重复注入零信息增量。
+                _6h_ac = chunk.get("access_count", 0) or 0
+                _6h_thresh = 1 if _6h_ac >= 7 else 2  # iter865→1042: 高 ac 收紧
                 if _r6h_cnt >= _6h_thresh:
                     score = 0.0
                     _hard_suppressed = True
@@ -3528,8 +3533,11 @@ def main():
                     if c.get("project") == "global" and _a >= 4:
                         return 1
                     return _b
+                # iter1042: saturated_6h_cap — hard_deadline 路径同步 ac>=7 → 6h 阈值=1
+                def _hd1042_6h_thresh(c):
+                    return 1 if (c.get("access_count", 0) or 0) >= 7 else 2
                 top_k = [(s, c) for s, c in top_k
-                         if _recent_6h_counts.get(c["id"], 0) < 2  # iter865: 6h_tighten_tiny — 统一阈值
+                         if _recent_6h_counts.get(c["id"], 0) < _hd1042_6h_thresh(c)  # iter1042
                          and _recent_24h_counts.get(c["id"], 0) < _hd1019_24h_thresh(s, c)
                          # iter904: 7d_rebalance_tiny — tiny_db 7d 2→4
                          # iter905: cross_project_suppress_tighten — 跨项目 7d -2
@@ -5857,8 +5865,12 @@ def main():
                         return 1
                     return _b
                 if _db_chunk_count > 5:
+                    # iter1042: saturated_6h_cap — LITE 路径同步 ac>=7 → 6h 阈值=1
+                    def _lt1042_6h_thresh(c):
+                        _a6 = (c.get("access_count", 0) or 0)
+                        return 1 if _a6 >= 7 else 2
                     top_k = [(s, c) for s, c in top_k
-                             if sum(1 for t in _itl758.get(c["id"], []) if t > _cut758_6h) < 2  # iter865: 6h_tighten_tiny
+                             if sum(1 for t in _itl758.get(c["id"], []) if t > _cut758_6h) < _lt1042_6h_thresh(c)  # iter1042
                              and sum(1 for t in _itl758.get(c["id"], []) if t > _cut758_24h) < _lt1020_24h_thresh(s, c)
                              # iter885: lite_7d_sync_final_gate — 5/8/6→3/4/3 对齐 FULL suppress_final_gate iter883
                              # iter905: cross_project_suppress_tighten — 跨项目 7d -2
