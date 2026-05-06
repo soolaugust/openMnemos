@@ -3720,6 +3720,8 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                         _24h_base_d = max(1, _24h_base_d - 2)
                     elif _ac >= 7:
                         _24h_base_d = max(1, _24h_base_d - 1)
+                    elif (chunk[_CI_CP] or "") == "global" and _ac >= 4:
+                        _24h_base_d = 1  # iter1023: global_24h_saturated_cap
                     if _recent_24h_counts.get(_cid, 0) >= _24h_base_d:
                         score = 0.0
                 # iter854: tiny_db_7d_relax_v2 — 阈值 5→7（sync retriever.py）
@@ -3834,6 +3836,9 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                         _24h_base_d2 = max(1, _24h_base_d2 - 2)
                     elif _d2_ac >= 7:
                         _24h_base_d2 = max(1, _24h_base_d2 - 1)
+                    # iter1023: global_24h_saturated_cap — sync retriever.py
+                    elif (chunk.get("project", "") or "") == "global" and _d2_ac >= 4:
+                        _24h_base_d2 = 1
                     if _recent_24h_counts.get(_cid, 0) >= _24h_base_d2:
                         score = 0.0
                 # iter854: tiny_db_7d_relax_v2 — 阈值 5→7（sync retriever.py）
@@ -4846,6 +4851,7 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 def _d905_7d_thresh(s, c):
                     _cp = c[_CI_CP] or ""
                     _cross = (_cp != project and _cp != "global")
+                    _is_global = (_cp == "global")
                     if _sf663d_tiny_db:
                         _t = 5  # iter1000: tiny 3→5 去垄断反转
                     elif _sf663d_small_db:
@@ -4854,9 +4860,13 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                         _t = 5 if s >= 0.5 else 3
                     if _cross:
                         return max(2, _t - 2)
+                    # iter1023: global_chunk_suppress_tighten — sync retriever.py iter993/1006
+                    # 根因：daemon suppress_final_gate 缺少 global chunk 7d 收紧，
+                    #   feishu CLI(ac=4)/memory验证(ac=6) 经 daemon 路径 7d suppress 逃逸。
+                    elif _is_global:
+                        _g_ac = c[_CI_AC] or 0
+                        return max(2, _t - (2 if _g_ac >= 4 else 1))
                     # iter1017: daemon_local_saturated_suppress — sync retriever.py iter1009
-                    # 根因：daemon suppress_final_gate 缺少 local_saturated_suppress，
-                    #   ac=10 的已内化 chunk（Android诊断/PE活跃问题）7d=5 逃逸（阈值=6）。
                     _lac = c[_CI_AC] or 0
                     if _lac >= 10:
                         return max(2, _t - 2)
@@ -4874,6 +4884,9 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                         return max(1, _b - 2)
                     elif _a >= 7:
                         return max(1, _b - 1)
+                    # iter1023: global_24h_saturated_cap — sync retriever.py
+                    if (c[_CI_CP] or "") == "global" and _a >= 4:
+                        return 1
                     return _b
                 if _db_chunk_count > 5:
                     top_k = [(s, c) for s, c in top_k
@@ -4904,6 +4917,7 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
             def _d887_7d_thresh(s, c):
                 _cp = c[_CI_CP] or ""
                 _cross = (_cp != project and _cp != "global")
+                _is_global = (_cp == "global")
                 if _fg887d_tiny:
                     _t = 5  # iter1000: tiny 3→5 去垄断反转
                 elif _fg887d_small:
@@ -4912,6 +4926,10 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                     _t = 5 if s >= 0.5 else 3
                 if _cross:
                     return max(2, _t - 2)
+                # iter1023: global_chunk_suppress_tighten — sync closure_fallback
+                elif _is_global:
+                    _g_ac = c[_CI_AC] or 0
+                    return max(2, _t - (2 if _g_ac >= 4 else 1))
                 # iter1017: daemon_local_saturated_suppress — sync retriever.py iter1009
                 _lac = c[_CI_AC] or 0
                 if _lac >= 10:
@@ -4927,6 +4945,9 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                     return max(1, _b - 2)
                 elif _a >= 7:
                     return max(1, _b - 1)
+                # iter1023: global_24h_saturated_cap — sync retriever.py
+                if (c[_CI_CP] or "") == "global" and _a >= 4:
+                    return 1
                 return _b
             top_k = [(s, c) for s, c in top_k
                      if _recent_6h_counts.get(c[_CI_ID], 0) < 2

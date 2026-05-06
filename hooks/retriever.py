@@ -2525,6 +2525,9 @@ def main():
                     _24h_base = max(1, _24h_base - 2)
                 elif _sat_ac >= 7:
                     _24h_base = max(1, _24h_base - 1)
+                # iter1023: global_24h_saturated_cap — global ac>=4 已内化，24h cap=1
+                elif chunk.get("project") == "global" and _sat_ac >= 4:
+                    _24h_base = 1
                 if _r24_cnt >= _24h_base:
                     score = 0.0
                     _hard_suppressed = True  # iter616
@@ -5080,6 +5083,12 @@ def main():
                         return max(1, _b - 2)
                     elif _a >= 7:
                         return max(1, _b - 1)
+                    # iter1023: global_24h_saturated_cap — global chunk ac>=4 已内化，24h 只允许 0 次
+                    # 根因（数据驱动，2026-05-07）：memory验证路径(ac=6,global) 24h 内同 session 注入 2 次。
+                    #   24h 阈值=2（max(1,3-1)）允许 1 次后第 2 次仍通过。ac>=4 的 global 约束用户已熟知。
+                    # 修复：global ac>=4 → 阈值=1（24h 内注入过 1 次即 suppress 后续）。
+                    if c.get("project") == "global" and _a >= 4:
+                        return 1
                     return _b
                 if _db_chunk_count > 5:
                     top_k = [(s, c) for s, c in top_k
@@ -5699,6 +5708,9 @@ def main():
                         return max(1, _b - 2)
                     elif _a >= 7:
                         return max(1, _b - 1)
+                    # iter1023: global_24h_saturated_cap — sync FULL path
+                    if c.get("project") == "global" and _a >= 4:
+                        return 1
                     return _b
                 if _db_chunk_count > 5:
                     top_k = [(s, c) for s, c in top_k
