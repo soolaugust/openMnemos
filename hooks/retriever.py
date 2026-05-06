@@ -2496,6 +2496,9 @@ def main():
                 #   candidates=10 全灭 → 40% 空召回。85 chunk 库日均 1 session 使用同一知识是正常频率。
                 #   6h/24h burst suppress 仍有效，7d 过紧导致核心知识被永久封锁。
                 _suppress_7d_thresh = 3 if _tiny_db else (6 if score >= 0.5 else 4) if _small_db else (5 if score >= 0.5 else 3)  # iter990: small_db 4/3→6/4
+                # iter993: global_chunk_suppress_tighten — global chunk 阈值 -1
+                if chunk.get("project", "") == "global":
+                    _suppress_7d_thresh = max(2, _suppress_7d_thresh - 1)
                 if _r7d_cnt >= _suppress_7d_thresh:
                     score = 0.0
                     _hard_suppressed = True
@@ -3326,13 +3329,19 @@ def main():
                 def _hd905_7d_thresh(s, c):
                     _cp = c.get("project", "")
                     _cross = (_cp != project and _cp != "global")
+                    _is_global = (_cp == "global")
                     if _hd_tiny_db:
                         _t = 3  # iter971: tiny 4→3 去垄断
                     elif _hd_small_db:
                         _t = 6 if s >= 0.5 else 4  # iter990: 4/3→6/4
                     else:
                         _t = 5 if s >= 0.5 else 3
-                    return max(2, _t - 2) if _cross else _t
+                    # iter993: global_chunk_suppress_tighten — sync FULL path
+                    if _cross:
+                        return max(2, _t - 2)
+                    elif _is_global:
+                        return max(2, _t - 1)
+                    return _t
                 top_k = [(s, c) for s, c in top_k
                          if _recent_6h_counts.get(c["id"], 0) < 2  # iter865: 6h_tighten_tiny — 统一阈值
                          and _recent_24h_counts.get(c["id"], 0) < (3 if _hd_tiny_db else (3 if s >= 0.5 else 2) if _hd_small_db else (3 if s >= 0.5 else 2))
@@ -4826,13 +4835,23 @@ def main():
                 def _sf663_7d_thresh(s, c):
                     _cp = c.get("project", "")
                     _cross = (_cp != project and _cp != "global")
+                    _is_global = (_cp == "global")
                     if _sf663_tiny_db:
                         _t = 3  # iter971: tiny 4→3 去垄断
                     elif _sf663_small_db:
                         _t = 6 if s >= 0.5 else 4  # iter990: 4/3→6/4
                     else:
                         _t = 5 if s >= 0.5 else 3
-                    return max(2, _t - 2) if _cross else _t
+                    # iter993: global_chunk_suppress_tighten — global chunk 阈值 -1
+                    # 根因（数据驱动，2026-05-06）：feishu CLI/memory验证/git commit 等 global 约束
+                    #   在 kernel 项目 7d=4 但阈值=3 时刚好被 suppress；换 session 后又逃逸。
+                    #   global chunk 用全局计数(iter888)却享受本项目阈值，导致工具约束垄断注入位。
+                    # 修复：global chunk 阈值 -1（比 cross -2 宽松，但比本项目更严格）。
+                    if _cross:
+                        return max(2, _t - 2)
+                    elif _is_global:
+                        return max(2, _t - 1)
+                    return _t
                 # iter968: micro_db_final_gate_bypass — <=5 自有 chunk 库跳过 final_gate
                 # 根因（数据驱动，2026-05-06）：git:78dc99a5695f（2 自有 chunk）空注入率 86%（6/7）。
                 #   _score_chunk 阶段 micro_db bypass(line 2230) 让 global chunk 正常评分，
@@ -4870,13 +4889,19 @@ def main():
             def _fg887_7d_thresh(s, c):
                 _cp = c.get("project", "")
                 _cross = (_cp != project and _cp != "global")
+                _is_global = (_cp == "global")
                 if _fg887_tiny:
                     _t = 3  # iter971: tiny 4→3 去垄断（sync suppress_final_gate）
                 elif _fg887_small:
                     _t = 6 if s >= 0.5 else 4  # iter990: 4/3→6/4
                 else:
                     _t = 5 if s >= 0.5 else 3
-                return max(2, _t - 2) if _cross else _t
+                # iter993: global_chunk_suppress_tighten — sync closure_fallback
+                if _cross:
+                    return max(2, _t - 2)
+                elif _is_global:
+                    return max(2, _t - 1)
+                return _t
             top_k = [(s, c) for s, c in top_k
                      if _recent_6h_counts.get(c["id"], 0) < 2
                      and _recent_24h_counts.get(c["id"], 0) < (3 if _fg887_tiny else (3 if s >= 0.5 else 2) if _fg887_small else (3 if s >= 0.5 else 2))
