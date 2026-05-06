@@ -2259,6 +2259,39 @@ def main():
         except Exception:
             pass  # 预计算失败不阻塞
 
+        # iter1029: project_concentration_penalty — 同项目群体垄断注入位衰减
+        # 根因（数据驱动，2026-05-07）：git:a0ab16e8cafc 7d 占 31/62=50% 注入位，
+        #   但单 chunk max=3（在 suppress 阈值内），type 分散（decision/procedure/evidence）
+        #   导致 type_concentration_penalty 不触发。用户体感"全是 kernel 知识"。
+        # 修复：预计算 per-project 7d 注入占比，>45% 且 >=4 不同 chunk 时，
+        #   对该项目 chunk score 额外 penalty = 0.75^(个体7d-1)。
+        _proj_7d_conc = {}  # {project: (ratio, n_chunks)}
+        try:
+            if _recent_7d_counts:
+                import sqlite3 as _pc_sql
+                _pc_conn = _pc_sql.connect(str(STORE_DB))
+                _pc_ids = list(_recent_7d_counts.keys())
+                _pc_proj_map = {}  # chunk_id -> project
+                for _pc_i in range(0, len(_pc_ids), 50):
+                    _pc_batch = _pc_ids[_pc_i:_pc_i+50]
+                    _pc_ph = ",".join("?" for _ in _pc_batch)
+                    for (_pid, _pproj) in _pc_conn.execute(
+                            f"SELECT id, project FROM memory_chunks WHERE id IN ({_pc_ph})", _pc_batch).fetchall():
+                        _pc_proj_map[_pid] = _pproj or ""
+                _pc_conn.close()
+                from collections import defaultdict as _pc_dd
+                _pc_agg = _pc_dd(lambda: [0, set()])  # project -> [total_7d, {chunk_ids}]
+                for _pcid, _pccnt in _recent_7d_counts.items():
+                    _pcp = _pc_proj_map.get(_pcid, "")
+                    if _pcp:
+                        _pc_agg[_pcp][0] += _pccnt
+                        _pc_agg[_pcp][1].add(_pcid)
+                _pc_total = sum(_recent_7d_counts.values()) or 1
+                for _pcp, (_pc_sum, _pc_set) in _pc_agg.items():
+                    _proj_7d_conc[_pcp] = (_pc_sum / _pc_total, len(_pc_set))
+        except Exception:
+            pass
+
         def _score_chunk(chunk, relevance):
             _hard_suppressed = False  # iter616: final_hard_gate flag
             # ── B13: Lazy Scoring Early Exit — 极低 relevance 跳过全量计算 ────
@@ -2486,6 +2519,13 @@ def main():
                     _chunk_7d = _recent_7d_counts.get(chunk.get("id", ""), 0)
                     if _chunk_7d > 1:
                         score *= 0.7 ** (_chunk_7d - 1)
+                # iter1029: project_concentration_penalty — 同项目群体垄断衰减
+                _cp_proj = chunk.get("project", "")
+                _pc_info = _proj_7d_conc.get(_cp_proj)
+                if _pc_info and _pc_info[0] > 0.45 and _pc_info[1] >= 4:
+                    _chunk_7d_pc = _recent_7d_counts.get(chunk.get("id", ""), 0)
+                    if _chunk_7d_pc > 1:
+                        score *= 0.75 ** (_chunk_7d_pc - 1)
             # ── iter614: temporal_burst_suppression — 24h 注入频率 cap ─────────
             # 同一 chunk 在 24h 内注入 >=2 次 → suppress（score=0）
             # iter619: 阈值 3→2，同日看 2 次已足够，第 3 次起 suppress

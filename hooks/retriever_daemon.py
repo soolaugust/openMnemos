@@ -3491,6 +3491,35 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 _age_days_cache[iso_str] = c
             return c[0]  # iter245/246: extract age from 3-tuple
 
+        # iter1029: project_concentration_penalty — per-project 7d 注入占比预计算
+        _proj_7d_conc = {}  # {project: (ratio, n_chunks)}
+        try:
+            if _recent_7d_counts:
+                import sqlite3 as _pc_sql
+                _pc_ids = list(_recent_7d_counts.keys())
+                _pc_proj_map = {}
+                _pc_conn2 = _pc_sql.connect(str(STORE_DB))
+                for _pc_i in range(0, len(_pc_ids), 50):
+                    _pc_batch = _pc_ids[_pc_i:_pc_i+50]
+                    _pc_ph = ",".join("?" for _ in _pc_batch)
+                    for (_pid, _pproj) in _pc_conn2.execute(
+                            f"SELECT id, project FROM memory_chunks WHERE id IN ({_pc_ph})", _pc_batch).fetchall():
+                        _pc_proj_map[_pid] = _pproj or ""
+                _pc_conn2.close()
+                _pc_agg = {}  # project -> [total_7d, set(chunk_ids)]
+                for _pcid, _pccnt in _recent_7d_counts.items():
+                    _pcp = _pc_proj_map.get(_pcid, "")
+                    if _pcp:
+                        if _pcp not in _pc_agg:
+                            _pc_agg[_pcp] = [0, set()]
+                        _pc_agg[_pcp][0] += _pccnt
+                        _pc_agg[_pcp][1].add(_pcid)
+                _pc_total = sum(_recent_7d_counts.values()) or 1
+                for _pcp, (_pc_sum, _pc_set) in _pc_agg.items():
+                    _proj_7d_conc[_pcp] = (_pc_sum / _pc_total, len(_pc_set))
+        except Exception:
+            pass
+
         _pattern_keywords: set = set()
         # iter232: hoist _sc_al_eps > 0 check outside per-chunk scoring loop
         # _sc_al_eps defaults to 0.0 — in 100% of typical usage, exploration bonus is disabled.
@@ -3723,6 +3752,12 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 # iter969: diversity_factor_align_small_db — <100 统一 0.55
                 _dp_factor = 0.55 if _db_chunk_count < 100 else 0.35
                 score *= 1.0 / (1.0 + _r7d_sc * _dp_factor)
+                # iter1029: project_concentration_penalty — 同项目群体垄断衰减
+                _cp_proj_d = chunk[_CI_CP] or ""
+                _pc_info_d = _proj_7d_conc.get(_cp_proj_d)
+                if _pc_info_d and _pc_info_d[0] > 0.45 and _pc_info_d[1] >= 4:
+                    if _r7d_sc > 1:
+                        score *= 0.75 ** (_r7d_sc - 1)
             # iter618: 24h + 7d burst suppress（daemon 此前完全缺失）
             # iter619: 阈值收紧 24h:3→2, 7d:8→5
             # iter672: relevance_exempt — 高分 chunk 放宽阈值，防 suppress 过杀
