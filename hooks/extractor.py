@@ -2372,6 +2372,13 @@ def _write_chunk(chunk_type: str, summary: str, project: str, session_id: str,
     # 修复：无 content_override 时，summary 以 '|' 开头 → 表格碎片 → 拒绝。
     if not content_override and summary.lstrip().startswith('|'):
         return
+    # iter961: summary_min_density_gate — 无 content_override 时 summary 过短拒绝
+    # 根因（数据驱动，2026-05-06）：2 条 design_constraint ac=0（"内核 panic，不需要 counter"
+    #   20字 / "- 这是 Tejun 明确要求的，无推断" 16字）通过 <15 门控但检索价值极低。
+    #   无 content_override 时 content=[chunk_type]+summary，过短 chunk FTS 命中率趋近 0。
+    # 修复：无 content_override 时 summary < 30 → 拒绝。有 content_override 时不受影响。
+    if not content_override and len(summary) < 30:
+        return
     # iter607: _write_chunk 内置 quality gate — 最终防线
     # 根因（数据驱动，2026-05-03）：causal_chain/decision 绕过调用方的 _is_quality_chunk
     # 检查直接写入 store（6 个零访问迭代器噪声 chunk 在 gate 部署前写入）。
