@@ -4126,7 +4126,7 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                         "ORDER BY access_count ASC, importance DESC LIMIT 3",
                         (project, _top1_id_hd)).fetchall()
                     _div_conn_hd.close()
-                    _div_7d_ceiling_hd = 3 if _db_chunk_count < 50 else 4  # iter971: tiny 4→3
+                    _div_7d_ceiling_hd = 4 if _db_chunk_count < 50 else 4  # iter991: pair_ceiling_relax small_db 3→4
                     _div_rows_hd = [r for r in _div_rows_hd
                                     if _recent_7d_counts.get(r[0], 0) < _div_7d_ceiling_hd]
                     if _div_rows_hd:
@@ -4389,7 +4389,7 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 _div_recent_ids = {iid for iid, _ in _daemon_inject_log[-50:]}
                 _div_rows_d = [r for r in _div_rows_d if r[0] not in _div_recent_ids]
                 # iter943: diversity_pair_7d_suppress — 排除 7d 达阈值的 chunk
-                _div_7d_ceiling_d = 3 if _db_chunk_count < 50 else (5 if _db_chunk_count < 100 else 5)  # iter971: tiny 4→3
+                _div_7d_ceiling_d = 4 if _db_chunk_count < 50 else (5 if _db_chunk_count < 100 else 5)  # iter991: pair_ceiling_relax small_db 3→4
                 _div_7d_d = _rt663_7d if '_rt663_7d' in dir() and _rt663_7d else _recent_7d_counts
                 _div_rows_d = [r for r in _div_rows_d if _div_7d_d.get(r[0], 0) < _div_7d_ceiling_d]
                 if _div_rows_d:

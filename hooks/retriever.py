@@ -3202,7 +3202,7 @@ def main():
             # iter960: hd_pair_7d_gate — hard_deadline pair 加 7d ceiling 防止垄断 chunk 逃逸
             # 根因（数据驱动，2026-05-06）：hard_deadline pair inject 仅检查 session_dedup，
             #   7d>=4 的 chunk 被 suppress_final_gate 拦截后经 pair 路径重新注入。
-            _hd_pair_7d_ceiling = 3 if _db_chunk_count < 50 else (5 if _db_chunk_count < 100 else 5)  # iter990: small_db 4→5
+            _hd_pair_7d_ceiling = 4 if _db_chunk_count < 50 else (5 if _db_chunk_count < 100 else 5)  # iter991: pair_ceiling_relax small_db 3→4
             if len(positive) == 1 and len(final) >= 3:
                 _pair_cands_hd = [(s, c) for s, c in final
                                   if s > 0.10 and s < _min_thresh
@@ -3938,7 +3938,7 @@ def main():
         # 修复：positive=1 时从 final 中取 score>0 但 < _min_thresh 的次优候选补充 1 条，
         #   确保至少 2 条组合上下文。下限 0.10 防止噪声注入（iter863 从 0.05 提升）。
         # iter972: pair_suppress_align — 7d/24h 过滤堵逃逸口
-        _pair_7d_ceiling = 3 if _db_chunk_count < 50 else (5 if _db_chunk_count < 100 else 5)  # iter990: small_db 4→5
+        _pair_7d_ceiling = 4 if _db_chunk_count < 50 else (5 if _db_chunk_count < 100 else 5)  # iter991: pair_ceiling_relax small_db 3→4
         if len(positive) == 1 and len(final) >= 3:
             _pair_candidates = [(s, c) for s, c in final
                                 if s > 0.10 and s < _min_thresh
@@ -4007,7 +4007,7 @@ def main():
                 # 修复：排除 7d >= ceiling 的 chunk（同 suppress_final_gate 阈值）。
                 _div_7d = _rt663_7d if '_rt663_7d' in dir() and _rt663_7d else _recent_7d_counts
                 # iter947: pair_7d_tighten — diversity_pair 7d ceiling 对齐 suppress_final_gate(3/4/5)
-                _div_7d_ceiling = 3 if _db_chunk_count < 50 else (5 if _db_chunk_count < 100 else 5)  # iter971: tiny 4→3
+                _div_7d_ceiling = 4 if _db_chunk_count < 50 else (5 if _db_chunk_count < 100 else 5)  # iter991: pair_ceiling_relax small_db 3→4
                 _div_cands = []
                 for _dr in _div_rows:
                     _dr_id = _dr[0]
@@ -4088,7 +4088,7 @@ def main():
         # iter972: pair_suppress_align — 对齐 suppress_final_gate 7d/24h 阈值堵逃逸
         #   根因（数据驱动，2026-05-06）：31-chunk 库 15 个 7d>=3 被 suppress_final_gate 拦截，
         #   但 fallback_pair 不检查 7d/24h → 垄断 chunk 经 pair 路径重新注入。
-        _fb_pair_7d_ceiling = 3 if _db_chunk_count < 50 else (5 if _db_chunk_count < 100 else 5)  # iter990: small_db 4→5
+        _fb_pair_7d_ceiling = 4 if _db_chunk_count < 50 else (5 if _db_chunk_count < 100 else 5)  # iter991: pair_ceiling_relax small_db 3→4
         if len(positive) == 1 and len(final) >= 3:
             _fb_pair_top1_id = positive[0][1].get("id", "")
             _fb_pair_cands = [(float(c.get("importance", 0) or 0), c) for _, c in final
