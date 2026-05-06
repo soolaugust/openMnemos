@@ -5433,13 +5433,18 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                                   f"below score_floor={_score_floor}",
                                   session_id=session_id, project=project)
             else:
-                # 全部低于阈值：保留最高分 1 条
+                # iter1043: floor_gate_skip — 全部低于阈值时不注入
+                # 根因（数据驱动，2026-05-07）：24h 内 88% 注入 score<0.2，7/11 traces 全灭。
+                #   全灭时 fallback 保留最高分 1 条（score=0.06~0.11）与用户上下文无关，
+                #   注入 kernel/PE 知识到 memory-os Python 开发 session 纯属噪声。
+                # 修复：全灭直接 skip，不强制注入无关知识。用户不看到噪声 > 少看到 1 条。
                 _sf_best = max(top_k, key=lambda x: x[0])
-                top_k = [_sf_best]
                 _deferred.log(DMESG_DEBUG, "retriever_daemon",
-                              f"iter910_score_floor_gate: all below floor, kept best "
-                              f"s={_sf_best[0]:.3f} id={_sf_best[1][_CI_ID][:12]}",
+                              f"iter1043_floor_gate_skip: all {len(top_k)} below "
+                              f"floor={_score_floor}, best={_sf_best[0]:.3f} "
+                              f"id={_sf_best[1][_CI_ID][:12]}, skipping injection",
                               session_id=session_id, project=project)
+                top_k = []
 
         # ── iter975: output_monopoly_filter — 最终输出前去垄断（single control point）──
         # 根因（数据驱动，2026-05-06）：suppress 分散在十余处，垄断 chunk 总能逃逸。
