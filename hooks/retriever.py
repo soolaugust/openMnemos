@@ -2402,6 +2402,15 @@ def main():
                 #   <50 用 0.55 使 7d=6→23%，但 51 和 49 不应有跳变。
                 #   统一 <100 用 0.55：7d=4→31%, 7d=5→27%, 7d=6→23%。
                 _dp_factor = 0.55 if _db_chunk_count < 100 else 0.35
+                # iter1003: global_chunk_diversity_boost — global chunk 跨项目 factor x2
+                # 根因（数据驱动，2026-05-06）：feishu CLI/git commit/memory验证 等 global
+                #   constraint 在 kernel 项目中 7d=3-4 仍占注入位（衰减仅 31-23%），
+                #   因 "git"/"feishu" 等泛化词 FTS base 分高(0.4+)，衰减后仍胜出。
+                #   用户在 kernel session 中反复看到无关工具约束。
+                # 修复：global chunk 在非 global 目标项目中 factor x2，
+                #   7d=3→1/(1+3*1.1)=23%, 7d=4→18%, 7d=5→15%。有效让位给项目相关知识。
+                if chunk.get("project", "") == "global" and project != "global":
+                    _dp_factor *= 2.0
                 score *= 1.0 / (1.0 + _r7d_dp * _dp_factor)
             # ── iter614: temporal_burst_suppression — 24h 注入频率 cap ─────────
             # 同一 chunk 在 24h 内注入 >=2 次 → suppress（score=0）
