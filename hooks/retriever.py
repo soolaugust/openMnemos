@@ -3428,6 +3428,26 @@ def main():
                          and _recent_7d_counts.get(c["id"], 0) < _hd905_7d_thresh(s, c)]
             # iter842: post_suppress_pair_from_final (hard_deadline path)
             # iter851: suppress_aware_pair — 候选尊重 suppress_final_gate 阈值
+            # iter1011: pair_saturated_cap — hard_deadline pair 路径同步
+            _hd_pair_base = 4 if _hd_tiny_db else 5
+            def _hd_pair_7d_cap(c):
+                _cp = c.get("project", "")
+                _cap = _hd_pair_base
+                if _cp == "global":
+                    _g_ac = c.get("access_count", 0) or 0
+                    if _g_ac >= 4:
+                        _cap = min(_cap, max(2, _hd_pair_base - 2))
+                    elif _g_ac >= 2:
+                        _cap = min(_cap, max(2, _hd_pair_base - 1))
+                elif _cp != project:
+                    _cap = min(_cap, max(2, _hd_pair_base - 2))
+                else:
+                    _l_ac = c.get("access_count", 0) or 0
+                    if _l_ac >= 10:
+                        _cap = min(_cap, max(2, _hd_pair_base - 2))
+                    elif _l_ac >= 7:
+                        _cap = min(_cap, max(2, _hd_pair_base - 1))
+                return _cap
             if len(top_k) == 1 and len(final) >= 3:
                 _ps842_hd_top1_id = top_k[0][1].get("id", "")
                 _ps842_hd_cands = [(float(c.get("importance", 0) or 0), c) for _, c in final
@@ -3436,7 +3456,7 @@ def main():
                                    and _session_injection_counts.get(c.get("id", ""), 0) < _pair_dedup_thresh_hd
                                    and _recent_6h_counts.get(c.get("id", ""), 0) < 2  # iter865
                                    and _recent_24h_counts.get(c.get("id", ""), 0) < (3 if _hd_tiny_db else 3)
-                                   and _recent_7d_counts.get(c.get("id", ""), 0) < (4 if _hd_tiny_db else 5)]  # iter990: small_db pair 4→5
+                                   and _recent_7d_counts.get(c.get("id", ""), 0) < _hd_pair_7d_cap(c)]
                 if _ps842_hd_cands:
                     _ps842_hd_best = max(_ps842_hd_cands, key=lambda x: x[0])
                     if _ps842_hd_best[0] >= 0.3:
@@ -4053,12 +4073,35 @@ def main():
         #   确保至少 2 条组合上下文。下限 0.10 防止噪声注入（iter863 从 0.05 提升）。
         # iter972: pair_suppress_align — 7d/24h 过滤堵逃逸口
         _pair_7d_ceiling = 5 if _db_chunk_count < 50 else (6 if _db_chunk_count < 100 else 6)  # iter1010: pair_ceiling_widen — 4/5→5/6 恢复 pair 候选池
+        # iter1011: pair_saturated_cap — saturated chunk 的 pair ceiling 对齐 suppress 阈值
+        # 根因（数据驱动，2026-05-06）：11 个 chunk 7d>=suppress_thresh 但 <pair_ceiling(5/6)，
+        #   通过 pair/diversity_pair 逃逸注入。feishu CLI(ac=4,7d=4), memory验证(ac=6,7d=4) 等
+        #   global 工具约束被 suppress_final_gate 拦截后仍经 pair 路径垄断注入。
+        # 修复：per-chunk 动态 ceiling = min(base_ceiling, chunk 自身 suppress_thresh)。
+        def _pair_7d_cap(c):
+            _cp = c.get("project", "")
+            _cap = _pair_7d_ceiling
+            if _cp == "global":
+                _g_ac = c.get("access_count", 0) or 0
+                if _g_ac >= 4:
+                    _cap = min(_cap, max(2, _pair_7d_ceiling - 2))
+                elif _g_ac >= 2:
+                    _cap = min(_cap, max(2, _pair_7d_ceiling - 1))
+            elif _cp != project:  # cross-project
+                _cap = min(_cap, max(2, _pair_7d_ceiling - 2))
+            else:
+                _l_ac = c.get("access_count", 0) or 0
+                if _l_ac >= 10:
+                    _cap = min(_cap, max(2, _pair_7d_ceiling - 2))
+                elif _l_ac >= 7:
+                    _cap = min(_cap, max(2, _pair_7d_ceiling - 1))
+            return _cap
         if len(positive) == 1 and len(final) >= 3:
             _pair_candidates = [(s, c) for s, c in final
                                 if s > 0.10 and s < _min_thresh
                                 and c.get("id") != positive[0][1].get("id")
                                 and _session_injection_counts.get(c.get("id", ""), 0) < _pair_dedup_thresh
-                                and _recent_7d_counts.get(c.get("id", ""), 0) < _pair_7d_ceiling
+                                and _recent_7d_counts.get(c.get("id", ""), 0) < _pair_7d_cap(c)
                                 and _recent_24h_counts.get(c.get("id", ""), 0) < 3]
             if _pair_candidates:
                 _pair_best = max(_pair_candidates, key=lambda x: x[0])
@@ -4077,7 +4120,7 @@ def main():
                               if c.get("id") != positive[0][1].get("id")
                               and (c.get("access_count", 0) or 0) < 30
                               and _session_injection_counts.get(c.get("id", ""), 0) < _pair_dedup_thresh
-                              and _recent_7d_counts.get(c.get("id", ""), 0) < _pair_7d_ceiling
+                              and _recent_7d_counts.get(c.get("id", ""), 0) < _pair_7d_cap(c)
                               and _recent_24h_counts.get(c.get("id", ""), 0) < 3]
                 if _imp_pairs:
                     _imp_best = max(_imp_pairs, key=lambda x: x[0])
@@ -4127,7 +4170,15 @@ def main():
                     _dr_id = _dr[0]
                     if _session_injection_counts.get(_dr_id, 0) >= _pair_dedup_thresh:
                         continue
-                    if _div_7d.get(_dr_id, 0) >= _div_7d_ceiling:
+                    # iter1011: per-chunk saturated cap for diversity pair
+                    # Note: _dr from query WHERE project=?, so always local project
+                    _dr_ac = _dr[5]  # access_count from query
+                    _dr_cap = _div_7d_ceiling
+                    if _dr_ac >= 10:
+                        _dr_cap = min(_dr_cap, max(2, _div_7d_ceiling - 2))
+                    elif _dr_ac >= 7:
+                        _dr_cap = min(_dr_cap, max(2, _div_7d_ceiling - 1))
+                    if _div_7d.get(_dr_id, 0) >= _dr_cap:
                         continue
                     _tl_24h = sum(1 for t in _injection_timeline.get(_dr_id, [])
                                   if t > (_now_ts[:10] if len(_now_ts) > 10 else _now_ts))  # rough 24h
