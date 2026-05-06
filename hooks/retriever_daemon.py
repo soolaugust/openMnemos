@@ -3719,8 +3719,8 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 #   数据驱动（2026-05-05）：23 chunk DB 中 top chunk inj7d=6，
                 #   阈值 5 允许 4 次注入才 suppress，垄断 chunk 高 FTS 基分仍胜出。
                 #   收紧到 3 使同一 chunk 7d 内最多注入 2 次后 hard suppress。
-                # iter949: tiny_db_7d_relax 3→5（数据驱动：44% chunk 误杀）
-                elif _recent_7d_counts.get(_cid, 0) >= (5 if _s672_tiny else (4 if score >= 0.5 else 3) if _s672_small else (5 if score >= 0.5 else 3)):
+                # iter952: tiny_db_7d_tighten 5→4（数据驱动：13/46 chunk 7d>=4 垄断）
+                elif _recent_7d_counts.get(_cid, 0) >= (4 if _s672_tiny else (4 if score >= 0.5 else 3) if _s672_small else (5 if score >= 0.5 else 3)):
                     score = 0.0
                 # iter622: saturation_absolute_suppress — access_count >= 30 永久 suppress
                 elif (chunk[_CI_AC] or 0) >= 30:
@@ -3817,8 +3817,8 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                     score = 0.0
                 # iter854: tiny_db_7d_relax_v2 — 阈值 5→7（sync retriever.py）
                 # iter882: 7d_tighten_monopoly — sync FTS path
-                # iter949: tiny_db_7d_relax 3→5
-                elif _recent_7d_counts.get(_cid, 0) >= (5 if _s672d_tiny else (4 if score >= 0.5 else 3) if _s672d_small else (5 if score >= 0.5 else 3)):
+                # iter952: tiny_db_7d_tighten 5→4（sync suppress_final_gate）
+                elif _recent_7d_counts.get(_cid, 0) >= (4 if _s672d_tiny else (4 if score >= 0.5 else 3) if _s672d_small else (5 if score >= 0.5 else 3)):
                     score = 0.0
                 # iter622: saturation_absolute_suppress — access_count >= 30 永久 suppress
                 elif (chunk.get("access_count", 0) or 0) >= 30:
@@ -4117,7 +4117,7 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                         "ORDER BY access_count ASC, importance DESC LIMIT 3",
                         (project, _top1_id_hd)).fetchall()
                     _div_conn_hd.close()
-                    _div_7d_ceiling_hd = 5 if _db_chunk_count < 50 else 4  # iter949
+                    _div_7d_ceiling_hd = 4 if _db_chunk_count < 50 else 4  # iter952: sync 5→4
                     _div_rows_hd = [r for r in _div_rows_hd
                                     if _recent_7d_counts.get(r[0], 0) < _div_7d_ceiling_hd]
                     if _div_rows_hd:
@@ -4373,7 +4373,7 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 _div_recent_ids = {iid for iid, _ in _daemon_inject_log[-50:]}
                 _div_rows_d = [r for r in _div_rows_d if r[0] not in _div_recent_ids]
                 # iter943: diversity_pair_7d_suppress — 排除 7d 达阈值的 chunk
-                _div_7d_ceiling_d = 5 if _db_chunk_count < 50 else (4 if _db_chunk_count < 100 else 5)  # iter949
+                _div_7d_ceiling_d = 4 if _db_chunk_count < 50 else (4 if _db_chunk_count < 100 else 5)  # iter952: sync 5→4
                 _div_7d_d = _rt663_7d if '_rt663_7d' in dir() and _rt663_7d else _recent_7d_counts
                 _div_rows_d = [r for r in _div_rows_d if _div_7d_d.get(r[0], 0) < _div_7d_ceiling_d]
                 if _div_rows_d:
@@ -4798,7 +4798,7 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                     _cp = c[_CI_CP] or ""
                     _cross = (_cp != project and _cp != "global")
                     if _sf663d_tiny_db:
-                        _t = 5  # iter949: tiny_db_7d_relax 3→5
+                        _t = 4  # iter952: tiny_db_7d_tighten 5→4
                     elif _sf663d_small_db:
                         _t = 4 if s >= 0.5 else 3
                     else:
@@ -4832,7 +4832,7 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 _cp = c[_CI_CP] or ""
                 _cross = (_cp != project and _cp != "global")
                 if _fg887d_tiny:
-                    _t = 5  # iter949: tiny_db_7d_relax 3→5
+                    _t = 4  # iter952: tiny_db_7d_tighten 5→4
                 elif _fg887d_small:
                     _t = 4 if s >= 0.5 else 3
                 else:
@@ -4861,7 +4861,7 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 _p7d = _rt663d_7d.get(cid, 0)
                 _p24_lim = 3 if _sf663d_tiny_db else (3 if score >= 0.5 else 2) if _sf663d_small_db else (3 if score >= 0.5 else 2)
                 # iter936: pair_7d_align_final_gate — 4/6/5/5→3/4/3/3 对齐 suppress_final_gate
-                _p7d_lim = 6 if _sf663d_tiny_db else (4 if score >= 0.5 else 3) if _sf663d_small_db else (3 if score >= 0.5 else 3)  # iter949
+                _p7d_lim = 5 if _sf663d_tiny_db else (4 if score >= 0.5 else 3) if _sf663d_small_db else (3 if score >= 0.5 else 3)  # iter952: pair 6→5
                 return _p24 < _p24_lim and _p7d < _p7d_lim
             except NameError:
                 return True
@@ -4948,7 +4948,7 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 _fb_7d_d = _rt663d_7d if '_rt663d_7d' in dir() and _rt663d_7d else _recent_7d_counts
                 _fb_24h_d = _rt663d_24h if '_rt663d_24h' in dir() and _rt663d_24h else _recent_24h_counts
                 # iter911: pair_7d_tighten — fallback ceiling 4→3(tiny) 堵逃逸
-                _fb_ceiling_d = 5 if _db_chunk_count < 50 else (4 if _db_chunk_count < 100 else 5)  # iter949
+                _fb_ceiling_d = 4 if _db_chunk_count < 50 else (4 if _db_chunk_count < 100 else 5)  # iter952: sync 5→4
                 _fb_cap = [(s, c) for s, c in _pre_suppress_top_k
                            if _fb_7d_d.get(c[_CI_ID], 0) < _fb_ceiling_d
                            and _fb_24h_d.get(c[_CI_ID], 0) < 3]
@@ -4981,7 +4981,7 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 # 根因（2026-05-06）：原 iter902 无 7d 限制，最高 imp chunk 被反复选中(6次/7d)。
                 # 修复：排除 7d >= ceiling 的 chunk，选低频+高 importance 的。
                 _fb_7d_ult = _rt663d_7d if '_rt663d_7d' in dir() and _rt663d_7d else _recent_7d_counts
-                _ult_ceiling = 5 if _db_chunk_count < 50 else (4 if _db_chunk_count < 100 else 5)  # iter949
+                _ult_ceiling = 4 if _db_chunk_count < 50 else (4 if _db_chunk_count < 100 else 5)  # iter952: sync 5→4
                 _ult_exclude = [cid for cid, cnt in _fb_7d_ult.items() if cnt >= _ult_ceiling]
                 _ult_placeholders = ','.join(['?'] * len(_ult_exclude)) if _ult_exclude else ''
                 _ult_where = f" AND id NOT IN ({_ult_placeholders})" if _ult_exclude else ''

@@ -1458,7 +1458,8 @@ def main():
 
     hook_input = _vdso_hook_input or {}
 
-    project = resolve_project_id()
+    _hook_cwd = hook_input.get("cwd", "") or os.environ.get("CLAUDE_CWD", "")
+    project = resolve_project_id(_hook_cwd if _hook_cwd else None)
     # 迭代66：从 hook stdin 获取 session_id（/proc/self/status PID Identity）
     # 之前从环境变量取，但 CLAUDE_SESSION_ID 未被设置 → 全部 "unknown"
     # hook stdin JSON 包含 session_id 字段，这是权威来源
@@ -2465,8 +2466,8 @@ def main():
                 #   22-chunk 库有 15 个 7d>=3，其中 12 个>=4 被 iter909 拦截，
                 #   但 3 个 7d=3 仍逃逸。统一到 3 堵死评分阶段逃逸口。
                 # iter928: small_db 8/6→4/3 对齐 daemon iter882
-                # iter949: tiny_db_7d_relax — 3→5，36-chunk 库 44% 被误杀（数据驱动，2026-05-06）
-                _suppress_7d_thresh = 5 if _tiny_db else (4 if score >= 0.5 else 3) if _small_db else (5 if score >= 0.5 else 3)
+                # iter952: tiny_db_7d_tighten 5→4（数据驱动：13/46 chunk 7d>=4 垄断）
+                _suppress_7d_thresh = 4 if _tiny_db else (4 if score >= 0.5 else 3) if _small_db else (5 if score >= 0.5 else 3)
                 if _r7d_cnt >= _suppress_7d_thresh:
                     score = 0.0
                     _hard_suppressed = True
@@ -3290,7 +3291,7 @@ def main():
                     _cp = c.get("project", "")
                     _cross = (_cp != project and _cp != "global")
                     if _hd_tiny_db:
-                        _t = 5  # iter949: tiny_db_7d_relax 3→5
+                        _t = 4  # iter952: tiny_db_7d_tighten 5→4
                     elif _hd_small_db:
                         _t = 4 if s >= 0.5 else 3
                     else:
@@ -3312,7 +3313,7 @@ def main():
                                    and _session_injection_counts.get(c.get("id", ""), 0) < _pair_dedup_thresh_hd
                                    and _recent_6h_counts.get(c.get("id", ""), 0) < 2  # iter865
                                    and _recent_24h_counts.get(c.get("id", ""), 0) < (3 if _hd_tiny_db else 3)
-                                   and _recent_7d_counts.get(c.get("id", ""), 0) < (5 if _hd_tiny_db else 4)]  # iter949: pair_7d sync tiny 3→5
+                                   and _recent_7d_counts.get(c.get("id", ""), 0) < (4 if _hd_tiny_db else 4)]  # iter952: pair sync 5→4
                 if _ps842_hd_cands:
                     _ps842_hd_best = max(_ps842_hd_cands, key=lambda x: x[0])
                     if _ps842_hd_best[0] >= 0.3:
@@ -3336,7 +3337,7 @@ def main():
                 # 根因（数据驱动，2026-05-05）：hard_deadline fallback ceiling=5 但 final_gate 阈值=3，
                 #   7d=3-4 chunk 被 final_gate suppress 后被 fallback 重新选中。对齐消除逃逸。
                 # iter911: pair_7d_tighten — fallback ceiling 4→3(tiny) 堵 suppress 后 fallback 逃逸
-                _fb_hd_ceiling = 5 if _db_chunk_count < 50 else (4 if _db_chunk_count < 100 else 5)  # iter949
+                _fb_hd_ceiling = 4 if _db_chunk_count < 50 else (4 if _db_chunk_count < 100 else 5)  # iter952: sync 5→4
                 _fb_hd_cap = [(s, c) for s, c in _pre_suppress_top_k_hd
                               if _recent_7d_counts.get(c.get("id", ""), 0) < _fb_hd_ceiling
                               and _recent_24h_counts.get(c.get("id", ""), 0) < 3]
@@ -3374,7 +3375,7 @@ def main():
             #   suppress_final_gate 全灭 → iter670 fallback ceiling=3 也过滤 → iter677 无 7d 检查直取 final[0]。
             #   修复：从 final 中排除 7d >= ceiling 的 chunk，对齐 suppress_final_gate。
             if not top_k and final:
-                _pebf_ceiling_hd = 5 if _db_chunk_count < 50 else (4 if _db_chunk_count < 100 else 5)  # iter949
+                _pebf_ceiling_hd = 4 if _db_chunk_count < 50 else (4 if _db_chunk_count < 100 else 5)  # iter952: sync 5→4
                 _pebf_cands_hd = [(s, c) for s, c in final
                                   if _recent_7d_counts.get(c.get("id", ""), 0) < _pebf_ceiling_hd
                                   and s >= 0.20]
@@ -3952,7 +3953,7 @@ def main():
                 # 修复：排除 7d >= ceiling 的 chunk（同 suppress_final_gate 阈值）。
                 _div_7d = _rt663_7d if '_rt663_7d' in dir() and _rt663_7d else _recent_7d_counts
                 # iter947: pair_7d_tighten — diversity_pair 7d ceiling 对齐 suppress_final_gate(3/4/5)
-                _div_7d_ceiling = 5 if _db_chunk_count < 50 else (4 if _db_chunk_count < 100 else 5)  # iter949
+                _div_7d_ceiling = 4 if _db_chunk_count < 50 else (4 if _db_chunk_count < 100 else 5)  # iter952: sync 5→4
                 _div_cands = []
                 for _dr in _div_rows:
                     _dr_id = _dr[0]
@@ -4473,7 +4474,7 @@ def main():
             # iter945: fallback_monopoly_gate — 恢复 7d ceiling 防止垄断 chunk 经此逃逸
             #   与 hard_deadline 路径对齐。排除 7d >= ceiling 后取最佳。
             if not top_k and final:
-                _pebf_ceiling = 5 if _db_chunk_count < 50 else (4 if _db_chunk_count < 100 else 5)  # iter949
+                _pebf_ceiling = 4 if _db_chunk_count < 50 else (4 if _db_chunk_count < 100 else 5)  # iter952: sync 5→4
                 _pebf_cands = [(s, c) for s, c in final
                                if _recent_7d_counts.get(c.get("id", ""), 0) < _pebf_ceiling
                                and s >= 0.20]
@@ -4755,7 +4756,7 @@ def main():
                     _cp = c.get("project", "")
                     _cross = (_cp != project and _cp != "global")
                     if _sf663_tiny_db:
-                        _t = 5  # iter949: tiny_db_7d_relax 3→5
+                        _t = 4  # iter952: tiny_db_7d_tighten 5→4（数据驱动：13/46 chunk 7d>=4 垄断）
                     elif _sf663_small_db:
                         _t = 4 if s >= 0.5 else 3
                     else:
@@ -4790,7 +4791,7 @@ def main():
                 _cp = c.get("project", "")
                 _cross = (_cp != project and _cp != "global")
                 if _fg887_tiny:
-                    _t = 5  # iter949: tiny_db_7d_relax 3→5
+                    _t = 4  # iter952: tiny_db_7d_tighten 5→4（sync suppress_final_gate）
                 elif _fg887_small:
                     _t = 4 if s >= 0.5 else 3
                 else:
@@ -4830,7 +4831,7 @@ def main():
                 # iter947: pair_7d_tighten — 对齐 suppress_final_gate 堵 pair 逃逸
                 # 数据驱动（2026-05-06）：7d=4 chunk 中 6/13 全部经 pair 路径逃逸（single=0, pair=4）
                 #   iter946 将 pair 放宽到 5 导致 suppress_final_gate(3) 失效。回退对齐 daemon。
-                _p7d_lim = 6 if _sf663_tiny_db else (4 if score >= 0.5 else 3) if _sf663_small_db else (3 if score >= 0.5 else 3)  # iter949: sync tiny 3→6
+                _p7d_lim = 5 if _sf663_tiny_db else (4 if score >= 0.5 else 3) if _sf663_small_db else (3 if score >= 0.5 else 3)  # iter952: pair 6→5 对齐 final_gate(4)
                 return _p24 < _p24_lim and _p7d < _p7d_lim
             except NameError:
                 return True  # suppress_final_gate 未执行（try 失败），不额外限制
@@ -5307,7 +5308,7 @@ def main():
                     # iter893: fallback_hard_ceiling — 7d>=5 绝对不选（LITE 路径同步）
                     # iter894: fallback_realtime_align — ceiling 对齐 suppress_final_gate_lite 阈值
                     # iter911: pair_7d_tighten — fallback ceiling 4→3(tiny) 堵逃逸
-                    _fb_lite_ceiling = 5 if _db_chunk_count < 50 else (4 if _db_chunk_count < 100 else 5)  # iter949
+                    _fb_lite_ceiling = 4 if _db_chunk_count < 50 else (4 if _db_chunk_count < 100 else 5)  # iter952: sync 5→4
                     _fb_lite_cap = [(s, c) for s, c in _pre_suppress_top_k_lite
                                     if sum(1 for t in _itl758.get(c.get("id", ""), []) if t > _cut758_7d) < _fb_lite_ceiling
                                     and sum(1 for t in _itl758.get(c.get("id", ""), []) if t > _cut758_24h) < 3]
@@ -5351,7 +5352,7 @@ def main():
                 _p6_lim = 3 if _sf758_tiny_db else 2
                 _p24_lim = 3 if _sf758_tiny_db else (3 if score >= 0.5 else 2) if _sf758_small_db else (3 if score >= 0.5 else 2)
                 # iter911: pair_7d_tighten — tiny 5→4, small 6/5→5/4, large 7/5→5/5
-                _p7d_lim = 6 if _sf758_tiny_db else (5 if score >= 0.5 else 4) if _sf758_small_db else (5 if score >= 0.5 else 5)  # iter949: sync tiny 4→6
+                _p7d_lim = 5 if _sf758_tiny_db else (5 if score >= 0.5 else 4) if _sf758_small_db else (5 if score >= 0.5 else 5)  # iter952: LITE pair 6→5
                 return _p6 < _p6_lim and _p24 < _p24_lim and _p7d < _p7d_lim
             except NameError:
                 return True
