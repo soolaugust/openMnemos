@@ -2491,7 +2491,11 @@ def main():
                 #   但 3 个 7d=3 仍逃逸。统一到 3 堵死评分阶段逃逸口。
                 # iter928: small_db 8/6→4/3 对齐 daemon iter882
                 # iter952: tiny_db_7d_tighten 5→4（数据驱动：13/46 chunk 7d>=4 垄断）
-                _suppress_7d_thresh = 3 if _tiny_db else (4 if score >= 0.5 else 3) if _small_db else (5 if score >= 0.5 else 3)  # iter971: tiny 4→3 去垄断
+                # iter990: small_db_7d_relax_v3 — small_db 4/3→6/4
+                #   根因（数据驱动，2026-05-06）：85-chunk 库中 13/21 活跃 chunk 7d>=3 被 suppress，
+                #   candidates=10 全灭 → 40% 空召回。85 chunk 库日均 1 session 使用同一知识是正常频率。
+                #   6h/24h burst suppress 仍有效，7d 过紧导致核心知识被永久封锁。
+                _suppress_7d_thresh = 3 if _tiny_db else (6 if score >= 0.5 else 4) if _small_db else (5 if score >= 0.5 else 3)  # iter990: small_db 4/3→6/4
                 if _r7d_cnt >= _suppress_7d_thresh:
                     score = 0.0
                     _hard_suppressed = True
@@ -3198,7 +3202,7 @@ def main():
             # iter960: hd_pair_7d_gate — hard_deadline pair 加 7d ceiling 防止垄断 chunk 逃逸
             # 根因（数据驱动，2026-05-06）：hard_deadline pair inject 仅检查 session_dedup，
             #   7d>=4 的 chunk 被 suppress_final_gate 拦截后经 pair 路径重新注入。
-            _hd_pair_7d_ceiling = 3 if _db_chunk_count < 50 else (4 if _db_chunk_count < 100 else 5)  # iter971: tiny 4→3
+            _hd_pair_7d_ceiling = 3 if _db_chunk_count < 50 else (5 if _db_chunk_count < 100 else 5)  # iter990: small_db 4→5
             if len(positive) == 1 and len(final) >= 3:
                 _pair_cands_hd = [(s, c) for s, c in final
                                   if s > 0.10 and s < _min_thresh
@@ -3318,13 +3322,14 @@ def main():
                 #   根因：tiny_db 7d=20 允许同一 chunk 注入 19 次，垄断根源。
                 # iter905: cross_project_suppress_tighten — hard_deadline 路径同步
                 # iter908: final_gate_7d_align_score — tiny_db 4→3
+                # iter990: small_db_7d_relax_v3 — hard_deadline 路径同步
                 def _hd905_7d_thresh(s, c):
                     _cp = c.get("project", "")
                     _cross = (_cp != project and _cp != "global")
                     if _hd_tiny_db:
                         _t = 3  # iter971: tiny 4→3 去垄断
                     elif _hd_small_db:
-                        _t = 4 if s >= 0.5 else 3
+                        _t = 6 if s >= 0.5 else 4  # iter990: 4/3→6/4
                     else:
                         _t = 5 if s >= 0.5 else 3
                     return max(2, _t - 2) if _cross else _t
@@ -3344,7 +3349,7 @@ def main():
                                    and _session_injection_counts.get(c.get("id", ""), 0) < _pair_dedup_thresh_hd
                                    and _recent_6h_counts.get(c.get("id", ""), 0) < 2  # iter865
                                    and _recent_24h_counts.get(c.get("id", ""), 0) < (3 if _hd_tiny_db else 3)
-                                   and _recent_7d_counts.get(c.get("id", ""), 0) < (4 if _hd_tiny_db else 4)]  # iter952: pair sync 5→4
+                                   and _recent_7d_counts.get(c.get("id", ""), 0) < (4 if _hd_tiny_db else 5)]  # iter990: small_db pair 4→5
                 if _ps842_hd_cands:
                     _ps842_hd_best = max(_ps842_hd_cands, key=lambda x: x[0])
                     if _ps842_hd_best[0] >= 0.3:
@@ -3368,7 +3373,7 @@ def main():
                 # 根因（数据驱动，2026-05-05）：hard_deadline fallback ceiling=5 但 final_gate 阈值=3，
                 #   7d=3-4 chunk 被 final_gate suppress 后被 fallback 重新选中。对齐消除逃逸。
                 # iter911: pair_7d_tighten — fallback ceiling 4→3(tiny) 堵 suppress 后 fallback 逃逸
-                _fb_hd_ceiling = 3 if _db_chunk_count < 50 else (4 if _db_chunk_count < 100 else 5)  # iter971: tiny 4→3
+                _fb_hd_ceiling = 3 if _db_chunk_count < 50 else (5 if _db_chunk_count < 100 else 5)  # iter990: small_db 4→5
                 _fb_hd_cap = [(s, c) for s, c in _pre_suppress_top_k_hd
                               if _recent_7d_counts.get(c.get("id", ""), 0) < _fb_hd_ceiling
                               and _recent_24h_counts.get(c.get("id", ""), 0) < 3]
@@ -3406,7 +3411,7 @@ def main():
             #   suppress_final_gate 全灭 → iter670 fallback ceiling=3 也过滤 → iter677 无 7d 检查直取 final[0]。
             #   修复：从 final 中排除 7d >= ceiling 的 chunk，对齐 suppress_final_gate。
             if not top_k and final:
-                _pebf_ceiling_hd = 4 if _db_chunk_count < 50 else (4 if _db_chunk_count < 100 else 5)  # iter952: sync 5→4
+                _pebf_ceiling_hd = 4 if _db_chunk_count < 50 else (5 if _db_chunk_count < 100 else 5)  # iter952: sync 5→4
                 _pebf_cands_hd = [(s, c) for s, c in final
                                   if _recent_7d_counts.get(c.get("id", ""), 0) < _pebf_ceiling_hd
                                   and s >= 0.20]
@@ -3441,7 +3446,7 @@ def main():
                     # iter975: output_monopoly_filter (hard_deadline path)
                     # iter977: hard_deadline 无 _rt663_7d（无 DB 查询预算），用闭包 _recent_7d_counts
                     if len(top_k) > 1 and not _micro_db:
-                        _omf_ceil_hd = 3 if _db_chunk_count < 50 else (4 if _db_chunk_count < 100 else 5)
+                        _omf_ceil_hd = 3 if _db_chunk_count < 50 else (5 if _db_chunk_count < 100 else 5)
                         _omf_filt_hd = [(s, c) for s, c in top_k
                                         if _recent_7d_counts.get(c.get("id", ""), 0) < _omf_ceil_hd]
                         if _omf_filt_hd:
@@ -3933,7 +3938,7 @@ def main():
         # 修复：positive=1 时从 final 中取 score>0 但 < _min_thresh 的次优候选补充 1 条，
         #   确保至少 2 条组合上下文。下限 0.10 防止噪声注入（iter863 从 0.05 提升）。
         # iter972: pair_suppress_align — 7d/24h 过滤堵逃逸口
-        _pair_7d_ceiling = 3 if _db_chunk_count < 50 else (4 if _db_chunk_count < 100 else 5)
+        _pair_7d_ceiling = 3 if _db_chunk_count < 50 else (5 if _db_chunk_count < 100 else 5)  # iter990: small_db 4→5
         if len(positive) == 1 and len(final) >= 3:
             _pair_candidates = [(s, c) for s, c in final
                                 if s > 0.10 and s < _min_thresh
@@ -4002,7 +4007,7 @@ def main():
                 # 修复：排除 7d >= ceiling 的 chunk（同 suppress_final_gate 阈值）。
                 _div_7d = _rt663_7d if '_rt663_7d' in dir() and _rt663_7d else _recent_7d_counts
                 # iter947: pair_7d_tighten — diversity_pair 7d ceiling 对齐 suppress_final_gate(3/4/5)
-                _div_7d_ceiling = 3 if _db_chunk_count < 50 else (4 if _db_chunk_count < 100 else 5)  # iter971: tiny 4→3
+                _div_7d_ceiling = 3 if _db_chunk_count < 50 else (5 if _db_chunk_count < 100 else 5)  # iter971: tiny 4→3
                 _div_cands = []
                 for _dr in _div_rows:
                     _dr_id = _dr[0]
@@ -4083,7 +4088,7 @@ def main():
         # iter972: pair_suppress_align — 对齐 suppress_final_gate 7d/24h 阈值堵逃逸
         #   根因（数据驱动，2026-05-06）：31-chunk 库 15 个 7d>=3 被 suppress_final_gate 拦截，
         #   但 fallback_pair 不检查 7d/24h → 垄断 chunk 经 pair 路径重新注入。
-        _fb_pair_7d_ceiling = 3 if _db_chunk_count < 50 else (4 if _db_chunk_count < 100 else 5)
+        _fb_pair_7d_ceiling = 3 if _db_chunk_count < 50 else (5 if _db_chunk_count < 100 else 5)  # iter990: small_db 4→5
         if len(positive) == 1 and len(final) >= 3:
             _fb_pair_top1_id = positive[0][1].get("id", "")
             _fb_pair_cands = [(float(c.get("importance", 0) or 0), c) for _, c in final
@@ -4529,7 +4534,7 @@ def main():
             # iter945: fallback_monopoly_gate — 恢复 7d ceiling 防止垄断 chunk 经此逃逸
             #   与 hard_deadline 路径对齐。排除 7d >= ceiling 后取最佳。
             if not top_k and final:
-                _pebf_ceiling = 4 if _db_chunk_count < 50 else (4 if _db_chunk_count < 100 else 5)  # iter952: sync 5→4
+                _pebf_ceiling = 4 if _db_chunk_count < 50 else (5 if _db_chunk_count < 100 else 5)  # iter952: sync 5→4
                 _pebf_cands = [(s, c) for s, c in final
                                if _recent_7d_counts.get(c.get("id", ""), 0) < _pebf_ceiling
                                and s >= 0.20]
@@ -4817,13 +4822,14 @@ def main():
                 #   但因 FTS5 全库搜索 + session 恢复关键词匹配，7d=3-4 的 kernel chunk 持续注入。
                 #   修复：非本项目非 global chunk 7d 阈值收紧 2，加速 suppress 无关知识。
                 # iter908: final_gate_7d_align_score — tiny_db 4→3 对齐 _score_chunk(>=3)
+                # iter990: small_db_7d_relax_v3 — FULL final_gate 路径同步
                 def _sf663_7d_thresh(s, c):
                     _cp = c.get("project", "")
                     _cross = (_cp != project and _cp != "global")
                     if _sf663_tiny_db:
                         _t = 3  # iter971: tiny 4→3 去垄断
                     elif _sf663_small_db:
-                        _t = 4 if s >= 0.5 else 3
+                        _t = 6 if s >= 0.5 else 4  # iter990: 4/3→6/4
                     else:
                         _t = 5 if s >= 0.5 else 3
                     return max(2, _t - 2) if _cross else _t
@@ -4860,13 +4866,14 @@ def main():
             _fg887_small = _db_chunk_count < 100
             # iter905: cross_project_suppress_tighten — 闭包路径同步跨项目收紧
             # iter908: final_gate_7d_align_score — tiny_db 4→3
+            # iter990: small_db_7d_relax_v3 — closure_fallback 路径同步
             def _fg887_7d_thresh(s, c):
                 _cp = c.get("project", "")
                 _cross = (_cp != project and _cp != "global")
                 if _fg887_tiny:
                     _t = 3  # iter971: tiny 4→3 去垄断（sync suppress_final_gate）
                 elif _fg887_small:
-                    _t = 4 if s >= 0.5 else 3
+                    _t = 6 if s >= 0.5 else 4  # iter990: 4/3→6/4
                 else:
                     _t = 5 if s >= 0.5 else 3
                 return max(2, _t - 2) if _cross else _t
@@ -4907,7 +4914,7 @@ def main():
                 # iter960: pair_7d_align_final_gate_v2 — tiny_db 5→4 堵 pair 逃逸
                 # 根因（数据驱动，2026-05-06）：7d=4 chunk 被 suppress_final_gate(4) 拦截后
                 #   经 pair 路径逃逸（pair lim=5 > final_gate=4）。对齐消除 1-gap 逃逸窗口。
-                _p7d_lim = 4 if _sf663_tiny_db else (4 if score >= 0.5 else 3) if _sf663_small_db else (3 if score >= 0.5 else 3)
+                _p7d_lim = 4 if _sf663_tiny_db else (5 if score >= 0.5 else 4) if _sf663_small_db else (3 if score >= 0.5 else 3)  # iter990: small_db pair 4/3→5/4
                 return _p24 < _p24_lim and _p7d < _p7d_lim
             except NameError:
                 return True  # suppress_final_gate 未执行（try 失败），不额外限制
@@ -5014,7 +5021,7 @@ def main():
                 _fb_7d = _rt663_7d if '_rt663_7d' in dir() and _rt663_7d else _recent_7d_counts
                 _fb_24h = _rt663_24h if '_rt663_24h' in dir() and _rt663_24h else _recent_24h_counts
                 # iter971: fallback_ceiling_align — tiny 4→3 去垄断
-                _fb_ceiling = 3 if _db_chunk_count < 50 else (4 if _db_chunk_count < 100 else 5)
+                _fb_ceiling = 3 if _db_chunk_count < 50 else (5 if _db_chunk_count < 100 else 5)
                 _fb_cap = [(s, c) for s, c in _pre_suppress_top_k
                            if _fb_7d.get(c.get("id", ""), 0) < _fb_ceiling
                            and _fb_24h.get(c.get("id", ""), 0) < 3]
@@ -5051,7 +5058,7 @@ def main():
                 # 根因（数据驱动，2026-05-06）：tiny_db ceiling=3 比 suppress_final_gate(4) 更严格，
                 #   导致主门禁放过的 7d=3 chunk 被 fallback 排除 → 21 次/7d 空召回（41%）。
                 # 修复：ceiling 对齐 final_gate（tiny 3→4），fallback 不应比主门禁更紧。
-                _ult_ceiling = 4 if _db_chunk_count < 50 else (4 if _db_chunk_count < 100 else 5)
+                _ult_ceiling = 4 if _db_chunk_count < 50 else (5 if _db_chunk_count < 100 else 5)
                 _ult_exclude = [cid for cid, cnt in _fb_7d_ult.items() if cnt >= _ult_ceiling]
                 _ult_placeholders = ','.join(['?'] * len(_ult_exclude)) if _ult_exclude else ''
                 _ult_where = f" AND id NOT IN ({_ult_placeholders})" if _ult_exclude else ''
@@ -5147,7 +5154,7 @@ def main():
                 #   而 suppress_final_gate 阈值=3。7d=4-5 的垄断 chunk 被 final_gate suppress
                 #   后经 fallback→pair 路径复活注入（如 import-90139 7d=4 仍注入 6 次/7d）。
                 # 修复：pair 7d 限制对齐 suppress_final_gate，阻止被 suppress 的 chunk 经配对逃逸。
-                _pf914_lim = 3 if _db_chunk_count < 50 else (4 if _db_chunk_count < 100 else 5)
+                _pf914_lim = 3 if _db_chunk_count < 50 else (5 if _db_chunk_count < 100 else 5)
                 _pf914_ok = [r for r in _pf914_rows if _pf914_7d.get(r[0], 0) < _pf914_lim]
                 if _pf914_ok:
                     _pf914_pick = _pf914_ok[0]
@@ -5214,7 +5221,7 @@ def main():
                 #   不检查 7d → 垄断 chunk 经 rotation 逃逸 suppress。
                 # 修复：候选过滤加 7d >= ceiling 排除（与 iter927 对齐）。
                 _sh_7d_src = _rt663_7d if '_rt663_7d' in dir() and _rt663_7d else {}
-                _sh_7d_ceil = 3 if _db_chunk_count < 50 else (4 if _db_chunk_count < 100 else 5)
+                _sh_7d_ceil = 3 if _db_chunk_count < 50 else (5 if _db_chunk_count < 100 else 5)
                 _sh_alt_cands = [(s, c) for s, c in _pre_suppress_top_k
                                  if c.get("id", "") not in _sh_top_k_ids_set
                                  and _sh_7d_src.get(c.get("id", ""), 0) < _sh_7d_ceil]
@@ -5251,7 +5258,7 @@ def main():
                     #   suppress_final_gate 拦截的垄断 chunk（7d>=3），轮转到的知识用户已反复看过。
                     # 修复：排除 7d >= suppress 阈值的 chunk，确保轮转到真正新鲜的知识。
                     _dp_7d = _rt663_7d if '_rt663_7d' in dir() and _rt663_7d else {}
-                    _dp_7d_ceil = 3 if _db_chunk_count < 50 else (4 if _db_chunk_count < 100 else 5)
+                    _dp_7d_ceil = 3 if _db_chunk_count < 50 else (5 if _db_chunk_count < 100 else 5)
                     _dp_7d_exclude = set(cid for cid, cnt in _dp_7d.items() if cnt >= _dp_7d_ceil)
                     _dp_all_exclude = _sh_top_k_ids | _dp_7d_exclude
                     _dp_exclude = ",".join(f"'{x}'" for x in _dp_all_exclude) if _dp_all_exclude else "''"
@@ -5361,13 +5368,14 @@ def main():
                 # iter837: tiny_db_24h_relax_v2 — 阈值 3→4（同步 _score_chunk）
                 # iter905: cross_project_suppress_tighten — LITE 路径同步
                 # iter908: final_gate_7d_align_score — tiny_db 4→3
+                # iter990: small_db_7d_relax_v3 — LITE final_gate 路径同步
                 def _lt905_7d_thresh(s, c):
                     _cp = c.get("project", "")
                     _cross = (_cp != project and _cp != "global")
                     if _sf758_tiny_db:
                         _t = 3
                     elif _sf758_small_db:
-                        _t = 4 if s >= 0.5 else 3
+                        _t = 6 if s >= 0.5 else 4  # iter990: 4/3→6/4
                     else:
                         _t = 5 if s >= 0.5 else 3
                     return max(2, _t - 2) if _cross else _t
@@ -5394,7 +5402,7 @@ def main():
                     # iter893: fallback_hard_ceiling — 7d>=5 绝对不选（LITE 路径同步）
                     # iter894: fallback_realtime_align — ceiling 对齐 suppress_final_gate_lite 阈值
                     # iter911: pair_7d_tighten — fallback ceiling 4→3(tiny) 堵逃逸
-                    _fb_lite_ceiling = 3 if _db_chunk_count < 50 else (4 if _db_chunk_count < 100 else 5)  # iter971: tiny 4→3
+                    _fb_lite_ceiling = 3 if _db_chunk_count < 50 else (5 if _db_chunk_count < 100 else 5)  # iter971: tiny 4→3
                     _fb_lite_cap = [(s, c) for s, c in _pre_suppress_top_k_lite
                                     if sum(1 for t in _itl758.get(c.get("id", ""), []) if t > _cut758_7d) < _fb_lite_ceiling
                                     and sum(1 for t in _itl758.get(c.get("id", ""), []) if t > _cut758_24h) < 3]
@@ -5436,7 +5444,7 @@ def main():
                                      for cid, ts_list in _itl758.items()}
                 except NameError:
                     pass
-                _dbuf_lite_ceiling = 4 if _db_chunk_count < 50 else (4 if _db_chunk_count < 100 else 5)
+                _dbuf_lite_ceiling = 4 if _db_chunk_count < 50 else (5 if _db_chunk_count < 100 else 5)
                 _dbuf_lite_exclude = [cid for cid, cnt in _dbuf_lite_7d.items() if cnt >= _dbuf_lite_ceiling]
                 _dbuf_lite_ph = ','.join(['?'] * len(_dbuf_lite_exclude)) if _dbuf_lite_exclude else ''
                 _dbuf_lite_where = f" AND id NOT IN ({_dbuf_lite_ph})" if _dbuf_lite_exclude else ''
@@ -5776,7 +5784,7 @@ def main():
         #   解决闭包快照 _recent_7d_counts 在 session 内不更新 + 无 session-dedup 的问题。
         if top_k and len(top_k) > 1 and not _micro_db:
             _omf_7d_src = _rt663_7d if '_rt663_7d' in dir() and _rt663_7d else _recent_7d_counts
-            _omf_ceiling = 3 if _db_chunk_count < 50 else (4 if _db_chunk_count < 100 else 5)
+            _omf_ceiling = 3 if _db_chunk_count < 50 else (5 if _db_chunk_count < 100 else 5)
             _omf_filtered = [(s, c) for s, c in top_k
                              if _omf_7d_src.get(c.get("id", ""), 0) < _omf_ceiling]
             if _omf_filtered:
