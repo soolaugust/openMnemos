@@ -2471,11 +2471,24 @@ def main():
             #   global chunk 全是 design_constraint/procedure，agent 已内化，应无条件 cooldown。
             # 修复：global chunk 绕过 _cd_acc_floor 检查，对齐 iter1079 意图。
             _cd_is_global = _cd_chunk_proj == "global"
-            if (not _micro_db or _cd_is_cross_project) and (_cd_is_global or _acc >= _cd_acc_floor) and _injection_timeline and _cutoff_48h:
+            if (not _micro_db or _cd_is_cross_project) and (_cd_is_global or _acc >= _cd_acc_floor) and _cutoff_48h:
                 _cd_id = chunk.get("id", "")
-                _cd_ts_list = _injection_timeline.get(_cd_id)
+                _cd_ts_list = _injection_timeline.get(_cd_id) if _injection_timeline else None
+                # iter1090: cooldown_db_fallback — timeline GC 后用 last_accessed 兜底
+                # 根因（数据驱动，2026-05-07）：GC=14d 与 cooldown=14d 完全重合，
+                #   GC 清除 timeline 记录后 _cd_ts_list=None → cooldown 判断被跳过
+                #   → 高 ac chunk 周期性重获注入资格（每 14d 循环一次）。
+                #   30d 数据：ac>=7 chunk 30d 内注入 6 次（14d cooldown 应限 ≤2）。
+                # 修复：timeline 无记录时取 chunk.last_accessed 作为 fallback 时间戳。
+                #   last_accessed 在每次注入时由 write-back 更新，不受 timeline GC 影响。
+                _cd_last = None
                 if _cd_ts_list:
                     _cd_last = max(_cd_ts_list)
+                elif _acc >= 7:
+                    _cd_la = chunk.get("last_accessed", "")
+                    if _cd_la:
+                        _cd_last = _cd_la
+                if _cd_last:
                     # iter1077: cooldown_5d_fix — ac>=7 cooldown 72h→5d 对齐 iter1072 意图
                     # 根因：iter1072 注释说 "ac>=7 48h→5d" 但代码用 _cutoff_72h(72h≠5d)。
                     #   import-90139(ac=7) 72h cooldown 过期后即被重新注入，7d 内累计 7 次。
