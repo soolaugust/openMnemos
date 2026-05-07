@@ -1813,6 +1813,7 @@ def main():
             _injection_timeline = {}  # {chunk_id: [iso_ts, ...]}
             _cutoff_48h = ""  # iter1071: cooldown fallback
             _cutoff_72h = ""  # iter1071: cooldown fallback
+            _cutoff_5d = ""   # iter1077: cooldown_5d_fix
             try:
                 if os.path.exists(_INJECTION_TIMELINE_FILE):
                     with open(_INJECTION_TIMELINE_FILE, encoding="utf-8") as _itf:
@@ -1823,6 +1824,7 @@ def main():
                 _cutoff_24h = (_now647 - _td647(hours=24)).isoformat()
                 _cutoff_48h = (_now647 - _td647(hours=48)).isoformat()  # iter1071: cooldown
                 _cutoff_72h = (_now647 - _td647(hours=72)).isoformat()  # iter1071: cooldown
+                _cutoff_5d = (_now647 - _td647(days=5)).isoformat()    # iter1077: cooldown_5d_fix
                 _cutoff_7d = (_now647 - _td647(days=7)).isoformat()
                 _pruned = {}  # GC: 丢弃 >7d 的条目
                 for _cid647, _ts_list in _injection_timeline.items():
@@ -2461,7 +2463,11 @@ def main():
                 _cd_ts_list = _injection_timeline.get(_cd_id)
                 if _cd_ts_list:
                     _cd_last = max(_cd_ts_list)
-                    _cd_cutoff = _cutoff_7d if _acc >= 10 else (_cutoff_72h if _acc >= 7 else _cutoff_48h)
+                    # iter1077: cooldown_5d_fix — ac>=7 cooldown 72h→5d 对齐 iter1072 意图
+                    # 根因：iter1072 注释说 "ac>=7 48h→5d" 但代码用 _cutoff_72h(72h≠5d)。
+                    #   import-90139(ac=7) 72h cooldown 过期后即被重新注入，7d 内累计 7 次。
+                    # 修复：ac>=7 cooldown=5d(120h)，确保 7d 内最多 2 次注入。
+                    _cd_cutoff = _cutoff_7d if _acc >= 10 else (_cutoff_5d if _acc >= 7 else _cutoff_48h)
                     if _cd_last > _cd_cutoff:
                         score = 0.0
                         _hard_suppressed = True

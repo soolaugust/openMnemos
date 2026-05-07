@@ -3123,6 +3123,7 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
         _last_inject_ts = {}     # iter1071: cooldown — {chunk_id: last_inject_iso_ts}
         _cutoff_48h = ""         # iter1071: cooldown fallback
         _cutoff_72h = ""         # iter1071: cooldown fallback
+        _cutoff_5d = ""          # iter1077: cooldown_5d_fix
         _effective_bw_window = 30
         _local_bw_window = 30  # iter610: fallback
         _db_chunk_count = 50  # iter797: fallback for tiny/small判定
@@ -3230,6 +3231,7 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                     _cutoff_24h = (_now648 - _td648(hours=24)).isoformat()
                     _cutoff_48h = (_now648 - _td648(hours=48)).isoformat()  # iter1071
                     _cutoff_72h = (_now648 - _td648(hours=72)).isoformat()  # iter1071
+                    _cutoff_5d = (_now648 - _td648(days=5)).isoformat()    # iter1077: cooldown_5d_fix
                     _cutoff_7d = (_now648 - _td648(days=7)).isoformat()
                     _last_inject_ts = {}  # iter1071: {chunk_id: max_ts}
                     for _cid648, _ts_list in _itl_data.items():
@@ -3830,7 +3832,7 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                     _cd_id = chunk[_CI_ID]
                     _cd_last = _last_inject_ts.get(_cd_id)
                     if _cd_last:
-                        _cd_cut = _cutoff_7d if (chunk[_CI_AC] or 0) >= 10 else (_cutoff_72h if (chunk[_CI_AC] or 0) >= 7 else _cutoff_48h)
+                        _cd_cut = _cutoff_7d if (chunk[_CI_AC] or 0) >= 10 else (_cutoff_5d if (chunk[_CI_AC] or 0) >= 7 else _cutoff_48h)
                         if _cd_last > _cd_cut:
                             score = 0.0
                 # iter989: saturation_widen — ac>=5 渐进衰减，ac>=12 suppress
@@ -3972,7 +3974,7 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 if score > 0 and (chunk.get("access_count", 0) or 0) >= _cd_floor_d2 and _cutoff_48h and _last_inject_ts:
                     _cd_last_d2 = _last_inject_ts.get(_cid)
                     if _cd_last_d2:
-                        _cd_cut_d2 = _cutoff_7d if (chunk.get("access_count", 0) or 0) >= 10 else (_cutoff_72h if (chunk.get("access_count", 0) or 0) >= 7 else _cutoff_48h)
+                        _cd_cut_d2 = _cutoff_7d if (chunk.get("access_count", 0) or 0) >= 10 else (_cutoff_5d if (chunk.get("access_count", 0) or 0) >= 7 else _cutoff_48h)
                         if _cd_last_d2 > _cd_cut_d2:
                             score = 0.0
                 # iter989: saturation_widen — ac>=5 渐进衰减，ac>=12 suppress
