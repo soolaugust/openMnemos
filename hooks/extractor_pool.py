@@ -282,6 +282,7 @@ def _run_extraction_pipeline(payload: dict) -> dict:
             _sysctl,
             _cow_prescan,
             _is_quality_chunk,
+            _is_quality_decision,
             DECISION_SIGNALS, EXCLUDED_SIGNALS, REASONING_SIGNALS,
             _extract_by_signals,
             _extract_structured_decisions,
@@ -445,18 +446,13 @@ def _run_extraction_pipeline(payload: dict) -> dict:
                     # 连接词短句（推理过渡）
                     if _re.match(r'^(?:但是|不过|然而|而且|并且|也就是说|换言之|即)\s*', _t_stripped) and len(_t_stripped) < 80:
                         continue
-                # iter962: pool_decision_quality_gate — decision 需含决策动词/技术锚点
-                # 根因（数据驱动，2026-05-06）：pool 路径 decision 只过 _is_quality_chunk，
-                #   不检查决策语义密度。"我们的代码没有 bug"(11字) 等无决策价值短句逃逸写入。
-                #   对齐 extractor.py _is_quality_decision：需含动词/锚点/对比才通过。
+                # iter1054: pool_decision_full_gate — 直接调用 _is_quality_decision
+                # 根因（数据驱动，2026-05-07）：pool 路径 decision gate 只复制了通过条件(B)，
+                #   缺少排除条件(X5:self_impl_gate, X6:ephemeral_market_gate)。
+                #   导致 6/10 ac=0 噪声 chunk 经此路径逃逸写入（含数字度量绕过排除）。
+                # 修复：直接调用完整的 _is_quality_decision（含全部排除+通过条件）。
                 if chunk_type == "decision":
-                    _td = t.strip()
-                    if not (_re.search(r'(?:选择|决定|采用|推荐|替代|改用|放弃|因为|所以|根因|不选|不用|废弃|最终方案)', _td)
-                            or _re.search(r'[\w./]+\.(?:py|js|ts|json|db|sql|yaml|toml|sh|md)\b', _td)
-                            or _re.search(r'\d+(?:\.\d+)?(?:%|ms|s|MB|GB|次|条|个|行|倍|x)', _td)
-                            or _re.search(r'`[^`]+`', _td)
-                            or _re.search(r'(?:→|->)\s*\d', _td)
-                            or _re.search(r'(?:而非|而不是|不是.*而是|相比.*更|比.*更好)', _td)):
+                    if not _is_quality_decision(t.strip()):
                         continue
                 imp = base_importance
                 if throttle_active:
