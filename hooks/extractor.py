@@ -1806,7 +1806,9 @@ def _is_quality_decision(summary: str) -> bool:
     _SELF_IMPL_KW = re.compile(
         r'(?:suppress|_gate|阈值|threshold|extractor|retriever|recall_count'
         r'|zero_access|tiny_db|small_db|hard_cap|bandwidth|iter\d{3}'
-        r'|excluded_path|chunk_type|conv_summary|density.gate|碎片.*拒绝|过渡句.*拒绝)'
+        r'|excluded_path|chunk_type|conv_summary|density.gate|碎片.*拒绝|过渡句.*拒绝'
+        r'|低质量注入|注入事件|注入率|空召回率|ac[≥>=]\d|chunk.*被.*inject'
+        r'|2\s*处同步|三路径同步|FULL.*hard_deadline|hard_deadline.*FULL)'
     )
     if _SELF_IMPL_KW.search(s) and not re.search(r'[\u4e00-\u9fff]{8,}', s.split('：')[0] if '：' in s else ''):
         # 含系统关键词，且冒号前无 >=8 个连续中文（有中文业务上下文则放行）
