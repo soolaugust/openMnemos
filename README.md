@@ -18,6 +18,13 @@
 
 ---
 
+> **⚡ One-line install via Claude Code:**
+> ```
+> /install-plugin github:soolaugust/memory-os
+> ```
+
+---
+
 ## The Problem
 
 Every time you start a new conversation with an AI assistant, it starts from scratch. Every decision, every discovered pitfall, every architectural constraint — gone. You re-explain context. It re-learns the same lessons. And if you run multiple agents in parallel, they have no way to share what they've learned.
