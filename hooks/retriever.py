@@ -2981,6 +2981,15 @@ def main():
                     _relevance_gate = 0.40 if _ctype == "design_constraint" else 0.25
                     if relevance < _relevance_gate:
                         score *= 0.50
+                # iter1128: cross_project_relevance_gate — 非 global 跨项目 chunk 相关性门槛
+                # 根因（数据驱动，2026-05-08）：7d 内 12 次非 global 跨项目注入，
+                #   kernel chunk（PE分析/Patch规范/MTK数据）被注入到商业分析项目(abspath:7e3095aef7a6)。
+                #   B10 只对 global chunk 生效，非 global 跨项目 chunk 无相关性检查。
+                # 修复：非 global 跨项目 chunk 需 relevance >= 0.30，否则 score *= 0.30。
+                #   阈值 0.30 高于 global 的 0.25（global 天然跨项目，非 global 需更强语义匹配）。
+                elif _chunk_proj and _chunk_proj != "global" and _chunk_proj != project:
+                    if relevance < 0.30:
+                        score *= 0.30
             except Exception:
                 pass
             # ── iter616: final_hard_gate — 防止 additive bonus 绕过 hard suppression ──
