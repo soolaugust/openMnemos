@@ -2443,12 +2443,18 @@ def main():
             #   高 ac chunk 边际信息=0，7d 内重复注入 = 纯噪声。
             # 修复：ac>=10 cooldown=7d（timeline GC 保留窗口内），ac>=7 cooldown=5d。
             #   确保 7d 内最多 1 次注入（首次注入后立即进入 cooldown，不等 suppress count 累积）。
-            if not _micro_db and _acc >= 7 and _injection_timeline and _cutoff_48h:
+            # iter1073: global_cooldown_widen — global chunk ac>=4 纳入 cooldown（72h）
+            # 根因（数据驱动，2026-05-07）：feishu CLI(ac=4) 7d注入4次, memory验证(ac=6) 7d注入4次,
+            #   git commit(ac=9,global) 7d注入5次。global chunk cooldown 需 ac>=7 才触发，
+            #   ac=4-6 的 global constraint 已被用户充分内化但无 cooldown 保护。
+            # 修复：global chunk ac>=4 → cooldown 72h；local 保持 ac>=7。
+            _cd_acc_floor = 4 if chunk.get("project") == "global" else 7
+            if not _micro_db and _acc >= _cd_acc_floor and _injection_timeline and _cutoff_48h:
                 _cd_id = chunk.get("id", "")
                 _cd_ts_list = _injection_timeline.get(_cd_id)
                 if _cd_ts_list:
                     _cd_last = max(_cd_ts_list)
-                    _cd_cutoff = _cutoff_7d if _acc >= 10 else _cutoff_72h
+                    _cd_cutoff = _cutoff_7d if _acc >= 10 else (_cutoff_72h if _acc >= 7 else _cutoff_48h)
                     if _cd_last > _cd_cutoff:
                         score = 0.0
                         _hard_suppressed = True
