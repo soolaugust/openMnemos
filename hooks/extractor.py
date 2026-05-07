@@ -1150,6 +1150,36 @@ def _write_uncertainty_chunks(
     return written
 
 
+def _is_selfref_noise(summary: str, chunk_type: str) -> bool:
+    """iter1117: pool_selfref_gate_sync — 系统自描述噪声检测（可复用函数）。
+    返回 True 表示是 selfref 噪声，应拒绝写入。
+    根因（数据驱动，2026-05-08）：extractor_pool._write_chunks 路径缺少 selfref gate，
+      导致 decision chunk "量化预期：大库 suppress 全灭后空召回率降 ~50%"(ac=0) 逃逸。
+      提取为独立函数供 extractor.py _write_chunk 和 extractor_pool.py 共用。
+    """
+    if chunk_type not in ("decision", "reasoning_chain", "causal_chain", "excluded_path"):
+        return False
+    hits = len(re.findall(
+        r'(?:_score_chunk|suppress|fallback|top.?k|候选全灭|空召回|recall_count|'
+        r'hard_suppressed|relevance_fallback|iter\d{3,4}|cooldown|bandwidth|'
+        r'hard_deadline|inject|scored|cands|FTS.*miss|BM25.*noise|'
+        r'噪声率?|ac[=≥]\d+|\bac\b.{0,3}chunk|chunk.?type|selfref|gate|逃逸|垄断|注入率?|单条注入|'
+        r'注入资格|\d+d\s*(?:cooldown|循环|窗口)|7d|24h|6h|量化预期|SWAPPED|timeline|suppress_final|'
+        r'token.?overlap|子串检测|LCS|dedup|去重|碎片拦截|写入门控|拦截率)',
+        summary
+    ))
+    if hits < 2:
+        return False
+    has_ext_anchor = re.search(
+        r'(?:kernel|sched|CPU|Android|feishu|飞书|patch|线程|进程|调度|'
+        r'binder|LKMM|scx|qos|migration|MTK|vendor|AOSP|'
+        r'Proxy.Execution|uclamp|cpufreq|thermal|cgroup|'
+        r'公众号|微信|curl|HTTP|API|gRPC)',
+        summary, re.I
+    )
+    return not has_ext_anchor
+
+
 def _is_quality_chunk(summary: str) -> bool:
     """
     写入前质量过滤——返回 False 则丢弃。
@@ -2648,26 +2678,9 @@ def _write_chunk(chunk_type: str, summary: str, project: str, session_id: str,
     #   "量化预期：global ac>=5 chunk 7d 注入从 4 次降至 ≤1 次"(decision,hits=0)
     #   问题：excluded_path 不在检查范围 + 中文"注入/chunk/7d"未匹配。
     # 修复：扩展 type + 补充中文术语。
-    if chunk_type in ("decision", "reasoning_chain", "causal_chain", "excluded_path"):
-        _selfref_hits = len(re.findall(
-            r'(?:_score_chunk|suppress|fallback|top.?k|候选全灭|空召回|recall_count|'
-            r'hard_suppressed|relevance_fallback|iter\d{3,4}|cooldown|bandwidth|'
-            r'hard_deadline|inject|scored|cands|FTS.*miss|BM25.*noise|'
-            r'噪声率?|ac[=≥]\d+|\bac\b.{0,3}chunk|chunk.?type|selfref|gate|逃逸|垄断|注入率?|单条注入|'
-            r'注入资格|\d+d\s*(?:cooldown|循环|窗口)|7d|24h|6h|量化预期|SWAPPED|timeline|suppress_final|'
-            r'token.?overlap|子串检测|LCS|dedup|去重|碎片拦截|写入门控|拦截率)',
-            summary
-        ))
-        if _selfref_hits >= 2:
-            _has_ext_anchor = re.search(
-                r'(?:kernel|sched|CPU|Android|feishu|飞书|patch|线程|进程|调度|'
-                r'binder|LKMM|scx|qos|migration|MTK|vendor|AOSP|'
-                r'Proxy.Execution|uclamp|cpufreq|thermal|cgroup|'
-                r'公众号|微信|curl|HTTP|API|gRPC)',
-                summary, re.I
-            )
-            if not _has_ext_anchor:
-                return
+    # iter1117: pool_selfref_gate_sync — 使用独立函数（与 extractor_pool 共用）
+    if _is_selfref_noise(summary, chunk_type):
+        return
     # iter1109: code_change_report_gate — 拦截代码改动描述和测试验证结果
     # 数据驱动（2026-05-07）：6 个 ac=0 decision chunk 逃逸 selfref_gate（hits<2），
     #   包括 "改动：extractor.py +21 行"、"正例：LCS=98% → 拦截 ✅"、"负例：<5% → 放行 ✅"。

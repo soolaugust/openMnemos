@@ -283,6 +283,7 @@ def _run_extraction_pipeline(payload: dict) -> dict:
             _cow_prescan,
             _is_quality_chunk,
             _is_quality_decision,
+            _is_selfref_noise,
             DECISION_SIGNALS, EXCLUDED_SIGNALS, REASONING_SIGNALS,
             _extract_by_signals,
             _extract_structured_decisions,
@@ -466,6 +467,11 @@ def _run_extraction_pipeline(payload: dict) -> dict:
                 if chunk_type == "decision":
                     if not _is_quality_decision(t.strip()):
                         continue
+                # iter1117: pool_selfref_gate_sync — 对齐 extractor.py selfref gate
+                # 根因（数据驱动，2026-05-08）：pool 路径缺少 selfref gate，
+                #   "量化预期：大库 suppress 全灭后空召回率降 ~50%"(ac=0) 逃逸写入。
+                if _is_selfref_noise(t[:120], chunk_type):
+                    continue
                 imp = base_importance
                 if throttle_active:
                     imp = round(imp * importance_factor, 3)
