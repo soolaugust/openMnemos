@@ -3525,12 +3525,16 @@ def main():
                 if _top1_score >= _af_min_top1:
                     _af_ratio = _sysctl("retriever.adaptive_floor_ratio")
                     # iter823: small_db_af_relax — 小库 BM25 分布稀疏，0.25 过滤 top2
+                    # iter1130: small_db_af_raise — 0.12→0.20 恢复 adaptive_floor 有效性
+                    # 数据驱动（2026-05-08）：83-chunk 库 _af_ratio=0.12 时 floor=top1*0.12
+                    #   永远低于硬底 0.12 → adaptive_floor 形同虚设。50% 注入 score<0.2。
+                    #   提升到 0.20：top1=0.8→floor=0.16，过滤 11% 低相关配对注入。
                     if _db_chunk_count < 100:
-                        _af_ratio = min(_af_ratio, 0.12)
+                        _af_ratio = min(_af_ratio, 0.20)
                     _adaptive_floor = _top1_score * _af_ratio
-                    # iter1120: relevance_floor_raise — 0.10→0.12 消除低相关性注入
-                    # 数据驱动（2026-05-08）：FULL 路径 38% 注入 score<0.12，信噪比极低。
-                    _min_thresh = min(_min_thresh, max(_adaptive_floor, 0.12))
+                    # iter1130: relevance_floor_raise — 0.12→0.15（配合 af_ratio 提升）
+                    # 数据驱动：0.12-0.15 区间 9 个注入均为泛查询低相关配对（feishu CLI/patch 格式等）
+                    _min_thresh = min(_min_thresh, max(_adaptive_floor, 0.15))
             # iter579: copy_page_range — hard deadline 路径也应用 gap bridging
             if (len(final) >= 3 and _sysctl("retriever.gap_bridge_enabled")
                     and not _is_generic_knowledge_query(query)):
@@ -3549,8 +3553,8 @@ def main():
                     if _gb_cluster_size >= _gb_min_cluster:
                         # iter863: gap_bridge_floor_raise — 0.05 允许 score<0.10 的不相关知识注入
                         #   数据驱动：7d 内 12 条 score<0.10 注入全为跨项目无关知识
-                        # iter1120: relevance_floor_raise — gap_bridge floor 0.10→0.12
-                        _gb_new_thresh = max(_gb_cluster_floor, 0.12)
+                        # iter1130: gap_bridge floor 0.12→0.15（sync adaptive_floor）
+                        _gb_new_thresh = max(_gb_cluster_floor, 0.15)
                         if _gb_new_thresh < _min_thresh:
                             _min_thresh = _gb_new_thresh
             # iter620: zero_score_absolute_gate — score=0 的 chunk 绝对不进入 positive
@@ -4469,11 +4473,12 @@ def main():
             if _top1_score >= _af_min_top1:
                 _af_ratio = _sysctl("retriever.adaptive_floor_ratio")
                 # iter823: small_db_af_relax — 小库 BM25 分布稀疏，0.25 过滤 top2
+                # iter1130: small_db_af_raise — 0.12→0.20 (FULL path sync)
                 if _db_chunk_count < 100:
-                    _af_ratio = min(_af_ratio, 0.12)
+                    _af_ratio = min(_af_ratio, 0.20)
                 _adaptive_floor = _top1_score * _af_ratio
-                # iter1120: relevance_floor_raise — 0.10→0.12 (FULL path sync)
-                _min_thresh = min(_min_thresh, max(_adaptive_floor, 0.12))
+                # iter1130: relevance_floor_raise — 0.12→0.15 (FULL path sync)
+                _min_thresh = min(_min_thresh, max(_adaptive_floor, 0.15))
         # ── iter579: copy_page_range — Score Gap Bridging ─────────────────
         # OS 类比：Linux copy_page_range() (Andrea Arcangeli, 2004, mm/memory.c)
         #   fork() 复制父进程地址空间时，大 VMA 间的 gap 不阻止复制下一个有效 VMA。
@@ -4500,8 +4505,8 @@ def main():
                 )
                 if _gb_cluster_size >= _gb_min_cluster:
                     # iter863: gap_bridge_floor_raise (FULL path)
-                    # iter1120: relevance_floor_raise — 0.10→0.12
-                    _gb_new_thresh = max(_gb_cluster_floor, 0.12)
+                    # iter1130: relevance_floor_raise — 0.12→0.15 (sync)
+                    _gb_new_thresh = max(_gb_cluster_floor, 0.15)
                     if _gb_new_thresh < _min_thresh:
                         _min_thresh = _gb_new_thresh
                         _deferred.log(DMESG_DEBUG, "retriever",

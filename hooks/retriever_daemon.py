@@ -4242,9 +4242,10 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 _af_top1 = final[0][0]
                 if _af_top1 >= 0.30:
                     # iter823: small_db_af_relax — 小库 ratio 0.25→0.12
-                    _af_r = 0.12 if _db_chunk_count < 100 else 0.25
-                    # iter1120: relevance_floor_raise — 0.10→0.12
-                    _min_thresh = min(_min_thresh, max(_af_top1 * _af_r, 0.12))
+                    # iter1130: small_db_af_raise — 0.12→0.20 (daemon hard_deadline sync)
+                    _af_r = 0.20 if _db_chunk_count < 100 else 0.25
+                    # iter1130: relevance_floor_raise — 0.12→0.15 (daemon sync)
+                    _min_thresh = min(_min_thresh, max(_af_top1 * _af_r, 0.15))
             # iter821: daemon_gap_bridge (hard_deadline) — 同步 retriever.py iter579
             # 根因：top1=0.6 top2=0.15 时 adaptive_floor=0.15 仍不够低，
             #   但 top2~top4 内聚(0.15/0.14/0.13) → cluster 存在 → 应放行。
@@ -4256,8 +4257,8 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                     _gb_cs = sum(1 for s, _ in final[1:] if s >= _gb_cf)
                     if _gb_cs >= 2:
                         # iter863: gap_bridge_floor_raise — 0.05→0.10 防止低相关性噪声注入
-                        # iter1120: relevance_floor_raise — 0.10→0.12
-                        _gb_nt = max(_gb_cf, 0.12)
+                        # iter1130: relevance_floor_raise — 0.12→0.15 (daemon hd sync)
+                        _gb_nt = max(_gb_cf, 0.15)
                         if _gb_nt < _min_thresh:
                             _min_thresh = _gb_nt
             # iter620: zero_score_absolute_gate — hard_suppressed chunk 绝对不入选
@@ -4571,9 +4572,10 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
             _af_top1 = final[0][0]
             if _af_top1 >= 0.30:
                 # iter823: small_db_af_relax — 小库 ratio 0.25→0.12
-                _af_r = 0.12 if _db_chunk_count < 100 else 0.25
-                # iter1120: relevance_floor_raise — 0.10→0.12 (FULL path sync)
-                _min_thresh = min(_min_thresh, max(_af_top1 * _af_r, 0.12))
+                # iter1130: small_db_af_raise — 0.12→0.20 (daemon FULL path sync)
+                _af_r = 0.20 if _db_chunk_count < 100 else 0.25
+                # iter1130: relevance_floor_raise — 0.12→0.15 (daemon FULL sync)
+                _min_thresh = min(_min_thresh, max(_af_top1 * _af_r, 0.15))
         # iter821: daemon_gap_bridge (FULL path) — 同步 retriever.py iter579
         if len(final) >= 3 and not _is_generic_q:
             _gb_t1 = final[0][0]
@@ -4583,8 +4585,8 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 _gb_cs = sum(1 for s, _ in final[1:] if s >= _gb_cf)
                 if _gb_cs >= 2:
                     # iter863: gap_bridge_floor_raise (FULL path)
-                    # iter1120: relevance_floor_raise — 0.10→0.12
-                    _gb_nt = max(_gb_cf, 0.12)
+                    # iter1130: relevance_floor_raise — 0.12→0.15 (daemon FULL sync)
+                    _gb_nt = max(_gb_cf, 0.15)
                     if _gb_nt < _min_thresh:
                         _min_thresh = _gb_nt
         # iter620: zero_score_absolute_gate (FULL path) — 同 hard_deadline 路径
