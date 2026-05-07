@@ -2498,6 +2498,15 @@ class IoUringSQ:
                         continue
                 except ImportError:
                     pass
+                # iter1061: sq_fragment_gate — IoUringSQ 碎片写入最终拦截
+                # 根因（数据驱动，2026-05-07）：6 条 ac=0 chunk 经 direct 路径绕过
+                #   extractor _write_chunk 的 <120 gate（line 2505），仅经 _vfs_write_protect
+                #   min_len=15 通过。content=echo(summary) 的短碎片无独立检索价值。
+                # 修复：causal_chain/reasoning_chain 且 summary<80 字 → 拒绝。
+                #   不影响有价值短 chunk（decision/procedure/qe/excluded_path 等类型豁免）。
+                if chunk_type in ("causal_chain", "reasoning_chain") and len(summary.strip()) < 80:
+                    skipped_quality += 1
+                    continue
                 # 准备 INSERT
                 tags = [chunk_type, entry["project"]]
                 if entry["topic"]:
