@@ -1501,9 +1501,17 @@ def _is_quality_chunk(summary: str) -> bool:
     _internal_var_hits = len(re.findall(r'(?:_[a-z]\w+|[A-Z]{2,}_[A-Z]{2,}|\b[a-z]+_[a-z]+\b)', s))
     if _internal_var_hits >= 2:
         # iter890: wiki_topic_exempt — [topic] 前缀或含 () 的 kernel 函数引用是合法知识
+        # iter1138: kernel_macro_exempt — kernel 大写宏/API 名不是 memory-os 内部变量
+        # 数据驱动（2026-05-08）：4 条 ac>0 kernel 知识被误杀：
+        #   d2028e2a "SCX_TASK_OFF_TASKS 已合入 for-next"(ac=7)、
+        #   875b11e6 "list_empty 检查和 SCX_TASK_OFF_TASKS"(ac=4)。
+        #   根因：SCX_TASK_OFF_TASKS 匹配 [A-Z]{2,}_[A-Z]{2,}，list_empty 匹配 snake_case。
+        #   这些是 kernel API 名称，不是 memory-os 内部变量。
+        # 修复：含 kernel 大写宏前缀（SCX_/TASK_/SCHED_/CONFIG_/RQ_/CPU_）的 summary 豁免。
         if not re.search(r'(?:选择|决定|采用|因为|根因|必须|禁止)', s) \
            and not re.match(r'^\[[^\[\]]{1,30}\]', s) \
-           and '()' not in s:
+           and '()' not in s \
+           and not re.search(r'\b(?:SCX|TASK|SCHED|CONFIG|RQ|CPU|BPF|NUMA|IRQ)_[A-Z]', s):
             return False
     # ── iter974: contextless_assertion_gate — 拦截对话碎片短句 ──
     # 数据驱动（2026-05-06）：7 个 chunk 以指示/连接词开头 + <60字 + 无技术锚点，
