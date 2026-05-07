@@ -6874,6 +6874,28 @@ def main():
             if _ocg_filtered:
                 top_k = _ocg_filtered
 
+        # ── iter1119: saturation_diversity_gate — 高饱和 chunk 占比硬限 ─────────
+        # 根因（数据驱动，2026-05-08）：19 个 ac>=7 chunk 消耗 7d 注入位的 45%，
+        #   平均 3.2x/chunk vs fresh 的 1.3x/chunk。cooldown 限制单 chunk 频率，
+        #   但群体效应使用户每次注入看到的多数是已内化知识（边际信息≈0）。
+        # 修复：单次注入中 ac>=7 chunk 最多占 50%（向上取整），超额按 score 低的优先移除。
+        #   确保每次注入至少有一半位给新鲜/未内化知识。
+        # 豁免：micro_db (<=5) 和 top_k<=2 时不限制（候选不足）。
+        if top_k and len(top_k) > 2 and not _micro_db:
+            _sdg_max = max(1, (len(top_k) + 1) // 2)  # ceil(len/2)
+            _sdg_saturated = [(s, c) for s, c in top_k if (c.get("access_count", 0) or 0) >= 7]
+            if len(_sdg_saturated) > _sdg_max:
+                _sdg_fresh = [(s, c) for s, c in top_k if (c.get("access_count", 0) or 0) < 7]
+                # 保留 score 最高的 _sdg_max 个 saturated
+                _sdg_saturated.sort(key=lambda x: x[0], reverse=True)
+                _sdg_kept = _sdg_saturated[:_sdg_max]
+                top_k = _sdg_fresh + _sdg_kept
+                # 恢复原序（score 降序）
+                top_k.sort(key=lambda x: x[0], reverse=True)
+                _deferred.log(DMESG_DEBUG, "retriever",
+                              f"iter1119_saturation_diversity_gate: saturated {len(_sdg_saturated)}->{_sdg_max}",
+                              session_id=session_id, project=project)
+
         constraint_items = []
         normal_items = []
         for _, c in top_k:
