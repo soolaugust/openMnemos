@@ -1402,6 +1402,20 @@ def _is_quality_chunk(summary: str) -> bool:
     placeholders = {"方案 X 是最优解", "extractor 升级", "KnowledgeRouter"}
     if s in placeholders:
         return False
+    # iter1055: ephemeral_market_sync — 同步 _is_quality_decision X6 到通用 gate
+    # 根因（数据驱动，2026-05-07）：市场短时效数据（"市场情绪过滤通过了(5日+3.01%)"）
+    #   通过 causal_chain 路径绕过 _is_quality_decision 的 X6 gate 写入 DB。
+    #   这些日级数据快照次日过期，对未来检索零价值。
+    if re.search(r'(?:日[涨跌]幅|[涨跌]幅[：:]\s*[+-]?\d|连板|市场情绪.*[过通]|'
+                 r'扫描时间[点是]|下一个扫描|收盘后|开盘前|今[日天]行情|今[日天]无信号)', s):
+        if not re.search(r'(?:策略调整|规则变更|规则[：:]|参数.*(?:从|改为)|选择|决定|因为|必须|禁止)', s):
+            return False
+    # iter1055: trailing_colon_fragment — 以冒号结尾的不完整句是列表/段落前奏
+    # 根因（数据驱动，2026-05-07）："背景文档的 47% 提效估算 vs 多维表格推算的 20–30%，差距来自："
+    #   以冒号结尾暗示后续有展开内容，单独存储脱离上下文不可检索。
+    if re.search(r'[：:]\s*$', s) and len(s) < 100:
+        if not re.search(r'(?:必须|禁止|不[能可得]|规则|约束|要求)', s):
+            return False
     # ── 迭代74：Promotion Filter — 拦截不可复用的过程性记录 ──
     # OS 类比：Generational GC promotion filter — young gen 短命对象不提升到 old gen
     # V1 纯验证/测试报告（"N/N 通过"、"回归全绿"、"ALL PASSED"）
