@@ -3649,6 +3649,10 @@ def main():
                     # iter993: global_chunk_suppress_tighten — sync FULL path
                     # iter1006: global_saturated_suppress_tighten — sync hard_deadline
                     if _cross:
+                        # iter1099: cross_saturated_suppress — ac>=7 跨项目 chunk 阈值=2
+                        _x_ac = c.get("access_count", 0) or 0
+                        if _x_ac >= 7:
+                            return 2
                         return max(2, _t - 2)
                     elif _is_global:
                         _g_ac = c.get("access_count", 0) or 0
@@ -5379,6 +5383,10 @@ def main():
                     #   已内化的工具约束 7d=4 仍逃逸（阈值=4），垄断注入位。
                     # 修复：ac>=4 的 global chunk 与 cross 同级(-2)，ac<4 保持 -1。
                     if _cross:
+                        # iter1099: cross_saturated_suppress — ac>=7 跨项目 chunk 阈值=2
+                        _x_ac = c.get("access_count", 0) or 0
+                        if _x_ac >= 7:
+                            return 2
                         return max(2, _t - 2)
                     elif _is_global:
                         _g_ac = c.get("access_count", 0) or 0
@@ -6053,6 +6061,10 @@ def main():
                     else:
                         _t = 5 if s >= 0.5 else 3
                     if _cross:
+                        # iter1099: cross_saturated_suppress — ac>=7 跨项目 chunk 阈值=2
+                        _x_ac = c.get("access_count", 0) or 0
+                        if _x_ac >= 7:
+                            return 2
                         return max(2, _t - 2)
                     elif _is_global:
                         _g_ac = c.get("access_count", 0) or 0
