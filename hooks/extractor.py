@@ -2564,13 +2564,20 @@ def _write_chunk(chunk_type: str, summary: str, project: str, session_id: str,
     #   因无指标变化模式（N→M）但含 ≥2 个系统内部术语（_score_chunk/suppress/候选全灭等）。
     #   iter_metric_report_gate 仅在 _has_metric_pattern 时才检查内部术语，遗漏纯文字描述。
     # 修复：独立 gate — summary 含 ≥2 个内部术语且无外部领域锚点 → 拒绝。
-    #   仅对 decision/reasoning_chain/causal_chain 生效（不影响 procedure/qe/design_constraint）。
-    if chunk_type in ("decision", "reasoning_chain", "causal_chain"):
+    #   对 decision/reasoning_chain/causal_chain/excluded_path 生效。
+    # iter1094: selfref_gate_cn — 补充中文内部术语覆盖
+    # 根因（数据驱动，2026-05-07）：3 个 ac=0 噪声 chunk 逃逸 —
+    #   "高 ac chunk 每 14d 循环重获注入资格"(excluded_path,hits=0)
+    #   "量化预期：global ac>=5 chunk 7d 注入从 4 次降至 ≤1 次"(decision,hits=0)
+    #   问题：excluded_path 不在检查范围 + 中文"注入/chunk/7d"未匹配。
+    # 修复：扩展 type + 补充中文术语。
+    if chunk_type in ("decision", "reasoning_chain", "causal_chain", "excluded_path"):
         _selfref_hits = len(re.findall(
             r'(?:_score_chunk|suppress|fallback|top.?k|候选全灭|空召回|recall_count|'
             r'hard_suppressed|relevance_fallback|iter\d{3,4}|cooldown|bandwidth|'
             r'hard_deadline|inject|scored|cands|FTS.*miss|BM25.*noise|'
-            r'噪声率?|ac=\d+|chunk.?type|selfref|gate|逃逸|垄断|注入率|单条注入)',
+            r'噪声率?|ac[=≥]\d+|\bac\b.{0,3}chunk|chunk.?type|selfref|gate|逃逸|垄断|注入率?|单条注入|'
+            r'注入资格|\d+d\s*(?:cooldown|循环|窗口)|7d|24h|6h|量化预期|SWAPPED|timeline|suppress_final)',
             summary
         ))
         if _selfref_hits >= 2:
