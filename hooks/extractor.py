@@ -2559,6 +2559,29 @@ def _write_chunk(chunk_type: str, summary: str, project: str, session_id: str,
             return
         if len(_s_stripped) < 120:
             return
+    # iter1085: internal_selfref_gate — 纯系统自描述 chunk 拒绝写入
+    # 根因（数据驱动，2026-05-07）：4 个 ac=0 噪声逃逸 iter_metric_report_gate，
+    #   因无指标变化模式（N→M）但含 ≥2 个系统内部术语（_score_chunk/suppress/候选全灭等）。
+    #   iter_metric_report_gate 仅在 _has_metric_pattern 时才检查内部术语，遗漏纯文字描述。
+    # 修复：独立 gate — summary 含 ≥2 个内部术语且无外部领域锚点 → 拒绝。
+    #   仅对 decision/reasoning_chain/causal_chain 生效（不影响 procedure/qe/design_constraint）。
+    if chunk_type in ("decision", "reasoning_chain", "causal_chain"):
+        _selfref_hits = len(re.findall(
+            r'(?:_score_chunk|suppress|fallback|top.?k|候选全灭|空召回|recall_count|'
+            r'hard_suppressed|relevance_fallback|iter\d{3,4}|cooldown|bandwidth|'
+            r'hard_deadline|inject|scored|cands|FTS.*miss|BM25.*noise)',
+            summary
+        ))
+        if _selfref_hits >= 2:
+            _has_ext_anchor = re.search(
+                r'(?:kernel|sched|CPU|Android|feishu|飞书|patch|线程|进程|调度|'
+                r'binder|LKMM|scx|qos|migration|MTK|vendor|AOSP|'
+                r'Proxy.Execution|uclamp|cpufreq|thermal|cgroup|'
+                r'公众号|微信|curl|HTTP|API|gRPC)',
+                summary, re.I
+            )
+            if not _has_ext_anchor:
+                return
     # iter897: iter_metric_report_gate — 拦截迭代器数值对比/统计报告
     # 数据驱动（2026-05-05）：今日写入 11 chunk 中 10 条是迭代器自身产出的指标对比
     #   如 "噪声 chunk 占比 19%→3%"、"exp_decay 除数 /3→/2"、"单条注入率 54%"。
