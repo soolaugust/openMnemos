@@ -1728,8 +1728,15 @@ def main():
             _rc_conn = _rc_sql.connect(str(STORE_DB))
             # iter797: 查询实际 chunk 总数
             try:
+                # iter1146: visible_chunk_count — micro_db 判定计入 global chunk
+                # 根因（数据驱动，2026-05-08）：abspath:7e3095aef7a6 仅 3 local chunk，
+                #   但有 6 global chunk 可见（总候选=9），被误判 micro_db(<=5)。
+                #   micro_db bypass 让 9a2692fd(ac=10) 的 saturation/session suppress 跳过，
+                #   导致高饱和跨项目 chunk 每 2 天注入 1 次（14d cooldown 被 bypass）。
+                # 修复：_db_chunk_count = local + global，反映用户实际可见的候选规模。
                 _db_chunk_count = _rc_conn.execute(
-                    "SELECT COUNT(*) FROM memory_chunks WHERE project=?", (project,)
+                    "SELECT COUNT(*) FROM memory_chunks WHERE project=? OR project='global'",
+                    (project,)
                 ).fetchone()[0] or 0
             except Exception:
                 pass  # 保持 fallback=50
