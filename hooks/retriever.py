@@ -2440,6 +2440,21 @@ def main():
             _acc = _get_live_ac(chunk.get("id", ""))
             if _acc is None:
                 _acc = chunk.get("access_count", 0) or 0
+            # iter1131: ac_time_decay — 根据 last_accessed 距今天数衰减有效 ac
+            # 根因（数据驱动，2026-05-08）：ac=10 chunk 因历史垄断膨胀（cooldown 前累积），
+            #   saturation 衰减 *0.3*0.5=0.15 使其即使真正相关也无法通过 min_thresh。
+            #   43% 注入位被 ac>=7 占据，cooldown 已阻止新注入→ac 永远不降→永久打压。
+            # 修复：last_accessed 距今每 3 天有效 ac 减 1（floor=ac//2），让被成功压制的
+            #   chunk 随时间恢复注入资格。ac=10 在 9 天未注入后有效 ac=7，衰减 *0.15→*0.6。
+            if _acc >= 5:
+                _la_str = chunk.get("last_accessed", "")
+                if _la_str and _cutoff_48h:
+                    try:
+                        _la_days = (_now647 - _dt647.fromisoformat(_la_str)).days
+                        if _la_days >= 3:
+                            _acc = max(_acc // 2, _acc - _la_days // 3)
+                    except Exception:
+                        pass
             # iter981→989: saturation_widen — 渐进衰减区间 ac>=7→ac>=5
             # iter989 根因（数据驱动，2026-05-06）：ac=5-6 的 3 个 chunk 在 iter981 后仍逃逸，
             #   "memory 验证路径"(ac=6) 5/6 后 2x 注入，因 ac<7 完全无衰减。
@@ -2654,6 +2669,17 @@ def main():
                     _chunk_7d_pc = _recent_7d_counts.get(chunk.get("id", ""), 0)
                     if _chunk_7d_pc > 1:
                         score *= 0.70 ** (_chunk_7d_pc - 1)
+                    # iter1131: proj_conc_saturated_suppress — 高浓度项目内已内化 chunk hard suppress
+                    # 根因（数据驱动，2026-05-08）：kernel 项目 8 chunk 各 7d=4，ac>=10，
+                    #   penalty 0.70^3=0.34 后 score 仍高于其他项目候选（relevance 基数高）。
+                    #   单 chunk 不触发 7d suppress（阈值=5），但群体占 25% 注入位。
+                    # 修复：project_concentrated + 7d>=4 + ac>=7 → hard suppress。
+                    #   ac>=7 确保已充分内化，7d>=4 确保近期高频，不误杀新知识。
+                    if _chunk_7d_pc >= 4:
+                        _pc_ac = chunk.get("access_count") or 0
+                        if _pc_ac >= 7:
+                            score = 0.0
+                            _hard_suppressed = True
             # ── iter614: temporal_burst_suppression — 24h 注入频率 cap ─────────
             # 同一 chunk 在 24h 内注入 >=2 次 → suppress（score=0）
             # iter619: 阈值 3→2，同日看 2 次已足够，第 3 次起 suppress
