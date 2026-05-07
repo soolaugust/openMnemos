@@ -404,7 +404,8 @@ def _run_extraction_pipeline(payload: dict) -> dict:
         # 根因：extractor_pool._write_chunks 缺少 chunk_type 级过滤，
         #   conversation_summary/prompt_context 绕过 extractor.py 的 gate 写入 DB，
         #   实测 4 条 conversation_summary + 2 条 prompt_context 零访问。
-        _EPHEMERAL_TYPES = {"prompt_context", "conversation_summary"}
+        # iter1082: tool_insight_ephemeral — 同步 extractor.py
+        _EPHEMERAL_TYPES = {"prompt_context", "conversation_summary", "tool_insight"}
 
         def _write_chunks(texts, chunk_type, base_importance):
             if chunk_type in _EPHEMERAL_TYPES:

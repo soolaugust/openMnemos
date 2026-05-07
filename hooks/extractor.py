@@ -2481,7 +2481,8 @@ def _write_chunk(chunk_type: str, summary: str, project: str, session_id: str,
     # 根因（数据驱动）：38% chunk 零访问，其中 4 条 conversation_summary/prompt_context
     # 是迭代器自身写入的噪声（重复提示词、轮次计数），从未被用户召回。
     # 这些类型天然短暂（会话级），写入 store 只增加 FTS 噪声和 swap 压力。
-    _EPHEMERAL_TYPES = {"prompt_context", "conversation_summary"}
+    # iter1082: tool_insight_ephemeral — tool_insight 是工具执行快照，无跨会话持久价值
+    _EPHEMERAL_TYPES = {"prompt_context", "conversation_summary", "tool_insight"}
     if chunk_type in _EPHEMERAL_TYPES:
         return
     # iter701: content_echo_gate — summary 无补充内容时拒绝写入
