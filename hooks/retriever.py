@@ -3717,6 +3717,7 @@ def main():
                 _ps842_hd_top1_id = top_k[0][1].get("id", "")
                 _ps842_hd_cands = [(float(c.get("importance", 0) or 0), c) for _, c in final
                                    if c.get("id") != _ps842_hd_top1_id
+                                   and _hd_cooldown_ok(c)  # iter1101: cooldown sync
                                    and (c.get("access_count", 0) or 0) < 30
                                    and _session_injection_counts.get(c.get("id", ""), 0) < _pair_dedup_thresh_hd
                                    and _recent_6h_counts.get(c.get("id", ""), 0) < 2  # iter865
@@ -3761,16 +3762,38 @@ def main():
                     elif _lac >= 5:
                         return max(2, _fb_hd_ceiling - 1)
                     return _fb_hd_ceiling
+                # iter1101: hd_fallback_cooldown — hard_deadline fallback 补充 cooldown 过滤
+                # 根因（数据驱动，2026-05-07）：import-dc534(global,ac=2) 经 _score_chunk cooldown
+                #   被 suppress(score=0)，但 fallback 从 _pre_suppress_top_k_hd 恢复时仅检查
+                #   7d count < ceiling(=5)，count=1 < 5 → 逃逸。
+                #   LITE 路径已有 iter1092 修复，hard_deadline 缺失对齐。
+                # 修复：定义 _hd_cooldown_ok 对齐 _lt1092_cooldown_ok 逻辑，应用于所有 fallback 池。
+                def _hd_cooldown_ok(c):
+                    _cac = c.get("access_count", 0) or 0
+                    _cgl = (c.get("project", "") == "global")
+                    if not (_cgl or _cac >= 4):
+                        return True
+                    _cts = _injection_timeline.get(c.get("id", ""), []) if _injection_timeline else []
+                    _clast = max(_cts) if _cts else (c.get("last_accessed", "") if _cac >= 7 else "")
+                    if not _clast:
+                        return True
+                    if _cgl:
+                        _ccut = _cutoff_14d if _cac >= 10 else _cutoff_10d
+                    else:
+                        _ccut = _cutoff_14d if _cac >= 10 else (_cutoff_10d if _cac >= 7 else _cutoff_48h)
+                    return _clast <= _ccut
                 # iter1027: fallback_24h_align — 对齐 _hd1019_24h_thresh 动态阈值
                 _fb_hd_cap = [(s, c) for s, c in _pre_suppress_top_k_hd
-                              if _recent_7d_counts.get(c.get("id", ""), 0) < _fb_hd_chunk_ceiling(c)
+                              if _hd_cooldown_ok(c)
+                              and _recent_7d_counts.get(c.get("id", ""), 0) < _fb_hd_chunk_ceiling(c)
                               and _recent_24h_counts.get(c.get("id", ""), 0) < _hd1019_24h_thresh(s, c)]
                 # iter1032: fallback_relax_24h — hard_deadline path sync
                 # 根因（数据驱动，2026-05-07）：密集 session 24h burst 把所有 FTS 候选排除 → 空召回。
                 # 修复：_fb_hd_cap 全灭时只保留 7d ceiling，去掉 24h 过滤。
                 if not _fb_hd_cap:
                     _fb_hd_cap = [(s, c) for s, c in _pre_suppress_top_k_hd
-                                  if _recent_7d_counts.get(c.get("id", ""), 0) < _fb_hd_chunk_ceiling(c)]
+                                  if _hd_cooldown_ok(c)
+                                  and _recent_7d_counts.get(c.get("id", ""), 0) < _fb_hd_chunk_ceiling(c)]
                 # iter1038: fallback_ceiling_escalate — hard_deadline path sync
                 # iter1045: escalate_saturated_block — ac>=7 不参与 escalate
                 #   根因（数据驱动，2026-05-07）：PE chunk(ac=7,7d=7) 经 escalate(ceiling 3+2=5)
@@ -3781,7 +3804,8 @@ def main():
                 #   escalate ceiling+2=6 > 7d=5 → 逃逸。ac>=5 已半内化，不应享受 escalate 宽限。
                 if not _fb_hd_cap and _db_chunk_count < 100:
                     _fb_hd_cap = [(s, c) for s, c in _pre_suppress_top_k_hd
-                                  if _recent_7d_counts.get(c.get("id", ""), 0) < _fb_hd_chunk_ceiling(c) + 2
+                                  if _hd_cooldown_ok(c)
+                                  and _recent_7d_counts.get(c.get("id", ""), 0) < _fb_hd_chunk_ceiling(c) + 2
                                   and (c.get("access_count", 0) or 0) < 5]
                 # iter921: hd_fallback_no_unfiltered_pool — 对齐 FULL 路径 iter916
                 # 根因（数据驱动，2026-05-06）：cap 为空时回退 _pre_suppress_top_k_hd（无过滤），
