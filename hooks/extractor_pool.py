@@ -138,7 +138,10 @@ def _seal_check_reject(text: str) -> bool:
                     'bandwidth_throttle', 'score_chunk', 'final_gate',
                     # iter890: iterator_param_tuning_noise — 漏网的迭代器参数/机制名
                     'diversity_pair', 'suppress', 'fallback_rotation',
-                    'closure_fallback', 'pair_dedup')
+                    'closure_fallback', 'pair_dedup',
+                    # iter1052: self_impl_hook_names — hook 组件名逃逸
+                    'posttool_guard', 'output_compressor', 'thrashing_detector',
+                    'x5 gate', 'x5_gate')
     _tl = text.lower()
     if any(ci in _tl for ci in _code_idents):
         return True
