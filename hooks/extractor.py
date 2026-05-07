@@ -1921,6 +1921,12 @@ def _is_quality_decision(summary: str) -> bool:
     # X3. 纯 markdown 强调行（"**xxx**: yyy" 独立存储时丢失上下文）
     if re.match(r'^\*\*[^*]{2,30}\*\*[：:]\s', s) and len(s) < 80:
         return False
+    # iter1129: decision_table_fragment_gate — 表格行碎片绕过 _is_quality_chunk 后兜底
+    # 根因（数据驱动，2026-05-08）：9320c3d1 "| 修复 | 非 global 跨项目 chunk relevance..."
+    #   含数字度量(0.30/+5)满足条件B，绕过 _is_quality_chunk(应被 pipe>=2 拦截但路径未调用)。
+    #   pool 路径 _is_quality_decision 是最后防线，需自带 pipe 拦截。
+    if s.count('|') >= 2:
+        return False
     # X4. iter B14：memory-os/iterXX 进度日志（"✅ xxx 完成"、"[memory-os/iter42] ✅ ..."）
     # 这类进度日志是过程性记录，不是可复用决策，不应晋升到 global
     # OS 类比：/proc/kmsg 里的 printk(KERN_INFO "done") — 进度打印不是决策文档
