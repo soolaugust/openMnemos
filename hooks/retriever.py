@@ -2558,7 +2558,8 @@ def main():
             #   （import-90139 在 21 分钟内被 3 个不同 session 注入）。
             #   iter776 suppress_zero_fallback 已解决空召回兜底，可安全收紧。
             # iter801: micro_db (<=5) 跳过 24h/7d suppress — 唯一知识不可 suppress
-            if not _micro_db:
+            # iter1049: micro_db_cross_project_suppress — 跨项目 chunk 不享受 micro_db 免疫
+            if not _micro_db or (chunk.get("project", "") != project and chunk.get("project", "") != "global"):
                 # iter813: short_burst_suppress — 6h 内 >=N 次即 suppress
                 # 根因（数据驱动，2026-05-05）：import-90139 在 38 分钟内被 3 session 注入，
                 #   24h 阈值=3 因 writeback 延迟和进程重启丢失 inmem log 而逃逸。
@@ -3491,6 +3492,16 @@ def main():
             #   实测：import-6cc32f2ff 24h 注入 4 次（应在第 3 次被拦截）。
             # 修复：hard_deadline 路径用闭包变量做零成本兜底。
             # iter968: micro_db bypass — hard_deadline 路径同步
+            # iter1049: micro_db_cross_project_suppress — micro_db 跨项目 chunk 仍需 suppress
+            # 根因（数据驱动，2026-05-07）：abspath:51963532bc1b（1 chunk）被 git:a0ab16e8cafc
+            #   跨项目注入占 75%（6/8 injections），因 micro_db bypass 跳过全部 suppress。
+            #   micro_db 保护本项目唯一知识不被 suppress，但跨项目 chunk 不应享受此免疫。
+            # 修复：micro_db 时仍对跨项目 chunk 应用 7d>=3 suppress。
+            if top_k and _db_chunk_count <= 5:
+                top_k = [(s, c) for s, c in top_k
+                         if c.get("project", "") == project
+                         or c.get("project", "") == "global"
+                         or _recent_7d_counts.get(c["id"], 0) < 3]
             if top_k and _db_chunk_count > 5:
                 # iter767: tiered_small_db — 分级小库阈值
                 _hd_tiny_db = _db_chunk_count < 50  # iter848: 边界 40→50

@@ -3770,7 +3770,8 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
             _s672_small = _db_chunk_count < 100
             # iter806: small_db_suppress_tighten — 24h 4/3→3/2, 7d 7/5→5/4
             # iter801: micro_db (<=5) 跳过 24h/7d/saturation suppress — 唯一知识不可 suppress
-            if not _s672_micro:
+            # iter1049: micro_db_cross_project_suppress — 跨项目 chunk 不享受 micro_db 免疫
+            if not _s672_micro or (chunk.get("project", "") != project and chunk.get("project", "") != "global"):
                 # iter813: short_burst_suppress — 6h 内 >=N 次即 suppress
                 # iter818: tiny_db_6h_relax — 6h 分级
                 # iter865: 6h_tighten_tiny — tiny_db 3→2（数据驱动：6h=3 逃逸导致垄断）
@@ -3900,7 +3901,8 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
             _s672d_small = _db_chunk_count < 100
             # iter806: small_db_suppress_tighten — sync with retriever.py
             # iter801: micro_db (<=5) 跳过 suppress
-            if not _s672d_micro:
+            # iter1049: micro_db_cross_project_suppress — 跨项目 chunk 不享受 micro_db 免疫
+            if not _s672d_micro or ((chunk[_CI_CP] or "") != project and (chunk[_CI_CP] or "") != "global"):
                 # iter813: short_burst_suppress — 6h 内 >=N 次即 suppress
                 # iter818: tiny_db_6h_relax — 6h 分级
                 # iter865: 6h_tighten_tiny — tiny_db 3→2（统一阈值）
@@ -4993,6 +4995,12 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                     if (c[_CI_CP] or "") == "global" and _a >= 4:
                         return 1
                     return _b
+                # iter1049: micro_db_cross_project_suppress — micro_db 跨项目 chunk 仍需 suppress
+                if _db_chunk_count <= 5:
+                    top_k = [(s, c) for s, c in top_k
+                             if (c[_CI_CP] or "") == project
+                             or (c[_CI_CP] or "") == "global"
+                             or _rt663d_7d.get(c[_CI_ID], 0) < 3]
                 if _db_chunk_count > 5:
                     top_k = [(s, c) for s, c in top_k
                              if _rt663d_6h.get(c[_CI_ID], 0) < 2  # iter865: 6h_tighten_tiny — 统一阈值 2
@@ -5013,6 +5021,12 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
         # 根因（数据驱动，2026-05-05）：suppress_final_gate 实时 DB 查询在 try/except
         #   中静默失败时，垄断 chunk 逃逸。用启动时闭包快照 _recent_6h/_24h/_7d_counts 兜底。
         # iter1015: daemon_micro_db_final_gate_bypass — 对齐 retriever.py line 5073
+        # iter1049: micro_db_cross_project_suppress — closure fallback 路径同步
+        if top_k and _db_chunk_count <= 5:
+            top_k = [(s, c) for s, c in top_k
+                     if (c[_CI_CP] or "") == project
+                     or (c[_CI_CP] or "") == "global"
+                     or _recent_7d_counts.get(c[_CI_ID], 0) < 3]
         if top_k and _db_chunk_count > 5:
             _pre887d = len(top_k)
             _fg887d_tiny = _db_chunk_count < 50
