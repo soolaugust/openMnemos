@@ -3507,7 +3507,9 @@ def main():
                     if _db_chunk_count < 100:
                         _af_ratio = min(_af_ratio, 0.12)
                     _adaptive_floor = _top1_score * _af_ratio
-                    _min_thresh = min(_min_thresh, max(_adaptive_floor, 0.10))
+                    # iter1120: relevance_floor_raise — 0.10→0.12 消除低相关性注入
+                    # 数据驱动（2026-05-08）：FULL 路径 38% 注入 score<0.12，信噪比极低。
+                    _min_thresh = min(_min_thresh, max(_adaptive_floor, 0.12))
             # iter579: copy_page_range — hard deadline 路径也应用 gap bridging
             if (len(final) >= 3 and _sysctl("retriever.gap_bridge_enabled")
                     and not _is_generic_knowledge_query(query)):
@@ -3526,7 +3528,8 @@ def main():
                     if _gb_cluster_size >= _gb_min_cluster:
                         # iter863: gap_bridge_floor_raise — 0.05 允许 score<0.10 的不相关知识注入
                         #   数据驱动：7d 内 12 条 score<0.10 注入全为跨项目无关知识
-                        _gb_new_thresh = max(_gb_cluster_floor, 0.10)
+                        # iter1120: relevance_floor_raise — gap_bridge floor 0.10→0.12
+                        _gb_new_thresh = max(_gb_cluster_floor, 0.12)
                         if _gb_new_thresh < _min_thresh:
                             _min_thresh = _gb_new_thresh
             # iter620: zero_score_absolute_gate — score=0 的 chunk 绝对不进入 positive
@@ -3543,7 +3546,7 @@ def main():
             _hd_pair_7d_ceiling = 5 if _db_chunk_count < 50 else (6 if _db_chunk_count < 100 else 6)  # iter1010: pair_ceiling_widen — 4/5→5/6 恢复 pair 候选池
             if len(positive) == 1 and len(final) >= 3:
                 _pair_cands_hd = [(s, c) for s, c in final
-                                  if s > 0.10 and s < _min_thresh
+                                  if s > 0.12 and s < _min_thresh
                                   and c.get("id") != positive[0][1].get("id")
                                   and _session_injection_counts.get(c.get("id", ""), 0) < _pair_dedup_thresh_hd
                                   and _recent_7d_counts.get(c.get("id", ""), 0) < _hd_pair_7d_ceiling]
@@ -4448,7 +4451,8 @@ def main():
                 if _db_chunk_count < 100:
                     _af_ratio = min(_af_ratio, 0.12)
                 _adaptive_floor = _top1_score * _af_ratio
-                _min_thresh = min(_min_thresh, max(_adaptive_floor, 0.10))
+                # iter1120: relevance_floor_raise — 0.10→0.12 (FULL path sync)
+                _min_thresh = min(_min_thresh, max(_adaptive_floor, 0.12))
         # ── iter579: copy_page_range — Score Gap Bridging ─────────────────
         # OS 类比：Linux copy_page_range() (Andrea Arcangeli, 2004, mm/memory.c)
         #   fork() 复制父进程地址空间时，大 VMA 间的 gap 不阻止复制下一个有效 VMA。
@@ -4475,7 +4479,8 @@ def main():
                 )
                 if _gb_cluster_size >= _gb_min_cluster:
                     # iter863: gap_bridge_floor_raise (FULL path)
-                    _gb_new_thresh = max(_gb_cluster_floor, 0.10)
+                    # iter1120: relevance_floor_raise — 0.10→0.12
+                    _gb_new_thresh = max(_gb_cluster_floor, 0.12)
                     if _gb_new_thresh < _min_thresh:
                         _min_thresh = _gb_new_thresh
                         _deferred.log(DMESG_DEBUG, "retriever",
@@ -4527,7 +4532,7 @@ def main():
             return _cap
         if len(positive) == 1 and len(final) >= 3:
             _pair_candidates = [(s, c) for s, c in final
-                                if s > 0.10 and s < _min_thresh
+                                if s > 0.12 and s < _min_thresh
                                 and c.get("id") != positive[0][1].get("id")
                                 and _session_injection_counts.get(c.get("id", ""), 0) < _pair_dedup_thresh
                                 and _recent_7d_counts.get(c.get("id", ""), 0) < _pair_7d_cap(c)
