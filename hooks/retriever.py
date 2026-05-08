@@ -4406,7 +4406,8 @@ def main():
                     try:
                         wconn = open_db()
                         ensure_schema(wconn)
-                        update_accessed(wconn, accessed_ids, recall_quality=_hd_recall_quality)
+                        _seen_before_hd = {cid for cid in accessed_ids if _session_injection_counts.get(cid, 0) > 1}
+                        update_accessed(wconn, accessed_ids, recall_quality=_hd_recall_quality, session_seen_ids=_seen_before_hd)
                         mglru_promote(wconn, accessed_ids)
                         # 迭代515：userfaultfd — import chunk 首次命中时 promote
                         try:
@@ -7773,7 +7774,8 @@ def main():
         try:
             wconn = open_db()
             ensure_schema(wconn)
-            update_accessed(wconn, accessed_ids, recall_quality=_recall_quality_main)
+            _seen_before = {cid for cid in accessed_ids if _session_injection_counts.get(cid, 0) > 1}
+            update_accessed(wconn, accessed_ids, recall_quality=_recall_quality_main, session_seen_ids=_seen_before)
             mglru_promote(wconn, accessed_ids)  # 迭代45：MGLRU promote
             # 迭代515：userfaultfd — import chunk 首次命中时 promote
             try:

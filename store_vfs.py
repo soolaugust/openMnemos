@@ -5715,7 +5715,8 @@ def read_chunk_version() -> int:
 
 def update_accessed(conn: sqlite3.Connection, chunk_ids: list,
                     now_iso: str = None, recall_quality: int = None,
-                    _sm2_only: bool = False, **kwargs) -> None:
+                    _sm2_only: bool = False, session_seen_ids: set = None,
+                    **kwargs) -> None:
     """
     批量更新 last_accessed + access_count 自增。
     iter106: 同时执行 auto-verification — access_count 达到阈值后自动升 verified。
@@ -5752,11 +5753,23 @@ def update_accessed(conn: sqlite3.Connection, chunk_ids: list,
     _pre_retrievability_map = {row[0]: float(row[4]) for row in _pre_access_rows}
     _pre_importance_map = {row[0]: float(row[5]) for row in _pre_access_rows}
     _pre_spaced_access_map = {row[0]: int(row[6]) for row in _pre_access_rows}
-    conn.execute(
-        f"UPDATE memory_chunks SET last_accessed=?, access_count=COALESCE(access_count,0)+1 "
-        f"WHERE id IN ({placeholders})",
-        [now_iso] + chunk_ids,
-    )
+    # iter1236: session_ac_dedup — only increment access_count on first injection per session
+    # Prevents burst-inflation where rapid-fire injections in one session inflate ac artificially.
+    _new_ids = [cid for cid in chunk_ids if not session_seen_ids or cid not in session_seen_ids]
+    _repeat_ids = [cid for cid in chunk_ids if session_seen_ids and cid in session_seen_ids]
+    if _new_ids:
+        _ph_new = ",".join("?" * len(_new_ids))
+        conn.execute(
+            f"UPDATE memory_chunks SET last_accessed=?, access_count=COALESCE(access_count,0)+1 "
+            f"WHERE id IN ({_ph_new})",
+            [now_iso] + _new_ids,
+        )
+    if _repeat_ids:
+        _ph_rep = ",".join("?" * len(_repeat_ids))
+        conn.execute(
+            f"UPDATE memory_chunks SET last_accessed=? WHERE id IN ({_ph_rep})",
+            [now_iso] + _repeat_ids,
+        )
     # iter323: SM-2 Ebbinghaus 精确化 — 替代 stability *= 2.0 的粗糙模型
     # Wozniak (1987) SM-2 算法：S_new = S_old × (1 + 0.1 × (quality - 3))
     #   quality ∈ {0..5}：0=完全忘记，3=勉强回忆，5=完美回忆
