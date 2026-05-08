@@ -4332,6 +4332,12 @@ def main():
                     header = "【相关历史记录（BM25 召回）】"
                     inject_lines = [header]
 
+                    # iter1240: zero_score_final_gate (LITE path)
+                    if len(top_k) > 1:
+                        _nonzero = [(s, c) for s, c in top_k if s > 0]
+                        if _nonzero:
+                            top_k = _nonzero
+
                     # 迭代98：分离约束知识和普通知识，约束优先展示
                     # 迭代306：hard_deadline 路径也附加 raw_snippet（importance >= 0.75）
                     _hd_high_ids = [c["id"] for _, c in top_k if (c.get("importance") or 0) >= 0.75]
@@ -4385,6 +4391,9 @@ def main():
                     _tlb_write(prompt_hash, current_hash, _get_db_mtime())  # 迭代57: TLB
                     _tlb_bump_generation()  # iter583: FULL 完成后 bump generation
                     duration_ms = _elapsed_ms()
+                    # iter1240: zero_score_final_gate — 移除 score=0 的零相关注入
+                    if len(top_k) > 1:
+                        top_k = [(s, c) for s, c in top_k if s > 0] or top_k[:1]
                     accessed_ids = [c["id"] for _, c in top_k]
                     # 迭代323: SM-2 recall_quality — 从 top_k 分数推断
                     # avg_score > 0.6 → FTS5 强命中 → quality=5
@@ -7479,6 +7488,15 @@ def main():
                 _deferred.log(DMESG_DEBUG, "retriever",
                               f"iter1119_saturation_diversity_gate: saturated {len(_sdg_saturated)}->{_sdg_max}",
                               session_id=session_id, project=project)
+
+        # iter1240: zero_score_final_gate — 移除 score=0 的零相关注入
+        # 根因（数据驱动，2026-05-09）：23% 注入 score=0，来自 fallback/diversity/cold-start
+        #   路径的强制轮转。跨项目 reasoning_chain 等与当前上下文零相关，浪费 token。
+        # 修复：top_k 有多条时，过滤 score<=0 的；只剩 1 条时保留（避免空注入）。
+        if len(top_k) > 1:
+            _nonzero = [(s, c) for s, c in top_k if s > 0]
+            if _nonzero:
+                top_k = _nonzero
 
         constraint_items = []
         normal_items = []
