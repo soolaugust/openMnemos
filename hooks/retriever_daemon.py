@@ -5733,10 +5733,20 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 top_k = _omf_filtered
             else:
                 # iter987: omf_graduated_fallback — 全灭时选 7d 最低的 top-2
-                # 根因：23-chunk 库 13/21 chunk 7d>=ceiling(3)，daemon 无 fallback
-                #   → 垄断 chunk 全部逃逸 OMF。
+                # iter1178: omf_fallback_empty_suppress — 深度内化 chunk 不注入
                 _omf_sorted = sorted(top_k, key=lambda x: _recent_7d_counts.get(x[1][_CI_ID], 0))
-                top_k = _omf_sorted[:min(2, len(_omf_sorted))]
+                # iter1174+1178: 排除 ac>=7 + 7d>=2*ceiling 的深度内化垄断 chunk
+                def _omf_fb_skip_d(c):
+                    _oac = c[_CI_AC] or 0
+                    _o7d = _recent_7d_counts.get(c[_CI_ID], 0)
+                    if c[_CI_CP] == "global":
+                        return _oac >= 4 and _o7d >= _omf_ceiling
+                    return _oac >= 7 and _o7d >= 2 * _omf_ceiling
+                _omf_fb_filt_d = [(s, c) for s, c in _omf_sorted if not _omf_fb_skip_d(c)]
+                if _omf_fb_filt_d:
+                    top_k = _omf_fb_filt_d[:min(2, len(_omf_fb_filt_d))]
+                else:
+                    top_k = []
                 _deferred.log(DMESG_DEBUG, "retriever_daemon",
                               f"iter987_omf_graduated_fallback: {len(_omf_sorted)}->{len(top_k)}",
                               session_id=session_id, project=project)

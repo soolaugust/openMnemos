@@ -4149,7 +4149,8 @@ def main():
                             if _omf_fb_filt_hd:
                                 top_k = _omf_fb_filt_hd[:min(2, len(_omf_fb_filt_hd))]
                             else:
-                                top_k = _omf_sorted_hd[:min(2, len(_omf_sorted_hd))]
+                                # iter1178: omf_fallback_empty_suppress (hard_deadline sync)
+                                top_k = []
                     # iter1013+1046: topic_group_dedup (hard_deadline path) — core_token 去重
                     if len(top_k) > 1 and not _micro_db:
                         import re as _tgd_re_hd
@@ -7142,7 +7143,12 @@ def main():
                 if _omf_fb_filtered:
                     top_k = _omf_fb_filtered[:min(2, len(_omf_fb_filtered))]
                 else:
-                    top_k = _omf_sorted[:min(2, len(_omf_sorted))]
+                    # iter1178: omf_fallback_empty_suppress — 全灭时空召回而非无条件注入
+                    # 根因（数据驱动，2026-05-08）：_omf_fb_skip 过滤后全灭时仍选 _omf_sorted[:2]，
+                    #   注入的全是 ac>=7 + 7d>=2*ceiling 的深度内化垄断 chunk，信息增量=0。
+                    #   iter1174 注释说"允许空召回"但 else 分支无条件注入——注释与代码不一致。
+                    # 修复：全灭时 top_k=[]，触发下游 write_trace(injected=0)，不注入噪声。
+                    top_k = []
                 _deferred.log(DMESG_DEBUG, "retriever",
                               f"iter987_omf_graduated_fallback: {len(_omf_sorted)}->{len(top_k)}, 7d={[_omf_7d_src.get(x[1].get('id',''), 0) for x in top_k]}",
                               session_id=session_id, project=project)
