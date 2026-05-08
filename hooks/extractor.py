@@ -2839,7 +2839,12 @@ def _write_chunk(chunk_type: str, summary: str, project: str, session_id: str,
     #   20字 / "- 这是 Tejun 明确要求的，无推断" 16字）通过 <15 门控但检索价值极低。
     #   无 content_override 时 content=[chunk_type]+summary，过短 chunk FTS 命中率趋近 0。
     # 修复：无 content_override 时 summary < 30 → 拒绝。有 content_override 时不受影响。
-    if not content_override and len(summary) < 30:
+    # iter1220: decision_min_density_raise — decision 类型提高阈值 30→45
+    # 数据驱动（2026-05-09）：4 条 decision 碎片（30-43字, ac<=2, content≈summary）逃逸：
+    #   "v3 加的 SCX_TASK_OFF_TASKS 不是必要的"(30c)、"没找到时，必须去 upstream 确认"(43c)。
+    #   孤立判断无上下文，FTS 检索命中后缺乏可操作信息。
+    _min_density = 45 if chunk_type == "decision" else 30
+    if not content_override and len(summary) < _min_density:
         return
     # iter1103: content_override_min_gate — content_override 路径也需最小长度
     # 根因（数据驱动，2026-05-07）：00bce5d7 conversation_summary content_override=14字
