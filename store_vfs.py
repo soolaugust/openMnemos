@@ -1989,6 +1989,12 @@ def _vfs_write_protect(summary: str) -> bool:
     # "PA N/N" 和 "验证：" 开头 + 数字分数 = 迭代器自评报告，对用户零价值。
     if _re_vfs.search(r'PA\s+\d+/\d+', s):
         return True
+    # iter1231: vfs_iter_prefix_gate — iter\d{3,4}: 或 "数据：" + 统计格式 = 迭代器自记录
+    if _re_vfs.match(r'^iter\d{3,4}\s*[：:_]', s):
+        return True
+    if _re_vfs.match(r'^数据[：:]', s) and _re_vfs.search(r'\d+/\d+|\d+\.?\d*%', s) \
+       and _RE_VFS_SELFREF.search(s):
+        return True
     # iter629+754: self-referential noise gate (VFS 层同步)
     # iter754: 上限 80→120 — "空召回率 68%→25%" 等 summary 长 50-100B 漏网。
     if len(s) < 120 and len(_RE_VFS_SELFREF.findall(s)) >= 2:

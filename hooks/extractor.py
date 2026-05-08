@@ -2786,7 +2786,8 @@ def _write_chunk(chunk_type: str, summary: str, project: str, session_id: str,
            and not re.search(r'(?:根因|原因|所以|因此|说明|表明|意味着|证明|意味|导致)', summary):
             return
     # iter1228: quantitative_selfeval_gate — 迭代器量化自评前缀直接拦截
-    if re.match(r'^(?:量化[：:改]|iter\d{3,4}\s*(?:总结|summary)[：:])', summary):
+    # iter1231: iter_prefix_gate — iter\d{3,4}: 开头必为迭代器自记录
+    if re.match(r'^(?:量化[：:改]|iter\d{3,4}\s*[：:_])', summary):
         return
     # iter1202: iterator_impl_gate — 拒绝写入迭代器/retriever/extractor 内部实现细节
     # 数据驱动（2026-05-08）：11 个 ac=0 chunk 全为迭代器自身的调参/bug/fix 记录
