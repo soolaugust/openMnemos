@@ -172,6 +172,10 @@ class SQLiteBackend(VFSBackend):
         """
         if self.readonly:
             return False  # 只读模式
+        # iter1184: vfs_backend_ephemeral_gate — 对齐 store_vfs.insert_chunk iter973b
+        _EPHEMERAL_TYPES = ("prompt_context", "conversation_summary", "tool_insight")
+        if item.type in _EPHEMERAL_TYPES:
+            return False
 
         try:
             conn = self._get_conn()

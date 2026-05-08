@@ -1178,7 +1178,9 @@ def _is_selfref_noise(summary: str, chunk_type: str) -> bool:
         # iter1148: internal_var_gate — 内部变量名/db分级标识逃逸
         # 根因（数据驱动，2026-05-08）："_db_chunk_count…micro_db(<=5)" hits=0 逃逸。
         #   micro_db/tiny_db/small_db/chunk_count 是 retriever 内部分级变量。
-        r'micro_db|tiny_db|small_db|chunk_count|_db_chunk|bypass|误判)',
+        r'micro_db|tiny_db|small_db|chunk_count|_db_chunk|bypass|误判|'
+        # iter1184: mm_subsystem_selfref — memory-os 回收/MM 子系统内部术语
+        r'swap_out|kswapd|pd_scan|_reclaim|cold_born|store_mm|oom_adj|lru_gen)',
         summary
     ))
     if hits < 2:
