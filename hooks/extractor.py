@@ -2801,6 +2801,20 @@ def _write_chunk(chunk_type: str, summary: str, project: str, session_id: str,
             return
         if len(_s_stripped) < 120:
             return
+    # iter1183: decision_conversational_fragment_gate — decision 对话碎片拦截
+    # 根因（数据驱动，2026-05-08）：session 5370cd43 写入 5 条 ac=0 decision，
+    #   以对话口语前缀开头（"但测试结果…"、"而且…"、"有一个统计陷阱…"），
+    #   是推理过程的中间步骤而非独立决策结论。
+    #   iter965 的 <120 gate 仅覆盖 causal_chain/reasoning_chain/excluded_path，
+    #   decision 类型逃逸导致同一对话碎片以不同 chunk_type 入库。
+    # 修复：decision 类型 + 对话前缀 + <120 字 + 无 rich content → 拒绝。
+    #   不影响有 content_override 的 wiki import 决策或长篇独立决策陈述。
+    if chunk_type == "decision" and not _has_rich_content:
+        _s_stripped_d = summary.strip()
+        if len(_s_stripped_d) < 120 and re.match(
+            r'^(?:\d+\.\s*)?(?:所以|因此|但[是]?|而且|或者|之前|有一个|如果是|对[，,]|问题[：:])',
+            _s_stripped_d):
+            return
     # iter1105: iter_progress_report_gate — 迭代器进度汇报拒绝写入
     # 根因（数据驱动，2026-05-07）：3 个 ac=0 decision chunk 是迭代器向飞书 append 的
     #   进度条目（"PA 10/10"、"2. 47% 零访问 → ✅ 当前仅 12%"），

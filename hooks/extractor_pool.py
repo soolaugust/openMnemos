@@ -460,6 +460,13 @@ def _run_extraction_pipeline(payload: dict) -> dict:
                     # 连接词短句（推理过渡）
                     if _re.match(r'^(?:但是|不过|然而|而且|并且|也就是说|换言之|即)\s*', _t_stripped) and len(_t_stripped) < 80:
                         continue
+                # iter1183: decision_conversational_fragment_gate — sync extractor.py
+                if chunk_type == "decision":
+                    _td_stripped = t.strip()
+                    if len(_td_stripped) < 120 and _re.match(
+                        r'^(?:\d+\.\s*)?(?:所以|因此|但[是]?|而且|或者|之前|有一个|如果是|对[，,]|问题[：:])',
+                        _td_stripped):
+                        continue
                 # iter1054: pool_decision_full_gate — 直接调用 _is_quality_decision
                 # 根因（数据驱动，2026-05-07）：pool 路径 decision gate 只复制了通过条件(B)，
                 #   缺少排除条件(X5:self_impl_gate, X6:ephemeral_market_gate)。
