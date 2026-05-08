@@ -3022,6 +3022,33 @@ def _write_chunk(chunk_type: str, summary: str, project: str, session_id: str,
                             if not _txn_managed:
                                 conn.commit()
                             return
+        # iter1181: session_total_write_cap — 同 session 同 type 总写入上限
+        # 根因（数据驱动，2026-05-08）：session 5370cd43 写入 21 条 causal_chain（15min），
+        #   burst_cap(5min窗口) 因同秒批量写入+窗口滑动而失效（COUNT看不到同事务前序写入）。
+        #   21 条 causal_chain 全是同一分析对话的碎片推理步骤，互不子串但话题相同。
+        #   占 ac=0 chunk 的 62%(21/34)，污染候选池、拖慢 FTS5 检索。
+        # 修复：同 session 同 type 累计写入超阈值 → 直接丢弃（合并到巨大 chunk 同样无价值）。
+        #   阈值按信息密度分层：causal/reasoning 碎片=5，其他=8。
+        _SESSION_TYPE_CAP = {"causal_chain": 5, "reasoning_chain": 3}
+        _SESSION_TYPE_CAP_DEFAULT = 8
+        if session_id:
+            try:
+                _stc_cap = _SESSION_TYPE_CAP.get(chunk_type, _SESSION_TYPE_CAP_DEFAULT)
+                _stc_cnt = conn.execute(
+                    "SELECT COUNT(*) FROM memory_chunks "
+                    "WHERE source_session=? AND chunk_type=?",
+                    (session_id, chunk_type)
+                ).fetchone()[0]
+                if _stc_cnt >= _stc_cap:
+                    dmesg_log(conn, DMESG_INFO, "extractor",
+                              f"iter1181_session_cap: {chunk_type} session total "
+                              f"{_stc_cnt}>={_stc_cap}, drop '{summary[:30]}'",
+                              session_id=session_id, project=project)
+                    if not _txn_managed:
+                        conn.commit()
+                    return
+            except Exception:
+                pass
         # iter784: session_burst_cap — 同 session 同 chunk_type 短期写入过多时合并
         #   根因（数据驱动，2026-05-04）：session e3e4392b 在 2 分钟内写了 5 条 decision，
         #   4 条同秒写入。Jaccard 去重无法捕捉"同话题不同细节"的变体。
