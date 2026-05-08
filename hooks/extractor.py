@@ -2848,6 +2848,9 @@ def _write_chunk(chunk_type: str, summary: str, project: str, session_id: str,
         summary, re.M
     ):
         return
+    # iter1193: iter_prefix_hardkill — "iterN:" 开头的 summary 直接拒绝
+    if re.match(r'^iter\d{2,4}\s*[:：]', summary):
+        return
     # iter1085: internal_selfref_gate — 纯系统自描述 chunk 拒绝写入
     # 根因（数据驱动，2026-05-07）：4 个 ac=0 噪声逃逸 iter_metric_report_gate，
     #   因无指标变化模式（N→M）但含 ≥2 个系统内部术语（_score_chunk/suppress/候选全灭等）。

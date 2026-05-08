@@ -475,6 +475,9 @@ def _run_extraction_pipeline(payload: dict) -> dict:
                 if chunk_type == "decision":
                     if not _is_quality_decision(t.strip()):
                         continue
+                # iter1193: iter_prefix_hardkill (pool sync)
+                if _re.match(r'^iter\d{2,4}\s*[:：]', t):
+                    continue
                 # iter1117: pool_selfref_gate_sync — 对齐 extractor.py selfref gate
                 # 根因（数据驱动，2026-05-08）：pool 路径缺少 selfref gate，
                 #   "量化预期：大库 suppress 全灭后空召回率降 ~50%"(ac=0) 逃逸写入。
