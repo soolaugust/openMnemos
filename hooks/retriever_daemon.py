@@ -4335,7 +4335,7 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                         "ORDER BY access_count ASC, importance DESC LIMIT 3",
                         (project, _top1_id_hd)).fetchall()
                     _div_conn_hd.close()
-                    _div_7d_ceiling_hd = 5 if _db_chunk_count < 50 else 6  # iter1010: pair_ceiling_widen — 4/5→5/6 恢复 pair 候选池
+                    _div_7d_ceiling_hd = 5 if _db_chunk_count < 50 else (4 if _db_chunk_count < 100 else 6)  # iter1207: pair_ceiling_mid_tighten — 50-99 库 6→4 去垄断
                     _div_rows_hd = [r for r in _div_rows_hd
                                     if _recent_7d_counts.get(r[0], 0) < _div_7d_ceiling_hd]
                     if _div_rows_hd:
@@ -4672,7 +4672,7 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 _div_recent_ids = {iid for iid, _ in _daemon_inject_log[-50:]}
                 _div_rows_d = [r for r in _div_rows_d if r[0] not in _div_recent_ids]
                 # iter943: diversity_pair_7d_suppress — 排除 7d 达阈值的 chunk
-                _div_7d_ceiling_d = 5 if _db_chunk_count < 50 else (6 if _db_chunk_count < 100 else 6)  # iter1010: pair_ceiling_widen — 4/5→5/6 恢复 pair 候选池
+                _div_7d_ceiling_d = 5 if _db_chunk_count < 50 else (4 if _db_chunk_count < 100 else 6)  # iter1207: pair_ceiling_mid_tighten — 50-99 库 6→4 去垄断
                 _div_7d_d = _rt663_7d if '_rt663_7d' in dir() and _rt663_7d else _recent_7d_counts
                 _div_rows_d = [r for r in _div_rows_d if _div_7d_d.get(r[0], 0) < _div_7d_ceiling_d]
                 if _div_rows_d:
@@ -5346,7 +5346,7 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 _fb_7d_d = _rt663d_7d if '_rt663d_7d' in dir() and _rt663d_7d else _recent_7d_counts
                 _fb_24h_d = _rt663d_24h if '_rt663d_24h' in dir() and _rt663d_24h else _recent_24h_counts
                 # iter911: pair_7d_tighten — fallback ceiling 4→3(tiny) 堵逃逸
-                _fb_ceiling_d = 5 if _db_chunk_count < 50 else (6 if _db_chunk_count < 100 else 5)  # iter1000: tiny 3→5 sync
+                _fb_ceiling_d = 5 if _db_chunk_count < 50 else (4 if _db_chunk_count < 100 else 5)  # iter1207: fallback_ceiling_mid_tighten — 50-99 库 6→4 去垄断
                 # iter1053: fallback_ceiling_align_local_deep — per-chunk ceiling 对齐 suppress thresh
                 def _fb_ceiling_d_fn(c):
                     # iter1150: global_fallback_ceiling_align — ac>=5 直接=2

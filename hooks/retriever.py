@@ -4883,7 +4883,7 @@ def main():
                 # 修复：排除 7d >= ceiling 的 chunk（同 suppress_final_gate 阈值）。
                 _div_7d = _rt663_7d if '_rt663_7d' in dir() and _rt663_7d else _recent_7d_counts
                 # iter947: pair_7d_tighten — diversity_pair 7d ceiling 对齐 suppress_final_gate(3/4/5)
-                _div_7d_ceiling = 5 if _db_chunk_count < 50 else (6 if _db_chunk_count < 100 else 6)  # iter1010: pair_ceiling_widen — 4/5→5/6 恢复 pair 候选池
+                _div_7d_ceiling = 5 if _db_chunk_count < 50 else (4 if _db_chunk_count < 100 else 6)  # iter1207: pair_ceiling_mid_tighten — 50-99 库 6→4 去垄断
                 _div_cands = []
                 for _dr in _div_rows:
                     _dr_id = _dr[0]
@@ -6121,7 +6121,7 @@ def main():
                 _fb_7d = _rt663_7d if '_rt663_7d' in dir() and _rt663_7d else _recent_7d_counts
                 _fb_24h = _rt663_24h if '_rt663_24h' in dir() and _rt663_24h else _recent_24h_counts
                 # iter1000: fallback_ceiling_align — tiny 3→5 sync final_gate
-                _fb_ceiling = 5 if _db_chunk_count < 50 else (6 if _db_chunk_count < 100 else 5)
+                _fb_ceiling = 5 if _db_chunk_count < 50 else (4 if _db_chunk_count < 100 else 5)  # iter1207: fallback_ceiling_mid_tighten — 50-99 库 6→4 去垄断
                 # iter1008: fallback_global_ceiling_sync — FULL path 同步
                 def _fb_chunk_ceiling(c):
                     if c.get("project", "") == "global" and (c.get("access_count", 0) or 0) >= 4:
