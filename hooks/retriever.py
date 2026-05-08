@@ -2526,7 +2526,11 @@ def main():
             # 根因（数据驱动，2026-05-07）：c9accb7b(ac=4,"飞书CLI") 48h内注入2次(gap=25h)，
             #   95038a88(ac=4,"Kernel Patch证据") 同样48h/2x。floor=5使ac=4完全无cooldown。
             # 修复：non-global floor 5→4 对齐 global，统一 cooldown 起点。
-            _cd_acc_floor = 4
+            # iter1251: cooldown_floor_ac3 — non-global floor 4→3
+            # 根因（数据驱动，2026-05-09）：import-90139(ac=3,procedure) 7d注入6次，
+            #   无 cooldown 保护。ac=3 表明用户已见过 3 次，边际信息已低，需要间隔保护。
+            # 修复：floor 4→3，ac=3 non-global 获得 72h cooldown（7d 最多 2-3 次）。
+            _cd_acc_floor = 3
             # iter1075: cooldown_cross_project_sync — micro_db bypass 不保护跨项目 chunk
             # 根因（数据驱动，2026-05-07）：9a2692fd(ac=10,proj=git:a0ab16e8cafc) 在
             #   abspath:7e3095aef7a6(cands=5,micro_db) 被注入，cooldown 被 micro_db bypass 跳过。
@@ -2585,7 +2589,7 @@ def main():
                         #   48h cooldown 允许每2天注入1次→7d=3-4次→占62-chunk库注入位60%。
                         #   ac>=4 已有 4+ 次访问历史，边际信息低，48h 过短致循环垄断。
                         # 修复：ac=4-6 cooldown 48h→5d，7d 内最多 1-2 次，与 global 对齐。
-                        _cd_cutoff = _cutoff_14d if _acc >= 10 else (_cutoff_10d if _acc >= 7 else _cutoff_5d)
+                        _cd_cutoff = _cutoff_14d if _acc >= 10 else (_cutoff_10d if _acc >= 7 else (_cutoff_5d if _acc >= 4 else _cutoff_72h))
                     # iter1145: staggered_cooldown_jitter — 错峰解禁防止批量到期垄断
                     # 根因（数据驱动，2026-05-08）：5/6 密集 session 写入 40+ chunk，
                     #   cooldown=5d 同时到期(5/11)→同时解禁→瞬时争抢注入位→再垄断。
