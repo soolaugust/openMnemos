@@ -7704,7 +7704,7 @@ def main():
 
             # iter668+678: top_k_data fallback — 防御空 top_k_data 导致 recall_counts 失准
             # 数据驱动（2026-05-04）：len(top_k_data) 与 len(accessed_ids) 不一致时重建
-            _effective_top_k = top_k_data if (top_k_data and len(top_k_data) == len(accessed_ids)) else [{"id": cid} for cid in accessed_ids]
+            _effective_top_k = top_k_data if (top_k_data and len(top_k_data) == len(accessed_ids)) else [{"id": c["id"], "summary": c.get("summary", ""), "score": round(s, 4), "chunk_type": c.get("chunk_type", "")} for s, c in top_k]
             # iter825: skip_empty_trace_sync — 对齐 daemon iter800，防止空 trace 污染统计
             # 根因（数据驱动，2026-05-05）：26% injected traces 的 top_k_json=[]，
             #   膨胀 bw_window 分母 → suppress 比例失真 → 垄断检测失效。
