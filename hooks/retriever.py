@@ -2558,7 +2558,7 @@ def main():
                     # 修复：基于 chunk_id hash 的 deterministic jitter(0-48h)，
                     #   同批到期 chunk 错峰解禁，注入位竞争分散到 2 天窗口内。
                     #   hash 确保同一 chunk 每次 jitter 相同（deterministic），不影响单测。
-                    _cd_jitter_h = (hash(_cd_id) % 49)  # 0-48 hours jitter
+                    _cd_jitter_h = (zlib.crc32(_cd_id.encode()) % 49)  # 0-48 hours deterministic jitter
                     _cd_cutoff_adj = (_dt647.fromisoformat(_cd_cutoff) - _td647(hours=_cd_jitter_h)).isoformat()
                     if _cd_last > _cd_cutoff_adj:
                         score = 0.0
@@ -3920,7 +3920,7 @@ def main():
                         # iter1112: lite_cooldown_5d_sync — ac=4-6 cooldown 48h→5d
                         _ccut = _cutoff_14d if _cac >= 10 else (_cutoff_10d if _cac >= 7 else _cutoff_5d)
                     # iter1145: staggered_cooldown_jitter — sync hard_deadline path
-                    _cjh = (hash(c.get("id", "")) % 49)
+                    _cjh = (zlib.crc32(c.get("id", "").encode()) % 49)
                     _ccut = (_dt647.fromisoformat(_ccut) - _td647(hours=_cjh)).isoformat()
                     return _clast <= _ccut
                 # iter1027: fallback_24h_align — 对齐 _hd1019_24h_thresh 动态阈值
@@ -6465,7 +6465,7 @@ def main():
                             # 修复：ac=4-6 cooldown 48h→5d 对齐 FULL 路径（L2527 _cutoff_5d）。
                             _ccut = _cut758_14d if _cac >= 10 else (_cut758_10d if _cac >= 7 else _cut758_5d)
                         # iter1145: staggered_cooldown_jitter — sync LITE path
-                        _cjh = (hash(c.get("id", "")) % 49)
+                        _cjh = (zlib.crc32(c.get("id", "").encode()) % 49)
                         _ccut = (_dt758.fromisoformat(_ccut) - _td758(hours=_cjh)).isoformat()
                         return _clast <= _ccut
                     top_k = [(s, c) for s, c in top_k
