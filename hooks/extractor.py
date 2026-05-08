@@ -1157,7 +1157,7 @@ def _is_selfref_noise(summary: str, chunk_type: str) -> bool:
       导致 decision chunk "量化预期：大库 suppress 全灭后空召回率降 ~50%"(ac=0) 逃逸。
       提取为独立函数供 extractor.py _write_chunk 和 extractor_pool.py 共用。
     """
-    if chunk_type not in ("decision", "reasoning_chain", "causal_chain", "excluded_path"):
+    if chunk_type not in ("decision", "reasoning_chain", "causal_chain", "excluded_path", "conversation_summary"):
         return False
     hits = len(re.findall(
         r'(?:_score_chunk|suppress|fallback|top.?k|候选全灭|空召回|recall_count|'
@@ -1166,6 +1166,7 @@ def _is_selfref_noise(summary: str, chunk_type: str) -> bool:
         r'噪声率?|ac[=≥]\d+|\bac\b.{0,3}chunk|chunk.?type|selfref|gate|逃逸|垄断|注入率?|单条注入|'
         r'注入资格|\d+d\s*(?:cooldown|循环|窗口)|7d|24h|6h|量化预期|SWAPPED|timeline|suppress_final|'
         r'token.?overlap|子串检测|LCS|dedup|去重|碎片拦截|写入门控|拦截率|'
+        r'diversity|健康度|same.hash|归零|e2e.*pass|迭代器|chunk.清理|密度.*→|'
         # iter1127: chunk_type_ref_gate — chunk 类型名/内部字段名作为讨论主题时拦截
         r'causal_chain|reasoning_chain|excluded_path|design_constraint|'
         r'zero.access|access.count|拒绝写入|一律拒绝|chunk\s*数|'
