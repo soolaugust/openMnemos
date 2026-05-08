@@ -2017,9 +2017,14 @@ def _vfs_write_protect(summary: str) -> bool:
         'FTS', 'final_gate', '空召回', '垄断', '衰减',
         'concentration', '_penalty', '_suppress',
         # iter1237: ac_ops_selfref — 拦截 access_count 操作/校正记录
-        'access_count', 'burst-inflat', 'chunk 的 ac', 'inflat',
+        'access_count', 'burst-inflat', 'burst inflation', 'chunk 的 ac', 'inflat',
+        # iter1238: zero_access_metric — 拦截迭代器零访问率自评
+        'zero_access_rate', 'zero_access',
     ) if _t in s)
     if _mos_hits >= 3:
+        return True
+    # iter1238: ac_ops_strong_signal — access_count/zero_access 是强迭代器信号，2 个即拒绝
+    if _mos_hits >= 2 and ('access_count' in s or 'zero_access' in s):
         return True
     return False
 
