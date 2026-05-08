@@ -1451,7 +1451,12 @@ def _is_quality_chunk(summary: str) -> bool:
                 # 数据驱动（2026-05-07）：5 条 ac=0 噪声：
                 #   "活跃 chunk: 79→63" / "session 内重复注入极低" / "跨项目注入 8%"
                 #   逃逸原因："活跃 chunk"(中文) ≠ "active chunks"(英文)；"重复注入"无完整匹配。
-                "活跃 chunk", "重复注入极", "跨项目注入"]
+                "活跃 chunk", "重复注入极", "跨项目注入",
+                # iter1168: ac_threshold_noise — "ac>=N" 格式是内部 access_count 阈值描述
+                # 数据驱动（2026-05-08）：486dfa84 "跨项目/global ac>=7 chunk"(ac=0)
+                #   excluded_path 描述内部 suppress 规则，不含其他 noise_kw 而逃逸。
+                #   "ac>=N" 只出现在 memory-os 内部（用户对话不会用此格式）。
+                "ac>="]
     if any(kw in s for kw in noise_kw):
         return False
     # iter1026: iterator_combo_gate — memory-os 运行时术语组合检测
