@@ -2324,6 +2324,19 @@ def main():
             pass
 
         _micro_db = _db_chunk_count <= 5  # iter801: micro_db suppress bypass
+        # iter1172: local_sparse_shield — local<=3 时本地 chunk 享受 micro_db 级别保护
+        # 根因（数据驱动，2026-05-08）：git:78dc99a5695f(2 local + 6 global = 8 total)
+        #   _micro_db=False(8>5)，6h suppress 在 15min 内连续 6 次空召回。
+        #   2 个 local chunk 是该项目唯一相关知识，不应因 global 膨胀失去保护。
+        # 修复：_local_sparse = local<=3，对 local chunk suppress 判定等同 micro_db。
+        _local_chunk_count = _db_chunk_count  # fallback
+        try:
+            _local_chunk_count = _rc_conn.execute(
+                "SELECT COUNT(*) FROM memory_chunks WHERE project=?", (project,)
+            ).fetchone()[0] or 0
+        except Exception:
+            pass
+        _local_sparse = _local_chunk_count <= 3
         _tiny_db = _db_chunk_count < 50  # iter848: tiny_db boundary 40→50
         _small_db = _db_chunk_count < 100
 
@@ -2730,7 +2743,10 @@ def main():
             #   iter776 suppress_zero_fallback 已解决空召回兜底，可安全收紧。
             # iter801: micro_db (<=5) 跳过 24h/7d suppress — 唯一知识不可 suppress
             # iter1049: micro_db_cross_project_suppress — 跨项目 chunk 不享受 micro_db 免疫
-            if not _micro_db or (chunk.get("project", "") != project and chunk.get("project", "") != "global"):
+            # iter1172: local_sparse_shield — local<=3 的本地 chunk 等同 micro_db 保护
+            _is_local_chunk = chunk.get("project", "") == project
+            _sparse_shield = _local_sparse and _is_local_chunk
+            if not (_micro_db or _sparse_shield) or (not _is_local_chunk and chunk.get("project", "") != "global"):
                 # iter813: short_burst_suppress — 6h 内 >=N 次即 suppress
                 # 根因（数据驱动，2026-05-05）：import-90139 在 38 分钟内被 3 session 注入，
                 #   24h 阈值=3 因 writeback 延迟和进程重启丢失 inmem log 而逃逸。
@@ -6540,13 +6556,15 @@ def main():
                         _cjh = (zlib.crc32(c.get("id", "").encode()) % 49)
                         _ccut = (_dt758.fromisoformat(_ccut) - _td758(hours=_cjh)).isoformat()
                         return _clast <= _ccut
+                    # iter1172: local_sparse_shield — local<=3 的本地 chunk 跳过 suppress
                     top_k = [(s, c) for s, c in top_k
-                             if _lt1092_cooldown_ok(c)
+                             if (_local_sparse and c.get("project", "") == project)  # iter1172
+                             or (_lt1092_cooldown_ok(c)
                              and sum(1 for t in _itl758.get(c["id"], []) if t > _cut758_6h) < _lt1042_6h_thresh(c)  # iter1042
                              and sum(1 for t in _itl758.get(c["id"], []) if t > _cut758_24h) < _lt1020_24h_thresh(s, c)
                              # iter885: lite_7d_sync_final_gate — 5/8/6→3/4/3 对齐 FULL suppress_final_gate iter883
                              # iter905: cross_project_suppress_tighten — 跨项目 7d -2
-                             and sum(1 for t in _itl758.get(c["id"], []) if t > _cut758_7d) < _lt905_7d_thresh(s, c)]
+                             and sum(1 for t in _itl758.get(c["id"], []) if t > _cut758_7d) < _lt905_7d_thresh(s, c))]
                 if len(top_k) < _pre758:
                     _deferred.log(DMESG_WARN, "retriever",
                                   f"iter758_suppress_final_gate_lite: filtered "
