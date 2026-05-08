@@ -279,6 +279,10 @@ def _extract_causal_chains(text: str) -> list:
     results = []
     for pattern in CAUSAL_SIGNALS:
         for m in re.finditer(pattern, text):
+            # iter1215: causal_pipe_filter — 拦截表格行碎片（同 quant iter540）
+            _mline = m.group(0).strip()
+            if _mline.startswith('|') or _mline.count('|') >= 3:
+                continue
             groups = m.groups()
             if len(groups) >= 2:
                 # 类型A：双组（因 + 果），格式化为 "cause → effect"
