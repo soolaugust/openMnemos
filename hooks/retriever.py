@@ -2466,13 +2466,23 @@ def main():
             #   43% 注入位被 ac>=7 占据，cooldown 已阻止新注入→ac 永远不降→永久打压。
             # 修复：last_accessed 距今每 3 天有效 ac 减 1（floor=ac//2），让被成功压制的
             #   chunk 随时间恢复注入资格。ac=10 在 9 天未注入后有效 ac=7，衰减 *0.15→*0.6。
+            # iter1198: decay_floor_raise — time_decay floor 从 ac//2 提升到 ac*2//3
+            # 根因（数据驱动，2026-05-08）：cooldown 14d 到期后 ac=10 chunk 的 _acc 衰减到
+            #   max(5, 10-14//3=6)=6, _sat_mult=0.7*0.5=0.35。但 ac=10 chunk 用户已看 10+ 次，
+            #   边际信息≈0，0.35 仍能通过高 relevance 场景的 min_thresh(0.10-0.18)。
+            #   floor=ac//2 让 ac=10→5, saturation penalty 从 *0.15 跳到 *0.8，等于 cooldown
+            #   到期=saturation 惩罚重置，形成周期性垄断根因。
+            # 修复：floor 从 ac//2 → ac*2//3（向上取整），ac=10 最低衰减到 7(非 5)，
+            #   _sat_mult=max(0.2, 0.8-0.1*2)*0.5=0.6*0.5=0.30。足以让新鲜 chunk 竞争胜出，
+            #   但不至于完全杀死（极高 relevance 场景仍可注入）。
+            _raw_acc = _acc
             if _acc >= 5:
                 _la_str = chunk.get("last_accessed", "")
                 if _la_str and _cutoff_48h:
                     try:
                         _la_days = (_now647 - _dt647.fromisoformat(_la_str)).days
                         if _la_days >= 3:
-                            _acc = max(_acc // 2, _acc - _la_days // 3)
+                            _acc = max((_raw_acc * 2 + 2) // 3, _acc - _la_days // 3)
                     except Exception:
                         pass
             # iter981→989: saturation_widen — 渐进衰减区间 ac>=7→ac>=5
