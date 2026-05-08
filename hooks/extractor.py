@@ -2860,6 +2860,13 @@ def _write_chunk(chunk_type: str, summary: str, project: str, session_id: str,
     # 修复：summary 含 retriever 统计格式标记 → 直接拦截（不检查 DOMAIN_KW）。
     if re.search(r'(?:\bac[=＝]\d|被.*注入.*\d+\s*次|7d[=＝]\d|周注入\s*\d)', summary):
         return
+    # iter1249: system_self_assessment_gate — 系统自我评估/健康声明拦截
+    # 数据驱动（2026-05-09）：f2588920(ac=0) "系统整体健康：87% 7d 覆盖率，cooldown 正常工作，无垄断复发"
+    #   全部现有 gate 未能匹配：cooldown 需 escalat 后缀，垄断需 chunk 后缀，覆盖率无 gate。
+    # 修复：系统健康自评关键词（覆盖率/cooldown/垄断复发/正常工作）+ 无领域知识 → 拒绝。
+    if re.search(r'(?:覆盖率|cooldown|垄断(?:复发|率|问题)|系统.*健康|正常工作|无.*复发)', summary) \
+       and not _DOMAIN_KW.search(summary):
+        return
     # iter1208: execution_status_gate — 执行状态日志/流水账拒绝写入
     # 数据驱动（2026-05-08）：3 个 ac=0 chunk 全为执行流水账：
     #   "Jira FDS trace 解析完成 issue=292604, 220052 chars — 220KB 内容传给 LLM"
