@@ -4421,8 +4421,20 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                     # iter975: output_monopoly_filter (hard_deadline path)
                     if len(top_k) > 1 and _db_chunk_count > 5:
                         _omf_ceil_hd = 3 if _db_chunk_count < 50 else (5 if _db_chunk_count < 100 else 5)
+                        # iter1206: daemon_deep_internalize_sync (hard_deadline path)
+                        def _omf_ceil_hdf(c):
+                            _oac = c[_CI_AC] or 0
+                            if _oac >= 10:
+                                return 1
+                            if _oac >= 7:
+                                return 2
+                            if _oac >= 5:
+                                return 3
+                            if c[_CI_CP] == "global" and _oac >= 4:
+                                return 3
+                            return _omf_ceil_hd
                         _omf_filt_hd = [(s, c) for s, c in top_k
-                                        if _recent_7d_counts.get(c[_CI_ID], 0) < _omf_ceil_hd]
+                                        if _recent_7d_counts.get(c[_CI_ID], 0) < _omf_ceil_hdf(c)]
                         if _omf_filt_hd:
                             top_k = _omf_filt_hd
                     # iter1013+1056: topic_group_dedup (hard_deadline path)
@@ -5704,8 +5716,23 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
         # 修复：inject_lines 构建前最终过滤——7d >= ceiling 移除，至少保留 1 条。
         if top_k and len(top_k) > 1 and _db_chunk_count > 5:
             _omf_ceiling = 3 if _db_chunk_count < 50 else (5 if _db_chunk_count < 100 else 5)
+            # iter1206: daemon_deep_internalize_sync — 同步 retriever.py iter1204
+            # 根因（数据驱动，2026-05-08）：ac=10 chunk 7d 仍注入 4x，因 daemon 路径
+            #   使用固定 ceiling(3/5) 而非 per-chunk 动态 ceiling。retriever.py 已对
+            #   ac>=10→1, ac>=7→2, ac>=5→3，daemon 未同步导致逃逸。
+            def _omf_ceil_d(c):
+                _oac = c[_CI_AC] or 0
+                if _oac >= 10:
+                    return 1
+                if _oac >= 7:
+                    return 2
+                if _oac >= 5:
+                    return 3
+                if c[_CI_CP] == "global" and _oac >= 4:
+                    return 3
+                return _omf_ceiling
             _omf_filtered = [(s, c) for s, c in top_k
-                             if _recent_7d_counts.get(c[_CI_ID], 0) < _omf_ceiling]
+                             if _recent_7d_counts.get(c[_CI_ID], 0) < _omf_ceil_d(c)]
             if _omf_filtered:
                 if len(top_k) != len(_omf_filtered):
                     _deferred.log(DMESG_DEBUG, "retriever_daemon",
@@ -5717,12 +5744,14 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 # iter1178: omf_fallback_empty_suppress — 深度内化 chunk 不注入
                 _omf_sorted = sorted(top_k, key=lambda x: _recent_7d_counts.get(x[1][_CI_ID], 0))
                 # iter1174+1178: 排除 ac>=7 + 7d>=2*ceiling 的深度内化垄断 chunk
+                # iter1206: 使用 per-chunk ceiling 对齐
                 def _omf_fb_skip_d(c):
                     _oac = c[_CI_AC] or 0
                     _o7d = _recent_7d_counts.get(c[_CI_ID], 0)
+                    _pc = _omf_ceil_d(c)
                     if c[_CI_CP] == "global":
-                        return _oac >= 4 and _o7d >= _omf_ceiling
-                    return _oac >= 7 and _o7d >= 2 * _omf_ceiling
+                        return _oac >= 4 and _o7d >= _pc
+                    return _oac >= 7 and _o7d >= 2 * _pc
                 _omf_fb_filt_d = [(s, c) for s, c in _omf_sorted if not _omf_fb_skip_d(c)]
                 if _omf_fb_filt_d:
                     top_k = _omf_fb_filt_d[:min(2, len(_omf_fb_filt_d))]
