@@ -1174,7 +1174,11 @@ def _is_selfref_noise(summary: str, chunk_type: str) -> bool:
         #   selfref hits=1（仅 zero_access），不足 2 阈值逃逸。
         #   "PA"/"HEALTHY"/"pass"/"production_assert" 是典型迭代器自检输出。
         r'PA\s+\d+/\d+|HEALTHY|production.?assert|tests?\s+\d+/\d+\s*pass|'
-        r'extractor\s+tests?|闭包快照|closure.?snapshot)',
+        r'extractor\s+tests?|闭包快照|closure.?snapshot|'
+        # iter1148: internal_var_gate — 内部变量名/db分级标识逃逸
+        # 根因（数据驱动，2026-05-08）："_db_chunk_count…micro_db(<=5)" hits=0 逃逸。
+        #   micro_db/tiny_db/small_db/chunk_count 是 retriever 内部分级变量。
+        r'micro_db|tiny_db|small_db|chunk_count|_db_chunk|bypass|误判)',
         summary
     ))
     if hits < 2:
