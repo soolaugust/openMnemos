@@ -1,12 +1,54 @@
 {
-  "iter": 1196,
-  "tag": "vfs_type_gate",
-  "change": "VFS 直写路径增加 chunk_type 过滤，拒绝 conversation_summary/prompt_context",
-  "metrics": {
-    "zero_access_rate": "0.0% (0/59)",
-    "fts5_consistency": "59/59",
-    "pa_score": "10/10"
+  "timestamp": "2026-05-08T13:01:15.334834",
+  "iteration": 71,
+  "project_id": "test:e2e_baseline",
+  "swap_out": {
+    "hit_ids_count": 0,
+    "decisions_count": 3,
+    "excluded_paths_count": 1,
+    "elapsed_ms": 0.07009506225585938,
+    "hit_ids": [],
+    "decisions": [
+      {
+        "id": "test_chunk_0",
+        "summary": "Swap_out 100% \u6062\u590d\u7387\u9700\u8981 queries_global_top_k",
+        "importance": 0.9
+      },
+      {
+        "id": "test_chunk_1",
+        "summary": "PreCompact hook \u9700\u8981 immutable DB \u907f\u514d\u9501\u7ade\u4e89",
+        "importance": 0.85
+      },
+      {
+        "id": "test_chunk_2",
+        "summary": "TLB \u591a\u69fd\u7f13\u5b58\u89e3\u51b3 DB mtime \u9891\u7e41\u5931\u6548",
+        "importance": 0.8
+      }
+    ],
+    "excluded_paths": [
+      "/test/*, *.bak, __pycache__"
+    ]
   },
-  "quantified_improvement": "zero_access 1.7%→0.0%, 清除 3 条噪声 chunk (conversation_summary)",
-  "code_change_lines": 4
+  "swap_in": {
+    "restored_chunks_count": 0,
+    "actual_chars": 305,
+    "max_chars": 1500,
+    "coverage": 0.0,
+    "space_efficiency": 0.20333333333333334,
+    "quality_score": 0.0,
+    "elapsed_ms": 0.006198883056640625,
+    "sample_context": "\u3010\u4e0a\u6b21\u4f1a\u8bdd\u72b6\u6001 \u00b7 \u81ea\u52a8\u6062\u590d\u3011\n\u5173\u952e\u77e5\u8bc6\uff080 items\uff09:\n\n\u6838\u5fc3\u51b3\u7b56\uff083 items\uff09:\n  \u2022 Swap_out 100% \u6062\u590d\u7387\u9700\u8981 queries_global_top_k\n  \u2022 PreCompact hook \u9700\u8981 immutable DB \u907f\u514d\u9501\u7ade\u4e89\n  \u2022 TLB \u591a\u69fd\u7f13\u5b58\u89e3\u51b3 DB mtime \u9891\u7e41\u5931\u6548\n\n\u6392\u9664\u8def\u5f84: /test/*, *.bak, __pycache__\n..."
+  },
+  "db_health": {
+    "status": "HEALTHY",
+    "chunk_count": 8,
+    "stale_refs": 0,
+    "orphan_chunks": 0,
+    "issues": []
+  },
+  "metrics": {
+    "total_time_ms": 0.0762939453125,
+    "hit_rate": 0.0,
+    "quality_score": 0.0
+  }
 }

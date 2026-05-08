@@ -2770,6 +2770,22 @@ def _write_chunk(chunk_type: str, summary: str, project: str, session_id: str,
            and re.search(r'\d', summary) \
            and not re.search(r'(?:根因|原因|所以|因此|说明|表明|意味着|证明|意味|导致)', summary):
             return
+    # iter1202: iterator_impl_gate — 拒绝写入迭代器/retriever/extractor 内部实现细节
+    # 数据驱动（2026-05-08）：11 个 ac=0 chunk 全为迭代器自身的调参/bug/fix 记录
+    #   （"suppress 率"、"空召回"、"relevance_floor"、"候选全被过滤"），用户永远不会检索这些。
+    # 修复：summary 含 retriever/extractor 内部关键词 + 无外部领域知识 → 拒绝。
+    _ITER_IMPL_KW = re.compile(
+        r'(?:suppress|空召回|relevance.?floor|候选.*(?:过滤|全灭)|fallback.*注入|'
+        r'iter\d{3,4}|hard.?cap|session.?inj|7d.?(?:阈值|thresh)|'
+        r'24h.?(?:burst|阈值)|_score_chunk|_write_chunk|extractor.*gate|'
+        r'recall_count|bw_window|anti.?monopoly|注入配额|FTS5?\s*(?:噪声|命中率))',
+        re.IGNORECASE)
+    _DOMAIN_KW = re.compile(
+        r'(?:kernel|sched|cpu|proxy|PE|binder|Android|飞书|feishu|git|patch|commit|'
+        r'migration|thermal|uclamp|内存|进程|线程|设备|用户|产品|API|接口|函数)',
+        re.IGNORECASE)
+    if _ITER_IMPL_KW.search(summary) and not _DOMAIN_KW.search(summary):
+        return
     # iter1098: url_only_summary_gate — 纯 URL summary 拒绝写入
     # 数据驱动（2026-05-07）：8f95425e conversation_summary 仅含 feishu URL（ac=0），
     #   FTS5 无法语义匹配 URL 字符串，检索价值为零。
