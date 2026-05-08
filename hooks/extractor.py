@@ -1180,7 +1180,14 @@ def _is_selfref_noise(summary: str, chunk_type: str) -> bool:
         #   micro_db/tiny_db/small_db/chunk_count 是 retriever 内部分级变量。
         r'micro_db|tiny_db|small_db|chunk_count|_db_chunk|bypass|误判|'
         # iter1184: mm_subsystem_selfref — memory-os 回收/MM 子系统内部术语
-        r'swap_out|kswapd|pd_scan|_reclaim|cold_born|store_mm|oom_adj|lru_gen)',
+        r'swap_out|kswapd|pd_scan|_reclaim|cold_born|store_mm|oom_adj|lru_gen|'
+        # iter1186: retriever_internal_var_gate — retriever 内部函数/变量名
+        # 根因（数据驱动，2026-05-08）："pair_preserve（iter926）保护低分 pair 不被 score_floor 过滤"
+        #   hits=1（仅 iter926），pair_preserve/score_floor 未覆盖 → 逃逸。
+        # 修复：补充 retriever 内部函数名和评分变量。
+        r'pair_preserve|score_floor|_ac_gated|pair_from_db|diversity_pair|'
+        r'imp_pair|suppress_fallback|bw_window|hard_cap|_min_thresh|'
+        r'candidates?全灭|候选池)',
         summary
     ))
     if hits < 2:
