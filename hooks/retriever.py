@@ -4858,7 +4858,8 @@ def main():
         # 修复：positive 仍为单条时，从 DB 查同 project 的、24h 未注入的、高 importance
         #   chunk 作为 diversity pair。给予 top1*0.25 的低 score，确保不喧宾夺主。
         #   排除 top1 自身、session 内已注入的 chunk。仅 tiny_db(<50) 启用（大库 FTS 覆盖足够）。
-        if len(positive) == 1 and _db_chunk_count < 50:
+        # iter1203: diversity_pair_threshold_100 — 50→100，覆盖 50-99 chunk 库的多知识组合
+        if len(positive) == 1 and _db_chunk_count < 100:
             _top1_id = positive[0][1].get("id", "")
             try:
                 from datetime import datetime as _dt864, timezone as _tz864
@@ -5007,7 +5008,8 @@ def main():
         # 修复：fallback_pair 失败后，对 positive==1 + tiny_db(<50) 执行 DB 直查，
         #   选同 project、低 ac、高 importance、7d=0 的新鲜 chunk 作为 diversity pair。
         #   复用 diversity_pair_from_db 逻辑，条件收窄（仅 7d=0）确保不引入垄断。
-        if len(positive) == 1 and _db_chunk_count < 50:
+        # iter1203: diversity_pair_threshold_100 — 50→100
+        if len(positive) == 1 and _db_chunk_count < 100:
             _pfd_top1_id = positive[0][1].get("id", "")
             try:
                 import sqlite3 as _pfd_sql
@@ -6843,7 +6845,8 @@ def main():
         # 修复：dedup 之前最终检查——top_k==1 且库>=6 chunk 时，从 DB 查同 project
         #   低 access_count + 高 importance 的 chunk 补充配对。排除 top1 自身和
         #   session 内已注入的 chunk。仅 <50 chunk 库启用。
-        if len(top_k) == 1 and _db_chunk_count >= 6 and _db_chunk_count < 50:
+        # iter1203: diversity_pair_threshold_100 — 50→100
+        if len(top_k) == 1 and _db_chunk_count >= 6 and _db_chunk_count < 100:
             _f868_top1_id = top_k[0][1].get("id", "")
             try:
                 # iter1035: lite_pair_now_ts_fix — LITE 路径 _now_ts 未定义导致 NameError
