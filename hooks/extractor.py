@@ -1441,7 +1441,7 @@ def _is_quality_chunk(summary: str) -> bool:
                 # iter1098: iterator_metric_en_gate — 英文形式的迭代器度量指标逃逸
                 # 数据驱动（2026-05-07）：07e299e5 "zero_access: 20% → 0%" ac=0 逃逸，
                 #   因 "零访问率" 只匹配中文形式。补充英文变体。
-                "zero_access",
+                "zero_access", "zero-access",
                 # iter1018: daemon_expectation_noise — 迭代器效果预测/内部逻辑缺失描述逃逸
                 # 数据驱动（2026-05-07）：2 条 ac=0 噪声：
                 #   "daemon 路径高 ac chunk 重复注入减少 ~30%" — 效果预测
