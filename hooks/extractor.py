@@ -1503,9 +1503,18 @@ def _is_quality_chunk(summary: str) -> bool:
         # 数据驱动（2026-05-08）：bdee49f7 "levance>=0.5 时去除 ceiling" hits=1(ac<)，
         #   因 ceiling/最后防线/escape tier 不在术语表。这些是 retriever 内部兜底机制名称。
         'ceiling', '最后防线', 'escape tier', '兜底',
+        # iter1164: combo_gate_diag_report — 系统状态诊断报告术语逃逸
+        # 数据驱动（2026-05-08）：3 条 ac=0 噪声逃逸 combo_gate：
+        #   "系统当前状态健康——垄断(top-5=16%)、空召回(0%)、零访问(0%)均已修复"(hits=1)
+        #   "82→79 chunks (-3.7%)，释放 3 个 top-k 候选位给新知识"(hits=1)
+        #   "skipped_same_hash 20 条是 iter805 之前的历史遗留"(hits=1)
+        #   根因：这些是迭代器的系统健康诊断/度量变化报告，含百分比/chunk 数量变化等。
+        # 修复：加入 垄断/零访问/top-k/候选位/历史遗留 作为 combo term。
+        '垄断', '零访问', 'top-k', '候选位', '历史遗留',
     ) if _t in s)
-    # iter1114: regex 补充 — iter+4位数字是迭代器自引用标识
-    if re.search(r'iter\d{4}', s):
+    # iter1114: regex 补充 — iter+3~4位数字是迭代器自引用标识
+    # iter1164: 扩展 \d{4}→\d{3,4} 覆盖 iter805 等 3 位迭代号逃逸
+    if re.search(r'iter\d{3,4}', s):
         _mos_terms += 2
     if _mos_terms >= 3:
         return False
