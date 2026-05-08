@@ -2737,6 +2737,14 @@ def main():
                         if _pc_ac >= 7:
                             score = 0.0
                             _hard_suppressed = True
+            # ── iter1201: cross_project_saturated_decay — 跨项目高饱和 chunk 降权 ──
+            # 根因（数据驱动，2026-05-08）：9a2692fd(ac=10,kernel) 在非 kernel 项目仍注入 4 次/7d，
+            #   因 BM25 relevance 基数高(0.4+)，cooldown/suppress 被 fallback 绕过后仍胜出。
+            #   用户在非相关项目中反复看到已内化的跨项目知识=零信息增量。
+            # 修复：cross-project + ac>=7 → score *= 0.4，让本地相关知识胜出。
+            #   不 hard_suppress（保留 fallback 资格），但 60% 降权足以在正常竞争中让位。
+            if not _hard_suppressed and _cd_is_cross_project and _acc >= 7:
+                score *= 0.4
             # ── iter614: temporal_burst_suppression — 24h 注入频率 cap ─────────
             # 同一 chunk 在 24h 内注入 >=2 次 → suppress（score=0）
             # iter619: 阈值 3→2，同日看 2 次已足够，第 3 次起 suppress
