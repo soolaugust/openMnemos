@@ -2697,8 +2697,8 @@ def _write_chunk(chunk_type: str, summary: str, project: str, session_id: str,
     # 根因（数据驱动，2026-05-07）：fedc79ef "创业板指 5 日涨幅 +3.01%..." 逃逸，
     #   因 "创业板" 后不紧跟数字（中间隔 "指 5 日涨幅"）。
     # 修复：关键词和百分比数值在同一 summary 中共现即拦截（不要求紧邻）。
-    if re.search(r'(?:创业板|上证|深证|沪深|涨幅|跌幅|日线|K线|形态识别|通过硬过滤)', summary) \
-       and re.search(r'[-+]?\d+\.?\d*%', summary):
+    if re.search(r'(?:创业板|上证|深证|沪深|涨幅|跌幅|日线|K线|形态识别|通过硬过滤|换手率|成交额|连板|缩量回踩|放量反弹)', summary) \
+       and re.search(r'[-+]?\d+\.?\d*%|→\d+|\d+只', summary):
         return
     # iter1097: device_data_snapshot_gate — 纯设备数据输出/proc stats 碎片拒绝
     # 数据驱动（2026-05-07）：16 个 ac=0 chunk 全是 zram/swap/RAM 配置读出，
