@@ -3840,7 +3840,7 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                         if _l_ac_d >= 7:
                             _7d_base = 2
                         elif _l_ac_d >= 5:
-                            _7d_base = max(2, _7d_base - 1)
+                            _7d_base = max(2, _7d_base - 2)  # iter1152: local_mid_saturated_tighten
                         elif _l_ac_d >= 4:
                             _7d_base = max(3, _7d_base - 1)
                     if _recent_7d_counts.get(_cid, 0) >= _7d_base:
@@ -4009,7 +4009,7 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                         if _l_ac_d2 >= 7:
                             _7d_base_d2 = 2
                         elif _l_ac_d2 >= 5:
-                            _7d_base_d2 = max(2, _7d_base_d2 - 1)
+                            _7d_base_d2 = max(2, _7d_base_d2 - 2)  # iter1152: local_mid_saturated_tighten
                         elif _l_ac_d2 >= 4:
                             _7d_base_d2 = max(3, _7d_base_d2 - 1)
                     if _recent_7d_counts.get(_cid, 0) >= _7d_base_d2:
@@ -5128,7 +5128,7 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                     if _lac >= 7:
                         return 2
                     elif _lac >= 5:
-                        return max(2, _t - 1)
+                        return max(2, _t - 2)  # iter1152: local_mid_saturated_tighten
                     # iter1143: local_mid_saturated_suppress — ac>=4 阈值 -1
                     elif _lac >= 4:
                         return max(3, _t - 1)
@@ -5370,7 +5370,7 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                     if _lac >= 7:
                         return 2
                     elif _lac >= 5:
-                        return max(2, _fb_ceiling_d - 1)
+                        return max(2, _fb_ceiling_d - 2)  # iter1152: local_mid_saturated_tighten
                     return _fb_ceiling_d
                 # iter1027: fallback_24h_align — global ac>=4 阈值=1
                 # iter1093: daemon_fallback_cooldown — fallback 也必须检查 cooldown

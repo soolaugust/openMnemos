@@ -2856,7 +2856,12 @@ def main():
                     if _l_ac >= 7:
                         _suppress_7d_thresh = 2
                     elif _l_ac >= 5:
-                        _suppress_7d_thresh = max(2, _suppress_7d_thresh - 1)
+                        # iter1152: local_mid_saturated_tighten — ac>=5 从 -1 收紧到 -2
+                        # 根因（数据驱动，2026-05-08）：84-chunk 库 ac=5-6 chunk（memory验证ac=6,
+                        #   PE分析系列ac=5-6）small_db 高分阈值=5，7d_inj=4 仍逃逸。
+                        #   ac>=5 表示用户已充分内化，允许 4 次/周占 7.7% 总注入过于宽松。
+                        # 修复：-1→-2，small_db 高分 6→4，低分 4→2。每周最多 3/1 次注入。
+                        _suppress_7d_thresh = max(2, _suppress_7d_thresh - 2)
                     # iter1143: local_mid_saturated_suppress — ac>=4 本项目 chunk 7d 阈值 -1
                     # 根因（数据驱动，2026-05-08）：Kernel Patch 格式规范(ac=4) tiny_db 7d=3
                     #   仍注入（阈值=5）。ac=4 表明用户已见过 4 次，7d 允许 4 次过于宽松。
@@ -3789,7 +3794,7 @@ def main():
                     if _l_ac >= 7:
                         return 2
                     elif _l_ac >= 5:
-                        return max(2, _t - 1)
+                        return max(2, _t - 2)  # iter1152: local_mid_saturated_tighten
                     return _t
                 # iter1019: saturated_24h_tighten — sync suppress_final_gate
                 def _hd1019_24h_thresh(s, c):
@@ -3892,7 +3897,7 @@ def main():
                     if _lac >= 7:
                         return 2
                     elif _lac >= 5:
-                        return max(2, _fb_hd_ceiling - 1)
+                        return max(2, _fb_hd_ceiling - 2)  # iter1152: local_mid_saturated_tighten
                     return _fb_hd_ceiling
                 # iter1101: hd_fallback_cooldown — hard_deadline fallback 补充 cooldown 过滤
                 # 根因（数据驱动，2026-05-07）：import-dc534(global,ac=2) 经 _score_chunk cooldown
@@ -5655,7 +5660,7 @@ def main():
                     if _l_ac >= 7:
                         return 2
                     elif _l_ac >= 5:
-                        return max(2, _t - 1)
+                        return max(2, _t - 2)  # iter1152: local_mid_saturated_tighten
                     # iter1143: local_mid_saturated_suppress — ac>=4 阈值 -1
                     elif _l_ac >= 4:
                         return max(3, _t - 1)
@@ -6371,7 +6376,7 @@ def main():
                     if _l_ac >= 7:
                         return 2
                     elif _l_ac >= 5:
-                        return max(2, _t - 1)
+                        return max(2, _t - 2)  # iter1152: local_mid_saturated_tighten
                     return _t
                 # iter1002: lite_micro_db_bypass — LITE 路径同步 FULL 的 micro_db bypass(line 4863)
                 # 根因（数据驱动，2026-05-06）：git:78dc99a5695f（2 自有 chunk）LITE 路径 5/6 空召回。
