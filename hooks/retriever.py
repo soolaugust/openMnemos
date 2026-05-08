@@ -4121,11 +4121,16 @@ def main():
                             top_k = _omf_filt_hd
                         else:
                             # iter987: omf_graduated_fallback (hard_deadline path)
-                            # iter1174: omf_fallback_saturated_skip (hard_deadline sync)
+                            # iter1174+1175: omf_fallback_saturated_skip (hard_deadline sync)
                             _omf_sorted_hd = sorted(top_k, key=lambda x: _recent_7d_counts.get(x[1].get("id", ""), 0))
-                            _omf_fb_filt_hd = [(s, c) for s, c in _omf_sorted_hd
-                                               if not ((c.get("access_count", 0) or 0) >= 7
-                                                       and _recent_7d_counts.get(c.get("id", ""), 0) >= 2 * _omf_hd_ceil(c))]
+                            def _omf_fb_skip_hd(c):
+                                _oac = c.get("access_count", 0) or 0
+                                _o7d = _recent_7d_counts.get(c.get("id", ""), 0)
+                                _ceil = _omf_hd_ceil(c)
+                                if c.get("project", "") == "global":
+                                    return _oac >= 4 and _o7d >= _ceil
+                                return _oac >= 7 and _o7d >= 2 * _ceil
+                            _omf_fb_filt_hd = [(s, c) for s, c in _omf_sorted_hd if not _omf_fb_skip_hd(c)]
                             if _omf_fb_filt_hd:
                                 top_k = _omf_fb_filt_hd[:min(2, len(_omf_fb_filt_hd))]
                             else:
@@ -7098,10 +7103,21 @@ def main():
                 #   PE分析(ac=7,7d=7)、Android诊断(ac=10,7d=4) 每次 fallback 必选中。
                 # 修复：fallback 排除 ac>=7 且 7d >= 2*personal_ceiling 的 chunk（极度垄断+深度内化）。
                 #   允许空召回（suppress_zero_fallback 兜底）优于注入零信息增量知识。
+                # iter1175: fallback_global_tighten — global chunk 用 1*ceiling 阈值
+                # 根因（数据驱动，2026-05-08）：c9accb7b(feishu CLI,ac=4,global) 30d=4x，
+                #   cooldown=5d 限制 7d<=2，2*ceiling=6 永远不触发 → fallback 必选中。
+                #   global chunk 已被 agent 深度内化，边际信息≈0，fallback 不应复活它们。
+                # 修复：global chunk 阈值从 2*ceiling 收紧为 1*ceiling（7d>=3 即 block）。
+                #   non-global 保持 2*ceiling（宽松）——本地知识多样性更重要。
                 _omf_sorted = sorted(top_k, key=lambda x: _omf_7d_src.get(x[1].get("id", ""), 0))
-                _omf_fb_filtered = [(s, c) for s, c in _omf_sorted
-                                    if not ((c.get("access_count", 0) or 0) >= 7
-                                            and _omf_7d_src.get(c.get("id", ""), 0) >= 2 * _omf_chunk_ceiling(c))]
+                def _omf_fb_skip(c):
+                    _oac = c.get("access_count", 0) or 0
+                    _o7d = _omf_7d_src.get(c.get("id", ""), 0)
+                    _ceil = _omf_chunk_ceiling(c)
+                    if c.get("project", "") == "global":
+                        return _oac >= 4 and _o7d >= _ceil
+                    return _oac >= 7 and _o7d >= 2 * _ceil
+                _omf_fb_filtered = [(s, c) for s, c in _omf_sorted if not _omf_fb_skip(c)]
                 if _omf_fb_filtered:
                     top_k = _omf_fb_filtered[:min(2, len(_omf_fb_filtered))]
                 else:
