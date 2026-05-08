@@ -4897,6 +4897,29 @@ def main():
                                       f"iter827_imp_pair: paired {_imp_best[1].get('id','')[:12]} "
                                       f"imp={_imp_best[0]:.2f} with top1 s={positive[0][0]:.3f}",
                                       session_id=session_id, project=project)
+        # iter1239: relevance_pair_from_presuppress — suppress 后用原始 relevance 补配对
+        # 根因（数据驱动，2026-05-09）：38% 注入仅 1 条 chunk（20/52），cands=10-38 但
+        #   suppress 清零 → pair_inject(s>0.12) 无候选 → imp_pair(s>=_min_thresh) 也无候选。
+        #   _pre_score_relevance 保留了 suppress 前的原始 BM25 相关度，可安全配对。
+        # 修复：positive=1 且 pair/imp_pair 均未命中时，从 _pre_score_relevance 选
+        #   relevance>=0.25 + importance>=0.3 + 7d/24h/session 过滤的最佳候选配对。
+        if len(positive) == 1 and _pre_score_relevance:
+            _top1_id_rp = positive[0][1].get("id", "")
+            _rp_cands = [(rel, c) for rel, c in _pre_score_relevance
+                         if c.get("id", "") != _top1_id_rp
+                         and rel >= 0.25
+                         and float(c.get("importance", 0) or 0) >= 0.3
+                         and _session_injection_counts.get(c.get("id", ""), 0) < _pair_dedup_thresh
+                         and _recent_7d_counts.get(c.get("id", ""), 0) < _pair_7d_cap(c)
+                         and _recent_24h_counts.get(c.get("id", ""), 0) < (1 if c.get("project") == "global" and (c.get("access_count", 0) or 0) >= 4 else 3)]
+            if _rp_cands:
+                _rp_best = max(_rp_cands, key=lambda x: x[0])
+                _rp_score = positive[0][0] * 0.35
+                positive.append((_rp_score, _rp_best[1]))
+                _deferred.log(DMESG_DEBUG, "retriever",
+                              f"iter1239_relevance_pair: paired {_rp_best[1].get('id','')[:12]} "
+                              f"rel={_rp_best[0]:.2f} with top1 s={positive[0][0]:.3f}",
+                              session_id=session_id, project=project)
         # iter864: diversity_pair_from_db — FTS 未命中的高 importance chunk 曝光
         # 根因（数据驱动，2026-05-05）：33-chunk 库中 6/20 从未被注入（imp 0.64~0.88），
         #   因 FTS 从未命中它们 → 不在 final → iter827 无法选到 → 永远零曝光。
