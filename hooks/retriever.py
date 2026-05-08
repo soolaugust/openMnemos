@@ -1942,10 +1942,21 @@ def main():
                 #   被注入到 abspath:7e3095aef7a6，因非 global 不走跨项目聚合，
                 #   目标项目 7d=1 不触发 suppress（阈值=2）。per-project 隔离仅对 global 生效是漏洞。
                 # 修复：对所有 project!=当前项目 的 chunk 聚合跨项目 7d/24h/6h 计数。
+                # iter1217: sparse_global_aggregate_shield — sparse 项目(local<=3)豁免 global chunk 聚合
+                #   根因（数据驱动，2026-05-09）：git:78dc99a5695f(local=3) 连续 6 次空召回(cands=11-25)，
+                #   因 6 个 global chunk 在其他项目正常使用被跨项目聚合 → 7d 计数膨胀 → suppress 全灭。
+                #   sparse 项目依赖 global chunk 作为唯一知识源，不应因其他项目使用而 suppress。
+                # 修复：sparse 时排除 global chunk 的跨项目聚合；非 sparse 正常聚合。
                 try:
+                    _sparse_local_cnt = _fb_conn.execute(
+                        "SELECT COUNT(*) FROM memory_chunks WHERE project=? AND chunk_state='ACTIVE'",
+                        (project,)).fetchone()[0] or 0
+                    _sparse_shield_global = _sparse_local_cnt <= 3
+                    _cross_q = ("SELECT id FROM memory_chunks WHERE project!=? AND project!='global' AND chunk_state='ACTIVE'"
+                                if _sparse_shield_global else
+                                "SELECT id FROM memory_chunks WHERE project!=? AND chunk_state='ACTIVE'")
                     _cross_project_ids_set = set(r[0] for r in _fb_conn.execute(
-                        "SELECT id FROM memory_chunks WHERE project!=? AND chunk_state='ACTIVE'",
-                        (project,)).fetchall())
+                        _cross_q, (project,)).fetchall())
                     if _cross_project_ids_set:
                         for (_g_tk, _g_ts) in _fb_conn.execute(
                                 "SELECT top_k_json, timestamp FROM recall_traces "
