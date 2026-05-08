@@ -5858,11 +5858,12 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
         # ── iter1119: saturation_diversity_gate — 高饱和 chunk 占比硬限 ─────────
         # 根因（数据驱动，2026-05-08）：ac>=7 chunk 群体消耗 7d 注入位 45%。
         # 修复：单次注入中 ac>=7 最多占 50%（向上取整），超额按 score 低优先移除。
+        # iter1155: sdg_threshold_widen — ac>=7→5 覆盖 ac=5-6 中饱和逃逸
         if top_k and len(top_k) > 2 and _db_chunk_count > 5:
             _sdg_max = max(1, (len(top_k) + 1) // 2)
-            _sdg_saturated = [(s, c) for s, c in top_k if (c[_CI_AC] or 0) >= 7]
+            _sdg_saturated = [(s, c) for s, c in top_k if (c[_CI_AC] or 0) >= 5]
             if len(_sdg_saturated) > _sdg_max:
-                _sdg_fresh = [(s, c) for s, c in top_k if (c[_CI_AC] or 0) < 7]
+                _sdg_fresh = [(s, c) for s, c in top_k if (c[_CI_AC] or 0) < 5]
                 _sdg_saturated.sort(key=lambda x: x[0], reverse=True)
                 _sdg_kept = _sdg_saturated[:_sdg_max]
                 top_k = _sdg_fresh + _sdg_kept

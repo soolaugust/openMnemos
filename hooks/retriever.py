@@ -4119,11 +4119,13 @@ def main():
                     #   31% 注入包含 2+ 个 ac>=5 chunk（最多 6 个），已内化知识群体霸占注入位。
                     #   FULL 路径有 iter1119 限制 50%，但 hard_deadline 是主要路径（占 85%+ trace）。
                     # 修复：同步 FULL path 逻辑——ac>=7 chunk 最多占 ceil(len/2)，超额移除低分的。
+                    # iter1155: sdg_threshold_widen — ac>=7→5 覆盖 93cbc985(ac=6) 等中饱和逃逸
+                    #   数据驱动：ac=5-6 chunk 7d=4 仍逃逸 diversity gate，占 7d 注入 12%。
                     if top_k and len(top_k) > 2 and not _micro_db:
                         _sdg_max_hd = max(1, (len(top_k) + 1) // 2)
-                        _sdg_sat_hd = [(s, c) for s, c in top_k if (c.get("access_count", 0) or 0) >= 7]
+                        _sdg_sat_hd = [(s, c) for s, c in top_k if (c.get("access_count", 0) or 0) >= 5]
                         if len(_sdg_sat_hd) > _sdg_max_hd:
-                            _sdg_fresh_hd = [(s, c) for s, c in top_k if (c.get("access_count", 0) or 0) < 7]
+                            _sdg_fresh_hd = [(s, c) for s, c in top_k if (c.get("access_count", 0) or 0) < 5]
                             _sdg_sat_hd.sort(key=lambda x: x[0], reverse=True)
                             top_k = _sdg_fresh_hd + _sdg_sat_hd[:_sdg_max_hd]
                             top_k.sort(key=lambda x: x[0], reverse=True)
@@ -7119,11 +7121,12 @@ def main():
         # 修复：单次注入中 ac>=7 chunk 最多占 50%（向上取整），超额按 score 低的优先移除。
         #   确保每次注入至少有一半位给新鲜/未内化知识。
         # 豁免：micro_db (<=5) 和 top_k<=2 时不限制（候选不足）。
+        # iter1155: sdg_threshold_widen — ac>=7→5 覆盖 ac=5-6 中饱和逃逸
         if top_k and len(top_k) > 2 and not _micro_db:
             _sdg_max = max(1, (len(top_k) + 1) // 2)  # ceil(len/2)
-            _sdg_saturated = [(s, c) for s, c in top_k if (c.get("access_count", 0) or 0) >= 7]
+            _sdg_saturated = [(s, c) for s, c in top_k if (c.get("access_count", 0) or 0) >= 5]
             if len(_sdg_saturated) > _sdg_max:
-                _sdg_fresh = [(s, c) for s, c in top_k if (c.get("access_count", 0) or 0) < 7]
+                _sdg_fresh = [(s, c) for s, c in top_k if (c.get("access_count", 0) or 0) < 5]
                 # 保留 score 最高的 _sdg_max 个 saturated
                 _sdg_saturated.sort(key=lambda x: x[0], reverse=True)
                 _sdg_kept = _sdg_saturated[:_sdg_max]
