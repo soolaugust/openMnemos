@@ -2994,15 +2994,19 @@ def main():
                     #   ac>=7 已深度内化（7+ 次访问），7d 内 1 次注入信息增量已≈0。
                     # 修复：ac>=7 统一 thresh=1，与 ac>=10 对齐。
                     if _l_ac >= 7:
-                        _suppress_7d_thresh = 1
+                        # iter1308: ac7_7d_thresh_relax — small_db thresh 1→2
+                        # 根因（数据驱动，2026-05-09）：21-chunk kernel 项目 6 个 ac=5-7 chunk
+                        #   被 thresh=1/2 封锁（7d 内仅 1 次即永久 suppress），配合 10d cooldown
+                        #   导致用户连续 5 天零注入。小库核心知识 7d 看 2 次是合理频率。
+                        #   cooldown(10d) 已防止密集注入，7d thresh 可放宽为安全网而非主控。
+                        # 修复：small_db(<100) ac>=7 thresh 1→2；大库保持 1。
+                        _suppress_7d_thresh = 2 if _db_chunk_count < 100 else 1
                     elif _l_ac >= 5:
-                        # iter1254: local_ac5_7d_thresh2 — ac>=5 直接 thresh=2
-                        # 根因（数据驱动，2026-05-09）：81-chunk 库 ac=5 chunk（Android诊断ac=5,
-                        #   PE活跃问题ac=5, Patch工作流ac=5）small_db 高分 base=6, max(2,6-2)=4,
-                        #   7d 内各注入 4 次逃逸。ac>=5 用户已充分内化，max() 保底导致 thresh
-                        #   被 base 抬高无法收紧。
-                        # 修复：直接 thresh=2（不依赖 base），7d 内第 2 次即 suppress。
-                        _suppress_7d_thresh = 2
+                        # iter1308: ac5_7d_thresh_relax — small_db thresh 2→3
+                        # 同上根因：ac=5 chunk 有 72h cooldown 保护，7d thresh=2 过紧
+                        #   导致 cooldown 过期后首次注入即消耗唯一 quota → 再等 7d 窗口过期。
+                        # 修复：small_db(<100) thresh 2→3；大库保持 2。
+                        _suppress_7d_thresh = 3 if _db_chunk_count < 100 else 2
                     # iter1143: local_mid_saturated_suppress — ac>=4 本项目 chunk 7d 阈值 -1
                     # iter1276: ac4_7d_tighten — ac>=4 统一用 max(2, thresh-2)
                     # 根因（数据驱动，2026-05-09）：21-chunk 库中 9 个 ac=4-5 chunk 各 7d=3-4，
