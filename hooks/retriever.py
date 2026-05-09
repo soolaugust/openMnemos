@@ -3985,12 +3985,28 @@ def main():
                 def _hd1042_6h_thresh(c):
                     _hac = c.get("access_count", 0) or 0
                     return 1 if (_hac >= 7 or (c.get("chunk_type") == "design_constraint" and _hac >= 5) or (c.get("project") == "global" and _hac >= 4)) else 2
+                # iter1273: lifetime_injection_suppress — 累计注入次数饱和 suppress
+                # 根因（数据驱动，2026-05-09）：import-90139(ac=3) timeline 累计 7 次注入，
+                #   但 7d 窗口滑过后重新计数，导致已饱和知识反复出现。
+                #   用户在 5+ 次注入后已充分内化，继续注入零边际价值。
+                # 修复：lifetime>=7 无条件 suppress；lifetime>=5 且最近 3d 内注入过则 suppress。
+                def _hd1273_lifetime_ok(c):
+                    _tl = _injection_timeline.get(c["id"])
+                    if not _tl:
+                        return True
+                    _lt = len(_tl)
+                    if _lt >= 7:
+                        return False
+                    if _lt >= 5 and _tl[-1] > _cutoff_72h:
+                        return False
+                    return True
                 top_k = [(s, c) for s, c in top_k
                          if _recent_6h_counts.get(c["id"], 0) < _hd1042_6h_thresh(c)  # iter1042
                          and _recent_24h_counts.get(c["id"], 0) < _hd1019_24h_thresh(s, c)
                          # iter904: 7d_rebalance_tiny — tiny_db 7d 2→4
                          # iter905: cross_project_suppress_tighten — 跨项目 7d -2
-                         and _recent_7d_counts.get(c["id"], 0) < _hd905_7d_thresh(s, c)]
+                         and _recent_7d_counts.get(c["id"], 0) < _hd905_7d_thresh(s, c)
+                         and _hd1273_lifetime_ok(c)]  # iter1273
             # iter842: post_suppress_pair_from_final (hard_deadline path)
             # iter851: suppress_aware_pair — 候选尊重 suppress_final_gate 阈值
             # iter1011: pair_saturated_cap — hard_deadline pair 路径同步
@@ -6027,13 +6043,25 @@ def main():
                 def _sf1139_6h_thresh(c):
                     _hac = c.get("access_count", 0) or 0
                     return 1 if (_hac >= 7 or (c.get("chunk_type") == "design_constraint" and _hac >= 5) or (c.get("project") == "global" and _hac >= 4)) else 2
+                # iter1273: lifetime_injection_suppress — FULL 路径同步
+                def _sf1273_lifetime_ok(c):
+                    _tl = _injection_timeline.get(c["id"])
+                    if not _tl:
+                        return True
+                    _lt = len(_tl)
+                    if _lt >= 7:
+                        return False
+                    if _lt >= 5 and _tl[-1] > _cutoff_72h:
+                        return False
+                    return True
                 if _db_chunk_count > 5:
                     top_k = [(s, c) for s, c in top_k
                              if _rt663_6h.get(c["id"], 0) < _sf1139_6h_thresh(c)
                              and _rt663_24h.get(c["id"], 0) < _sf1020_24h_thresh(s, c)
                              # iter904: 7d_rebalance_tiny — tiny_db 7d 2→4
                              # iter905: cross_project_suppress_tighten — 跨项目 7d -2
-                             and _rt663_7d.get(c["id"], 0) < _sf663_7d_thresh(s, c)]
+                             and _rt663_7d.get(c["id"], 0) < _sf663_7d_thresh(s, c)
+                             and _sf1273_lifetime_ok(c)]  # iter1273
                 if len(top_k) < _pre663:
                     _deferred.log(DMESG_WARN, "retriever",
                                   f"iter663_suppress_final_gate: filtered "
@@ -6098,7 +6126,8 @@ def main():
                      and _recent_24h_counts.get(c["id"], 0) < _fg1020_24h_thresh(s, c)
                      # iter904: 7d_rebalance_tiny — tiny_db 7d 2→4
                      # iter905: cross_project_suppress_tighten — 跨项目 7d -2
-                     and _recent_7d_counts.get(c["id"], 0) < _fg887_7d_thresh(s, c)]
+                     and _recent_7d_counts.get(c["id"], 0) < _fg887_7d_thresh(s, c)
+                     and _hd1273_lifetime_ok(c)]  # iter1273: closure path reuses hard_deadline fn
             if len(top_k) < _pre887:
                 _deferred.log(DMESG_WARN, "retriever",
                               f"iter887_closure_fallback_suppress: filtered "

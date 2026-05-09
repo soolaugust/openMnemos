@@ -3123,6 +3123,7 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
         _recent_24h_counts = {}  # iter630: hoist defaults outside try — NameError if connect() fails
         _recent_7d_counts = {}   # iter630: same — suppress must degrade to no-op, not crash
         _last_inject_ts = {}     # iter1071: cooldown — {chunk_id: last_inject_iso_ts}
+        _itl_lifetime = {}       # iter1273: {chunk_id: (total_count, last_ts)}
         _cutoff_48h = ""         # iter1071: cooldown fallback
         _cutoff_72h = ""         # iter1071: cooldown fallback
         _cutoff_5d = ""          # iter1077: cooldown_5d_fix
@@ -3264,6 +3265,8 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                         # iter1071: 记录最近一次注入时间（用于 cooldown suppress）
                         if _ts_list:
                             _last_inject_ts[_cid648] = max(_ts_list)
+                    # iter1273: lifetime_injection_suppress — 持久化 lifetime 计数+最近注入时间
+                    _itl_lifetime = {k: (len(v), max(v) if v else "") for k, v in _itl_data.items()}
             except Exception:
                 pass
             finally:
@@ -5235,13 +5238,25 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                              if (c[_CI_CP] or "") == project
                              or (c[_CI_CP] or "") == "global"
                              or _rt663d_7d.get(c[_CI_ID], 0) < _d_micro_cross_7d_cap(c)]
+                # iter1273: lifetime_injection_suppress — daemon suppress_final_gate 同步
+                def _d1273_lifetime_ok(c):
+                    _lt_data = _itl_lifetime.get(c[_CI_ID])
+                    if not _lt_data:
+                        return True
+                    _lt_cnt, _lt_last = _lt_data
+                    if _lt_cnt >= 7:
+                        return False
+                    if _lt_cnt >= 5 and _lt_last > _cutoff_72h:
+                        return False
+                    return True
                 if _db_chunk_count > 5:
                     top_k = [(s, c) for s, c in top_k
                              if _rt663d_6h.get(c[_CI_ID], 0) < 2  # iter865: 6h_tighten_tiny — 统一阈值 2
                              and _rt663d_24h.get(c[_CI_ID], 0) < _d1020_24h_thresh(s, c)
                              # iter883: tiny 5→3, small 5/4→4/3（sync hard_deadline line 3268）
                              # iter905: cross_project_suppress_tighten — 跨项目 7d -2
-                             and _rt663d_7d.get(c[_CI_ID], 0) < _d905_7d_thresh(s, c)]
+                             and _rt663d_7d.get(c[_CI_ID], 0) < _d905_7d_thresh(s, c)
+                             and _d1273_lifetime_ok(c)]  # iter1273
                 if len(top_k) < _pre663d:
                     _deferred.log(DMESG_WARN, "retriever_daemon",
                                   f"iter663_suppress_final_gate: filtered "
@@ -5315,7 +5330,8 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                      if _recent_6h_counts.get(c[_CI_ID], 0) < 2
                      and _recent_24h_counts.get(c[_CI_ID], 0) < _d1019_24h_thresh(s, c)
                      # iter905: cross_project_suppress_tighten — 跨项目 7d -2
-                     and _recent_7d_counts.get(c[_CI_ID], 0) < _d887_7d_thresh(s, c)]
+                     and _recent_7d_counts.get(c[_CI_ID], 0) < _d887_7d_thresh(s, c)
+                     and _d1273_lifetime_ok(c)]  # iter1273: closure path reuses daemon fn
             if len(top_k) < _pre887d:
                 _deferred.log(DMESG_WARN, "retriever_daemon",
                               f"iter887_closure_fallback_suppress: filtered "
