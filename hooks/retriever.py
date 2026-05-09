@@ -2448,10 +2448,16 @@ def main():
             _c_content = chunk.get("content", "") or ""
             _c_summary = chunk.get("summary", "") or ""
             if len(_c_content) <= len(_c_summary) + 5 and len(_c_content) < 100:
-                # iter1307: high_value_decision_thin_rescue
-                # decision + imp>=0.75 → hard 阈值 60→30，恢复 4 个高价值短决策注入资格
-                _thin_hard_thresh = 30 if (chunk.get("chunk_type") == "decision"
-                                          and float(chunk.get("importance", 0)) >= 0.75) else 60
+                # iter1307+1339: thin_content_align_extractor — 阈值对齐 extractor iter1293(80字)
+                # 数据驱动（2026-05-10）：15/48(31%) ACTIVE chunk content<80字为存量碎片，
+                #   降权0.5仍胜出注入。base 60→80 消除；reasoning/causal 保留70（含因果上下文）。
+                _ct = chunk.get("chunk_type", "")
+                if _ct == "decision" and float(chunk.get("importance", 0)) >= 0.75:
+                    _thin_hard_thresh = 40
+                elif _ct in ("reasoning_chain", "causal_chain"):
+                    _thin_hard_thresh = 70
+                else:
+                    _thin_hard_thresh = 80
                 if len(_c_content) < _thin_hard_thresh:
                     return 0.0
                 score *= 0.5
