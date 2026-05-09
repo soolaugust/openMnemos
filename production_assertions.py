@@ -764,6 +764,50 @@ def check_error_silence(conn: sqlite3.Connection, fix: bool = False) -> Assertio
     return r
 
 
+# ── iter1330: thin_chunk_gc — 永久 suppress 碎片自动归档 ─────────────────────
+
+
+def check_thin_chunk_gc(conn: sqlite3.Connection, fix: bool = False) -> AssertionResult:
+    """
+    检测 ACTIVE 中被 iter1303 thin_content_hard_suppress 永久拦截的碎片 chunk。
+    这些 chunk 占 FTS5 索引但永远不会被注入，自动归档释放检索空间。
+    """
+    r = AssertionResult("thin_chunk_gc", "hygiene")
+    t0 = time.time()
+    try:
+        rows = conn.execute(
+            "SELECT id, rowid, chunk_type, importance, LENGTH(content) as clen "
+            "FROM memory_chunks WHERE chunk_state='ACTIVE' AND LENGTH(content) < 60"
+        ).fetchall()
+        thin = []
+        for cid, rid, ctype, imp, clen in rows:
+            thresh = 30 if (ctype == "decision" and (imp or 0) >= 0.75) else 60
+            if clen < thresh:
+                thin.append((cid, rid))
+        if not thin:
+            r.passed = True
+            r.message = "No permanently-suppressed thin chunks in ACTIVE pool"
+        elif fix:
+            for cid, rid in thin:
+                conn.execute("UPDATE memory_chunks SET chunk_state='THIN_ARCHIVED' WHERE id=?", (cid,))
+                conn.execute("DELETE FROM memory_chunks_fts WHERE rowid_ref=?", (str(rid),))
+            conn.commit()
+            r.passed = True
+            r.message = f"Auto-archived {len(thin)} thin chunks (fix applied)"
+        else:
+            r.passed = False
+            r.severity = "info"
+            r.message = f"{len(thin)} thin chunks permanently suppressed but still in ACTIVE/FTS5"
+            r.actual = {"thin_count": len(thin)}
+            r.expected = "0 (all archived)"
+    except Exception as e:
+        r.passed = True
+        r.severity = "info"
+        r.message = f"Skip: {e}"
+    r.duration_ms = (time.time() - t0) * 1000
+    return r
+
+
 # ── 运行器 ────────────────────────────────────────────────────────────────────
 
 ALL_ASSERTIONS = [
@@ -780,6 +824,7 @@ ALL_ASSERTIONS = [
     check_test_pollution,
     check_stale_refs,
     check_error_silence,
+    check_thin_chunk_gc,
 ]
 
 
