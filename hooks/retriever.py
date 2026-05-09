@@ -4441,10 +4441,24 @@ def main():
                         try:
                             _hd_ph = ",".join("?" * len(_hd_high_ids))
                             _hd_rows = conn.execute(
-                                f"SELECT id, raw_snippet FROM memory_chunks WHERE id IN ({_hd_ph})",
+                                f"SELECT id, raw_snippet, content, summary FROM memory_chunks WHERE id IN ({_hd_ph})",
                                 _hd_high_ids,
                             ).fetchall()
-                            _hd_raw = {r[0]: r[1] for r in _hd_rows if r[1]}
+                            for _r in _hd_rows:
+                                _rid, _rsnip, _rcont, _rsum = _r
+                                if _rsnip:
+                                    _hd_raw[_rid] = _rsnip
+                                elif _rcont and _rsum and len(_rcont) > len(_rsum) + 50:
+                                    _nn = _rcont.find("\n\n")
+                                    if _nn > 0 and _nn < len(_rcont) - 20:
+                                        _delta = _rcont[_nn+2:].strip()
+                                    elif _rcont.startswith(_rsum):
+                                        _delta = _rcont[len(_rsum):].strip()
+                                    else:
+                                        _s30 = _rcont.find(_rsum[:30])
+                                        _delta = _rcont[_s30+len(_rsum):].strip() if _s30 >= 0 else _rcont
+                                    if _delta:
+                                        _hd_raw[_rid] = _delta
                         except Exception:
                             pass
                     constraint_items = []
@@ -7273,10 +7287,24 @@ def main():
             try:
                 _rs_ph = ",".join("?" * len(_high_imp_ids))
                 _rs_rows = conn.execute(
-                    f"SELECT id, raw_snippet FROM memory_chunks WHERE id IN ({_rs_ph})",
+                    f"SELECT id, raw_snippet, content, summary FROM memory_chunks WHERE id IN ({_rs_ph})",
                     _high_imp_ids,
                 ).fetchall()
-                _raw_snippets = {r[0]: r[1] for r in _rs_rows if r[1]}
+                for _r in _rs_rows:
+                    _rid, _rsnip, _rcont, _rsum = _r
+                    if _rsnip:
+                        _raw_snippets[_rid] = _rsnip
+                    elif _rcont and _rsum and len(_rcont) > len(_rsum) + 50:
+                        _nn = _rcont.find("\n\n")
+                        if _nn > 0 and _nn < len(_rcont) - 20:
+                            _delta = _rcont[_nn+2:].strip()
+                        elif _rcont.startswith(_rsum):
+                            _delta = _rcont[len(_rsum):].strip()
+                        else:
+                            _s30 = _rcont.find(_rsum[:30])
+                            _delta = _rcont[_s30+len(_rsum):].strip() if _s30 >= 0 else _rcont
+                        if _delta:
+                            _raw_snippets[_rid] = _delta
             except Exception:
                 pass
 
