@@ -1726,8 +1726,10 @@ def _is_quality_chunk(summary: str) -> bool:
         r'recall.trace|top_k_json|writeback\s*(?:竞争|排队|延迟)|'
         # iter930: meta_self_ref — 知识库自述/系统内部组件名逃逸
         # 根因：b2b446a1 "量化改善：知识库纯度 100%...extractor 阶段被拦截" 逃逸所有 gate
-        r'知识库\s*(?:纯度|质量|健康)|零价值\s*chunk|噪声\s*写入|'
-        r'extractor\s*(?:阶段|拦截|过滤)|retriever\s*(?:阶段|注入|召回))',
+        r'知识库\s*(?:纯度|质量|健康)|零价值\s*chunk|噪声\s*(?:写入|注入|逃逸)|'
+        r'extractor\s*(?:阶段|拦截|过滤)|retriever\s*(?:阶段|注入|召回)|'
+        # iter1285: quantify_selfref_gate — "量化改善：..." 迭代器自我总结逃逸
+        r'量化改善[：:].*(?:traces?|inject|噪声|空召回|suppress|注入率|命中率|chunk|行代码))',
         re.I
     )
     if _ITERATOR_DIAG_KW.search(s):
