@@ -3274,6 +3274,57 @@ def _write_chunk(chunk_type: str, summary: str, project: str, session_id: str,
                     return
             except Exception:
                 pass
+        # iter1283: project_affinity_gate — 拒绝写入与当前项目无关的其他项目领域知识
+        # 根因（数据驱动，2026-05-09）：迭代器 agent 在 memory-os cwd 下讨论 szfreego 冷启动，
+        #   extractor 将 12 条内核调度 chunk 写入 memory-os 项目（ac=0，从未被召回）。
+        #   project ID 由 cwd 决定，无法区分"本项目知识"和"在本项目目录下讨论的他项目知识"。
+        # 修复：写入前 token-overlap 检查：当前项目无任何 chunk 与新 summary 相关，
+        #   但其他项目有高 overlap chunk → 拒绝（内容属于其他项目，不应污染本项目）。
+        #   仅在当前项目 chunk 数 >= 1 且 < 50 时生效（大库有足够多样性不需此 gate）。
+        if project and project != "global":
+            try:
+                _pa_proj_cnt = conn.execute(
+                    "SELECT COUNT(*) FROM memory_chunks WHERE project=?", (project,)
+                ).fetchone()[0]
+                if 0 <= _pa_proj_cnt < 50:
+                    _pa_words = set(re.findall(r'[a-z_][a-z0-9_]{2,}', summary.lower()))
+                    _pa_cjk = re.findall(r'[一-鿿]{2,4}', summary)
+                    _pa_toks = _pa_words | set(_pa_cjk)
+                    if len(_pa_toks) >= 4:
+                        _pa_other_max = 0
+                        _pa_other_rows = conn.execute(
+                            "SELECT summary FROM memory_chunks WHERE project!=? AND project!='global' "
+                            "ORDER BY access_count DESC LIMIT 100", (project,)
+                        ).fetchall()
+                        for (_pa_os,) in _pa_other_rows:
+                            _pa_ow = set(re.findall(r'[a-z_][a-z0-9_]{2,}', _pa_os.lower()))
+                            _pa_oc = re.findall(r'[一-鿿]{2,4}', _pa_os)
+                            _pa_ot = _pa_ow | set(_pa_oc)
+                            _pa_ovl = len(_pa_toks & _pa_ot) / len(_pa_toks) if _pa_toks else 0
+                            if _pa_ovl > _pa_other_max:
+                                _pa_other_max = _pa_ovl
+                        if _pa_other_max >= 0.4:
+                            _pa_self_max = 0
+                            _pa_self_rows = conn.execute(
+                                "SELECT summary FROM memory_chunks WHERE project=?", (project,)
+                            ).fetchall()
+                            for (_pa_ss,) in _pa_self_rows:
+                                _pa_sw = set(re.findall(r'[a-z_][a-z0-9_]{2,}', _pa_ss.lower()))
+                                _pa_sc = re.findall(r'[一-鿿]{2,4}', _pa_ss)
+                                _pa_st = _pa_sw | set(_pa_sc)
+                                _pa_sovl = len(_pa_toks & _pa_st) / len(_pa_toks) if _pa_toks else 0
+                                if _pa_sovl > _pa_self_max:
+                                    _pa_self_max = _pa_sovl
+                            if _pa_self_max < 0.15 and _pa_other_max >= 0.4:
+                                dmesg_log(conn, DMESG_INFO, "extractor",
+                                          f"iter1283_affinity_gate: self_ovl={_pa_self_max:.2f} "
+                                          f"other_ovl={_pa_other_max:.2f} drop '{summary[:40]}'",
+                                          session_id=session_id, project=project)
+                                if not _txn_managed:
+                                    conn.commit()
+                                return
+            except Exception:
+                pass
         # iter784: session_burst_cap — 同 session 同 chunk_type 短期写入过多时合并
         #   根因（数据驱动，2026-05-04）：session e3e4392b 在 2 分钟内写了 5 条 decision，
         #   4 条同秒写入。Jaccard 去重无法捕捉"同话题不同细节"的变体。
