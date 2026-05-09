@@ -3755,6 +3755,11 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 _matched = sum(1 for kw in _pattern_keywords if kw in _summary_lower)
                 if _matched > 0:
                     score += min(0.10, _matched * 0.03)
+            # iter1302: thin_content_penalty — content==summary 零增量降权
+            _tc_con = chunk[_CI_CON] or ""
+            _tc_sum = chunk[_CI_SUM] or ""
+            if len(_tc_con) <= len(_tc_sum) + 5 and len(_tc_con) < 80:
+                score *= 0.5
             # iter560: cfs_bandwidth — multiplicative throttle for over-quota chunks
             # OS 类比：CFS bandwidth throttle_cfs_rq() — 超额 cgroup 任务移出 runqueue
             # saturation_penalty 是加法上限 0.25，无法压制 base>0.8 的垄断 chunk；
@@ -3968,6 +3973,11 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 _matched = sum(1 for kw in _pattern_keywords if kw in _summary_lower)
                 if _matched > 0:
                     score += min(0.10, _matched * 0.03)
+            # iter1302: thin_content_penalty — content==summary 零增量降权 (dict path)
+            _tc_con_d = chunk.get("content") or ""
+            _tc_sum_d = chunk.get("summary") or ""
+            if len(_tc_con_d) <= len(_tc_sum_d) + 5 and len(_tc_con_d) < 80:
+                score *= 0.5
             # iter560: cfs_bandwidth — same throttle as _score_chunk (see above)
             if _bw_enabled and _rc > _bw_quota:
                 score *= _bw_factor * (_bw_decay ** (_rc - _bw_quota))

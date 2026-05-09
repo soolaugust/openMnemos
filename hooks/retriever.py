@@ -2440,6 +2440,16 @@ def main():
                     and chunk.get("chunk_type") != "design_constraint"):
                 score *= 0.55
 
+            # ── iter1302: thin_content_penalty — content==summary 零增量降权 ──
+            # 根因（数据驱动，2026-05-09）：21/55 ACTIVE chunk 的 content 完全等于 summary，
+            #   注入时占 injection slot 但用户获得的信息量=0（LLM 已从 summary 知道全部内容）。
+            #   让信息密度更高的 chunk 优先进入 top_k。
+            # 修复：content 长度 <= summary 长度 + 5 → score *= 0.5（半数降权，不硬 suppress）。
+            _c_content = chunk.get("content", "") or ""
+            _c_summary = chunk.get("summary", "") or ""
+            if len(_c_content) <= len(_c_summary) + 5 and len(_c_content) < 80:
+                score *= 0.5
+
             # ── iter482: Confidence Threshold Filter ────────────────────────
             # 心理学：Monitoring and Control Framework (Nelson & Narens 1990) —
             #   极低置信度的知识注入上下文会污染推理（garbage-in, garbage-out）；
