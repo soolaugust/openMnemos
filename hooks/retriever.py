@@ -4248,9 +4248,10 @@ def main():
                 #   原始 relevance（BM25 语义相关度）未被 suppress 污染，
                 #   能准确反映与当前 query 的匹配度。仍尊重 7d ceiling 防垄断。
                 if not _pebf_cands_hd and _pre_score_relevance_hd:
+                    # iter1312: fallback_global_relevance_floor — global chunk fallback 需更高相关性
                     _pebf_cands_hd = [(r, c) for r, c in _pre_score_relevance_hd
                                       if _recent_7d_counts.get(c.get("id", ""), 0) < _pebf_chunk_ceiling_hd(c)
-                                      and r >= 0.20
+                                      and r >= (0.30 if c.get("project") == "global" else 0.20)
                                       and (c.get("access_count", 0) or 0) < 30]
                 # iter1160: relevance_escape_ceiling — 高 relevance 突破 ceiling 消除空召回
                 # 根因（数据驱动，2026-05-08）：23-chunk 库 5/2-5/5 出现 7 次 FULL 空召回
@@ -5713,9 +5714,10 @@ def main():
                                and s >= 0.20]
                 # iter1084: relevance_fallback — FULL 路径 suppress 全灭兜底
                 if not _pebf_cands and _pre_score_relevance:
+                    # iter1312: fallback_global_relevance_floor — sync hard_deadline path
                     _pebf_cands = [(r, c) for r, c in _pre_score_relevance
                                    if _recent_7d_counts.get(c.get("id", ""), 0) < _pebf_chunk_ceil(c)
-                                   and r >= 0.20
+                                   and r >= (0.30 if c.get("project") == "global" else 0.20)
                                    and (c.get("access_count", 0) or 0) < 30]
                 # iter1160: relevance_escape_ceiling — FULL 路径同步 hard_deadline
                 # 最后防线：去除 7d ceiling，仅限 relevance>=0.5。不加 cooldown（此处已是全灭兜底）。
