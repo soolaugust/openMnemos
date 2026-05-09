@@ -2777,6 +2777,12 @@ def _write_chunk(chunk_type: str, summary: str, project: str, session_id: str,
     # 修复：无 content_override 时，summary 以 '|' 开头 → 表格碎片 → 拒绝。
     if not content_override and summary.lstrip().startswith('|'):
         return
+    # iter1292: leading_fragment_gate — 拦截从中间截断的句子碎片
+    # 数据驱动（2026-05-09）：15f2c1cf "用，不是 Agent 自驱。飞轮需要：..." ac=0
+    #   以单字+标点开头，表明从更长文本中间截取。
+    # 修复：以 CJK单字+标点 或 纯标点 开头 → 截断碎片 → 拒绝。
+    if not content_override and re.match(r'^[一-鿿][,，、;；:：]', summary.lstrip()):
+        return
     # iter966: cmdline_fragment_gate — 命令行参数碎片拒绝写入
     # 数据驱动（2026-05-06）：8d3918ac "-in-reply-to=\"<20260429...\"" 逃逸所有 gate。
     # 特征：以 - 或 -- 开头的 CLI flag 格式，无知识价值。
