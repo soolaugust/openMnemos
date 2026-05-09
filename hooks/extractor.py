@@ -2642,7 +2642,8 @@ def _vma_validate(summary: str) -> bool:
         #   但它们同时含 iteration metrics 语言（PA N/10, 信噪比, 注入槽位, zero_access_rate）。
         #   这些术语是迭代器自评的独有标志，单次匹配即可判定为自引用。
         'zero_access_rate', '量化改善', '注入槽位',
-        'PA 9/', 'PA 10/', 'sts pass',
+        'PA 9/', 'PA 10/', 'PA 11/', 'PA 12/', 'PA 13/', 'PA 14/', 'PA 15/', 'PA 16/',
+        'sts pass', 'HEALTHY',
         # iter665: meta_reflection_gate — 拦截迭代器"元反思"语言
         # 根因：12 条逃逸噪声用的不是底层术语而是高层元语言
         #   如 "HOT Tier 检查""规则看起来是有效的""Query Expansion 语义改进"
