@@ -2765,7 +2765,13 @@ def main():
                 if _tc_info and _tc_info[0] > 0.30 and _tc_info[1] >= 2:
                     _chunk_7d = _recent_7d_counts.get(chunk.get("id", ""), 0)
                     if _chunk_7d > 1:
-                        score *= 0.7 ** (_chunk_7d - 1)
+                        # iter1320: dc_type_conc_tighten — design_constraint 群体垄断加速衰减
+                        # 根因（数据驱动，2026-05-09）：DC 11 chunk 占 7d 注入 55%（27/49），
+                        #   各 chunk 7d=4, 0.7^3=0.34 衰减后仍胜出（DC relevance 基数高）。
+                        #   DC 是固化硬规则，ac>=4 已充分内化，边际信息≈0。
+                        # 修复：DC 类 factor 0.7→0.5，7d=4→0.5^3=0.125，有效让位新知识。
+                        _tc_base = 0.5 if _ct == "design_constraint" else 0.7
+                        score *= _tc_base ** (_chunk_7d - 1)
                 # iter1029: project_concentration_penalty — 同项目群体垄断衰减
                 _cp_proj = chunk.get("project", "")
                 _pc_info = _proj_7d_conc.get(_cp_proj)
