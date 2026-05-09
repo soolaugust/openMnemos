@@ -2770,6 +2770,13 @@ def _write_chunk(chunk_type: str, summary: str, project: str, session_id: str,
     # 阈值 15 字：生产中最短合法 chunk summary 为 19 字（test），wiki import 有 content_override 不受影响。
     if not content_override and len(summary) < 15:
         return
+    # iter1293: episodic_short_fragment_gate — 短于 80 字的 episodic chunk 拒绝写入
+    # 数据驱动（2026-05-09）：14 条 ac=0 噪声全 <80 字且无 content_override。
+    #   如 "Gap 1：飞轮的...闭环没有打通"(22字)、"所以第一性原理下的..."(14字)。
+    #   design_constraint 除外（天然短句但有明确约束语义）。
+    _EPISODIC_SHORT_TYPES = {"causal_chain", "reasoning_chain", "decision", "excluded_path", "conversation_summary"}
+    if not content_override and chunk_type in _EPISODIC_SHORT_TYPES and len(summary) < 80:
+        return
     # iter844: table_fragment_gate — 表格行碎片拒绝写入
     # 数据驱动（2026-05-05）：e0bd5a39 content="| extractor gate 覆盖 | ... |"
     #   是 markdown 表格行碎片（44字，绕过 <15 阈值），ac=2 但零用户价值。

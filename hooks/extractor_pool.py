@@ -444,6 +444,10 @@ def _run_extraction_pipeline(payload: dict) -> dict:
                 #   实测：5 个 len<50 的 chunk 全部 access_count=0。
                 if len(t.strip()) < 50:
                     continue
+                # iter1293: episodic_short_fragment_gate (pool sync)
+                # 短于 80 字的 episodic chunk 无独立检索价值，对齐 extractor.py
+                if chunk_type in ("causal_chain", "reasoning_chain", "decision", "excluded_path") and len(t.strip()) < 80:
+                    continue
                 # iter1096: pool_table_sysdata_gate — 表格行+系统数据碎片拒绝
                 # 根因（数据驱动，2026-05-07）：16 个 ac=0 噪声全经 pool 路径写入，
                 #   含表格行碎片（|开头）和命令输出快照（KB/GB/mm_stat/Swap 数值）。
