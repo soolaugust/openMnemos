@@ -2625,8 +2625,12 @@ def main():
                     score = 0.0
                     _hard_suppressed = True
             if (not _micro_db or _cd_is_cross_project) and not _sparse_shield_cd and _acc >= 12:
-                score = 0.0
-                _hard_suppressed = True
+                # iter1294: small_db_deep_saturated_soften — <100 库改为强衰减而非硬杀
+                if _db_chunk_count < 100:
+                    score *= 0.1
+                else:
+                    score = 0.0
+                    _hard_suppressed = True
             elif (not _micro_db or _cd_is_cross_project) and _acc >= 5:
                 # iter1070: deep_saturated_floor — ac>=10 衰减加速
                 # 根因（数据驱动，2026-05-07）：ac=10/11 chunk（Android诊断/PE分析/git commit）

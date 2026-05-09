@@ -3904,8 +3904,12 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                             score = 0.0
                 # iter989: saturation_widen — ac>=5 渐进衰减，ac>=12 suppress
                 # iter1070: deep_saturated_floor — ac>=10 额外 *0.5
+                # iter1294: small_db_deep_saturated_soften — <100 库改为强衰减
                 if score > 0 and (chunk[_CI_AC] or 0) >= 12:
-                    score = 0.0
+                    if _db_chunk_count < 100:
+                        score *= 0.1
+                    else:
+                        score = 0.0
                 elif (chunk[_CI_AC] or 0) >= 5:
                     _sat_mult = max(0.2, 0.8 - 0.1 * ((chunk[_CI_AC] or 0) - 5))
                     if (chunk[_CI_AC] or 0) >= 10:
@@ -4081,8 +4085,12 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                             score = 0.0
                 # iter989: saturation_widen — ac>=5 渐进衰减，ac>=12 suppress
                 # iter1070: deep_saturated_floor — ac>=10 额外 *0.5
+                # iter1294: small_db_deep_saturated_soften — <100 库改为强衰减
                 if score > 0 and (chunk.get("access_count", 0) or 0) >= 12:
-                    score = 0.0
+                    if _db_chunk_count < 100:
+                        score *= 0.1
+                    else:
+                        score = 0.0
                 elif (chunk.get("access_count", 0) or 0) >= 5:
                     _sat_mult = max(0.2, 0.8 - 0.1 * ((chunk.get("access_count", 0) or 0) - 5))
                     if (chunk.get("access_count", 0) or 0) >= 10:
@@ -4885,7 +4893,8 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
             def _ac_gated_d(c):
                 _cid = c[_CI_ID]
                 # iter989: saturation_widen — ac>=12 suppress（constraint 通道同步）
-                if (c[_CI_AC] or 0) >= 12:
+                # iter1294: small_db_deep_saturated_soften — <100 库不硬杀
+                if (c[_CI_AC] or 0) >= 12 and _db_chunk_count >= 100:
                     return False
                 # iter618: 24h + 7d burst suppress 在 constraint 通道生效
                 # iter619: 阈值收紧 24h:3→2, 7d:8→5
@@ -5064,8 +5073,10 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
         #   或 forced_constraint 路径逃逸。此 post-filter 直接读 chunk 字段，
         #   不依赖外部查询，是所有路径的最终汇聚点。
         # iter981: 条件：access_count >= 12 的 chunk 不得出现在最终注入列表中。
+        # iter1294: small_db_deep_saturated_soften — <100 库允许通过（已在 scoring 阶段 *0.1 衰减）
         _pre_postfilter = len(top_k)
-        top_k = [(s, c) for s, c in top_k if (c[_CI_AC] or 0) < 12]
+        if _db_chunk_count >= 100:
+            top_k = [(s, c) for s, c in top_k if (c[_CI_AC] or 0) < 12]
         # ── iter663: suppress_final_gate — 24h/7d suppress 实时 DB 兜底 ──
         # 根因同 retriever.py：_score_chunk 内 24h/7d suppress 依赖进程启动时
         #   一次性计算的计数。并发 session timeline 写入无锁 → 读到旧值 → 逃逸。
