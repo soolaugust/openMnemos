@@ -2898,7 +2898,11 @@ def main():
             # iter767: tiered_small_db — 同步分级
             _r7d_cnt = _recent_7d_counts.get(chunk.get("id", ""), 0)
             # iter781: tiny_db 7d 阈值 20/15→10/8（同步收紧）
-            if not _micro_db:
+            # iter1280: sparse_7d_shield — local_sparse 本地 chunk 跳过 7d suppress
+            # 根因（数据驱动，2026-05-09）：git:78dc99a5695f(2 local) 58c70136(ac=8)
+            #   被 ac>=7 thresh=1 在 7d 首注入后永久 suppress → 6/7 空召回(14%)。
+            #   iter1172 保护了 24h/6h，但 7d 入口只检查 _micro_db 未对齐。
+            if not (_micro_db or _sparse_shield):
                 # iter806: small_db_suppress_tighten — 7d 阈值同步收紧
                 # small_db 7/5 → 5/4；tiny_db 同步（unify 原则）。
                 # iter810: tiny_db_24h_relax — 小库 7d 统一阈值=5
