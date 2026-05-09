@@ -2025,17 +2025,24 @@ def _vfs_write_protect(summary: str) -> bool:
         # iter1237: ac_ops_selfref — 拦截 access_count 操作/校正记录
         'access_count', 'burst-inflat', 'burst inflation', 'chunk 的 ac', 'inflat',
         # iter1238: zero_access_metric — 拦截迭代器零访问率自评
-        'zero_access_rate', 'zero_access',
+        'zero_access_rate', 'zero_access', 'zero-access',
         # iter1297: gate_selfref_terms — 含 gate 名称/内部函数引用的迭代器自描述
         'selfref', '_gate', 'cooldown', 'traces', '_noise', 'gate 覆盖',
+        # iter1299: iterator_impl_terms — 迭代器实现描述术语
+        '信息增量', 'FTS5 索引',
     ) if _t in s)
     if _mos_hits >= 3:
         return True
     # iter1238: ac_ops_strong_signal — access_count/zero_access 是强迭代器信号，2 个即拒绝
     if _mos_hits >= 2 and ('access_count' in s or 'zero_access' in s):
         return True
-    # iter1297: metric_arrow_combo — selfref 术语 + 箭头数值 = 迭代器度量（2 hit 即拒绝）
-    if _mos_hits >= 2 and '→' in s and _re_vfs.search(r'\d+%?\s*→', s):
+    # iter1299: metric_arrow_combo — selfref 术语 + 箭头数值 = 迭代器度量
+    #   数据驱动：b3a4fd4c "metric_gate 正则加 ~?容错（29%→~15%格式）" hits=1 逃逸。
+    #   阈值 2→1：单 selfref 术语 + 箭头数值已是充分迭代器信号。
+    if _mos_hits >= 1 and '→' in s and _re_vfs.search(r'\d+%?\s*→\s*~?\d+%?', s):
+        return True
+    # iter1299: quantify_prefix_gate — "量化"/"改动" 开头 + 数值 = 迭代器自评记录
+    if _re_vfs.match(r'^(?:量化|改动)[：:]', s) and _re_vfs.search(r'\d+', s):
         return True
     return False
 
