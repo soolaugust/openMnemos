@@ -1536,6 +1536,12 @@ def _is_quality_chunk(summary: str) -> bool:
     import re as _re_ng
     if _re_ng.search(r'PA \d+/\d+', s):
         return False
+    # iter1354: metric_transition_gate — 迭代器统计变化摘要拦截
+    # 数据驱动（2026-05-10）：3 条 ac=0 噪声 "知识密度: 73%→100%"/"碎片占比: 27%→0%"/
+    #   "活跃 chunk: 51→37" 逃逸所有 noise_kw（关键词组合不在列表中）。
+    #   共性模式：短中文标签 + 冒号 + 数字 → 数字（纯状态变化记录，无决策上下文）。
+    if _re_ng.match(r'^[一-鿿\w\s]{1,15}[:：]\s*\d+[%\w]*\s*(?:→|->)\s*\d+[%\w]*', s):
+        return False
     # iter1026: iterator_combo_gate — memory-os 运行时术语组合检测
     # 数据驱动（2026-05-07）：9 个 ac=0 噪声逃逸所有单关键词 gate，根因是含外部领域词
     #   （如 "feishu CLI"）作为示例时豁免 metric gate。但这些 summary 同时含 2+
