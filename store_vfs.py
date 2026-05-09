@@ -1989,6 +1989,12 @@ def _vfs_write_protect(summary: str) -> bool:
     # "PA N/N" 和 "验证：" 开头 + 数字分数 = 迭代器自评报告，对用户零价值。
     if _re_vfs.search(r'PA\s+\d+/\d+', s):
         return True
+    # iter1295: apology_platitude_gate — 道歉/客套话无知识价值，拒绝写入
+    # 数据驱动（2026-05-09）：0f2cfd05 "抱歉造成了这个损失，后续操作文档时我会先 read 确认"
+    #   纯道歉客套无技术锚点（ac=0），经 extractor_pool 绕过 extractor gate 写入。
+    if _re_vfs.match(r'^(?:抱歉|对不起|不好意思|sorry)', s, _re_vfs.IGNORECASE) \
+       and not _re_vfs.search(r'(?:必须|禁止|规则|约束|方案|原因|因为|根因|修复)', s):
+        return True
     # iter1231: vfs_iter_prefix_gate — iter\d{3,4}: 或 "数据：" + 统计格式 = 迭代器自记录
     if _re_vfs.match(r'^iter\d{3,4}\s*[：:_]', s):
         return True
