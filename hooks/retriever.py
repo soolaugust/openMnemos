@@ -4435,7 +4435,11 @@ def main():
                                 top_k = _omf_fb_filt_hd[:min(2, len(_omf_fb_filt_hd))]
                             else:
                                 # iter1178: omf_fallback_empty_suppress (hard_deadline sync)
-                                top_k = []
+                                # iter1353: omf_empty_last_resort — 选最低 7d 的 1 条而非空召回
+                                if _omf_sorted_hd:
+                                    top_k = [(_omf_sorted_hd[0][0] * 0.3, _omf_sorted_hd[0][1])]
+                                else:
+                                    top_k = []
                     # iter1013+1046: topic_group_dedup (hard_deadline path) — core_token 去重
                     if len(top_k) > 1 and not _micro_db:
                         import re as _tgd_re_hd
@@ -7610,7 +7614,16 @@ def main():
                     #   注入的全是 ac>=7 + 7d>=2*ceiling 的深度内化垄断 chunk，信息增量=0。
                     #   iter1174 注释说"允许空召回"但 else 分支无条件注入——注释与代码不一致。
                     # 修复：全灭时 top_k=[]，触发下游 write_trace(injected=0)，不注入噪声。
-                    top_k = []
+                    # iter1353: omf_empty_last_resort — 全灭时选最低 7d 的 1 条而非空召回
+                    # 根因（数据驱动，2026-05-10）：25% trace 空召回（28/113），其中 11 条来自
+                    #   git:a0ab16e8cafc（40%空召回率）。suppress_fallback/ultimate_fallback 恢复的
+                    #   chunk 被 omf_fb_skip 二次过滤清空。空召回=零价值，注入已内化知识至少提供上下文。
+                    # 修复：全灭时从 _omf_sorted 选 7d 最低的 1 条（而非清空），降权 score*0.3
+                    #   标记为低优先级但确保用户不会零知识。db_ultimate_fallback 已保护极端场景。
+                    if _omf_sorted:
+                        top_k = [(_omf_sorted[0][0] * 0.3, _omf_sorted[0][1])]
+                    else:
+                        top_k = []
                 _deferred.log(DMESG_DEBUG, "retriever",
                               f"iter987_omf_graduated_fallback: {len(_omf_sorted)}->{len(top_k)}, 7d={[_omf_7d_src.get(x[1].get('id',''), 0) for x in top_k]}",
                               session_id=session_id, project=project)

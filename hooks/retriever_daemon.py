@@ -5890,7 +5890,11 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 if _omf_fb_filt_d:
                     top_k = _omf_fb_filt_d[:min(2, len(_omf_fb_filt_d))]
                 else:
-                    top_k = []
+                    # iter1353: omf_empty_last_resort — 全灭时选最低 7d 的 1 条而非空召回
+                    if _omf_sorted:
+                        top_k = [(_omf_sorted[0][0] * 0.3, _omf_sorted[0][1])]
+                    else:
+                        top_k = []
                 _deferred.log(DMESG_DEBUG, "retriever_daemon",
                               f"iter987_omf_graduated_fallback: {len(_omf_sorted)}->{len(top_k)}",
                               session_id=session_id, project=project)
