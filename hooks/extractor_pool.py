@@ -506,7 +506,8 @@ def _run_extraction_pipeline(payload: dict) -> dict:
                     continue
                 # iter1282: iter_action_prefix_gate (pool sync extractor.py iter1233)
                 # iter1316: list_prefix_tolerance — sync extractor.py
-                if _re.match(r'^(?:[-•*]\s*)?(?:量化结果[：:]|量化[：:改预效]|改动[：:]|预期效果[：:]|修复[：:]|净增|iter\d{3,4}\s*[：:_])', t):
+                # iter1317: quantification_prefix_widen — 量化[：:] 全覆盖对齐 extractor.py L2930
+                if _re.match(r'^(?:[-•*]\s*)?(?:量化[：:]|改动[：:]|预期效果[：:]|修复[：:]|净增|iter\d{3,4}\s*[：:_])', t):
                     continue
                 # iter1117: pool_selfref_gate_sync — 对齐 extractor.py selfref gate
                 # 根因（数据驱动，2026-05-08）：pool 路径缺少 selfref gate，
