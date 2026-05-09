@@ -3998,6 +3998,9 @@ def main():
                 # 修复：lifetime>=6 无条件 suppress；>=4 且 72h 内注入过则 suppress；
                 #   design_constraint lifetime>=4 无条件 suppress。
                 def _hd1273_lifetime_ok(c):
+                    # iter1281: sparse_lifetime_shield — local_sparse 本地 chunk 跳过 lifetime suppress
+                    if _local_sparse and c.get("project", "") == project:
+                        return True
                     _tl = _injection_timeline.get(c["id"])
                     if not _tl:
                         return True
@@ -6058,6 +6061,9 @@ def main():
                 # iter1273: lifetime_injection_suppress — FULL 路径同步
                 # iter1277: lifetime_thresh_tighten — sync FULL path
                 def _sf1273_lifetime_ok(c):
+                    # iter1281: sparse_lifetime_shield — local_sparse 本地 chunk 跳过 lifetime suppress
+                    if _local_sparse and c.get("project", "") == project:
+                        return True
                     _tl = _injection_timeline.get(c["id"])
                     if not _tl:
                         return True
