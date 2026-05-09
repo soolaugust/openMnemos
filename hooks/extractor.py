@@ -2989,6 +2989,10 @@ def _write_chunk(chunk_type: str, summary: str, project: str, session_id: str,
     # iter1311: quantification_summary_gate — "量化：X% → Y%" 格式必为迭代器执行结果
     if re.match(r'^\s*量化[：:]', summary):
         return
+    # iter1357: action_prefix_iter_gate — 迭代器动作前缀 + 系统指标 = 执行日志
+    if re.match(r'^\s*(?:清理|部署|同步|回滚|重建)[：:]', summary) \
+       and re.search(r'(?:chunk|ac=|access|zero_access|FTS|gate|suppress|注入|召回|噪声)', summary):
+        return
     # iter1243: iterator_stats_gate — 含 ac=/注入 N 次/7d= 统计标记的必为迭代器 meta
     # 根因（数据驱动，2026-05-09）："import-90139（PE barrier 知识）ac=3 却被周注入 6 次的垄断问题"
     #   含 \bPE\b 触发 DOMAIN_KW → iter1202 gate 跳过。但 "ac=3" 和 "注入 6 次" 是
