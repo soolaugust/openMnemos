@@ -1948,7 +1948,7 @@ def _is_quality_chunk(summary: str) -> bool:
         r'(?:不|时|被|已)注入|score\s*[<>]|'
         # iter795: arch_desc_gate — memory-os 架构描述/组件列表
         # 根因：42d826ac "AIOS Memory-OS 架构：L4 SQLite...memory_chunks" (ac=1) 逃逸
-        r'memory.chunks|store\.db|recall.traces|chunk.version|SessionStart|UserPromptSubmit|'
+        r'memory.chunks|store\.db|recall.traces|chunk.version|SessionStart|UserPromptSubmit|FTS5|production_assertions|'
         # iter802: trace_metric_gate — 迭代器运维指标/DB字段名逃逸
         # 根因：'空 trace 率 37%→0%'、'recall_counts 统计基础'、'top_k_json=[]' 等逃逸
         #   原 pattern 缺少 memory-os 内部度量语言（空召回、trace 率、DB 列名）
