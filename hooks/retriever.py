@@ -4254,9 +4254,20 @@ def main():
                     _cjh = (zlib.crc32(c.get("id", "").encode()) % 49)
                     _ccut = (_dt647.fromisoformat(_ccut) - _td647(hours=_cjh)).isoformat()
                     return _clast <= _ccut
+                # iter1363: fallback_global_relevance_gate — fallback 池同步 global irrelevance gate
+                # 根因（数据驱动，2026-05-10）：93cbc985(memory验证,relevance=0.148) 在主路径被
+                #   iter1360 global_gate(0.20) 归零，但经 suppress_fallback 以 pre-suppress score
+                #   恢复注入（score=0.148 > floor=0.10）。fallback 未检查 relevance→逃逸。
+                # 修复：构建 relevance map，global chunk relevance<0.20 排除出 fallback 池。
+                _fb_hd_rel_map = {c.get("id", ""): r for r, c in _pre_score_relevance_hd} if _pre_score_relevance_hd else {}
+                def _fb_hd_relevance_ok(c):
+                    if c.get("project", "") != "global" or project == "global":
+                        return True
+                    return _fb_hd_rel_map.get(c.get("id", ""), 1.0) >= 0.20
                 # iter1027: fallback_24h_align — 对齐 _hd1019_24h_thresh 动态阈值
                 _fb_hd_cap = [(s, c) for s, c in _pre_suppress_top_k_hd
                               if _hd_cooldown_ok(c)
+                              and _fb_hd_relevance_ok(c)
                               and _recent_7d_counts.get(c.get("id", ""), 0) < _fb_hd_chunk_ceiling(c)
                               and _recent_24h_counts.get(c.get("id", ""), 0) < _hd1019_24h_thresh(s, c)]
                 # iter1032: fallback_relax_24h — hard_deadline path sync
@@ -4265,6 +4276,7 @@ def main():
                 if not _fb_hd_cap:
                     _fb_hd_cap = [(s, c) for s, c in _pre_suppress_top_k_hd
                                   if _hd_cooldown_ok(c)
+                                  and _fb_hd_relevance_ok(c)
                                   and _recent_7d_counts.get(c.get("id", ""), 0) < _fb_hd_chunk_ceiling(c)]
                 # iter1038: fallback_ceiling_escalate — hard_deadline path sync
                 # iter1045: escalate_saturated_block — ac>=7 不参与 escalate
@@ -4278,6 +4290,7 @@ def main():
                 if not _fb_hd_cap and _db_chunk_count < 100:
                     _fb_hd_cap = [(s, c) for s, c in _pre_suppress_top_k_hd
                                   if _hd_cooldown_ok(c)
+                                  and _fb_hd_relevance_ok(c)
                                   and _recent_7d_counts.get(c.get("id", ""), 0) < _fb_hd_chunk_ceiling(c) + 2
                                   and (c.get("access_count", 0) or 0) < 7]
                 # iter921: hd_fallback_no_unfiltered_pool — 对齐 FULL 路径 iter916
@@ -6504,8 +6517,15 @@ def main():
                     elif _lac >= 5:
                         return max(2, _fb_ceiling - 1)
                     return _fb_ceiling
+                # iter1363: fallback_global_relevance_gate — FULL 路径同步
+                _fb_rel_map = {c.get("id", ""): r for r, c in _pre_score_relevance} if _pre_score_relevance else {}
+                def _fb_relevance_ok(c):
+                    if c.get("project", "") != "global" or project == "global":
+                        return True
+                    return _fb_rel_map.get(c.get("id", ""), 1.0) >= 0.20
                 _fb_cap = [(s, c) for s, c in _pre_suppress_top_k
-                           if _fb_7d.get(c.get("id", ""), 0) < _fb_chunk_ceiling(c)
+                           if _fb_relevance_ok(c)
+                           and _fb_7d.get(c.get("id", ""), 0) < _fb_chunk_ceiling(c)
                            and _fb_24h.get(c.get("id", ""), 0) < 3]
                 # iter1032: fallback_relax_24h — _fb_cap 全灭时放宽：只保留 7d ceiling，去掉 24h 过滤
                 # 根因（数据驱动，2026-05-07）：31% 空召回。_fb_cap 同时检查 7d<ceiling AND 24h<3，
@@ -6514,7 +6534,8 @@ def main():
                 # 修复：_fb_cap 为空时二次筛选只保留 7d ceiling（24h burst 不应阻止 fallback 恢复）。
                 if not _fb_cap:
                     _fb_cap = [(s, c) for s, c in _pre_suppress_top_k
-                               if _fb_7d.get(c.get("id", ""), 0) < _fb_chunk_ceiling(c)]
+                               if _fb_relevance_ok(c)
+                               and _fb_7d.get(c.get("id", ""), 0) < _fb_chunk_ceiling(c)]
                 # iter1038: fallback_ceiling_escalate — small_db 全灭时放宽 ceiling +2 兜底
                 # 根因（数据驱动，2026-05-07）：24-chunk 库 11/24 chunk 7d>=4，
                 #   ceiling=4(ac>=7 local) 全灭 → _fb_pool=None → ultimate_fallback 盲选不相关知识。
@@ -6529,7 +6550,8 @@ def main():
                 #   ac>=7 有独立 cooldown(10d)+saturation(*0.6)双重保护，不会垄断。
                 if not _fb_cap and _db_chunk_count < 100:
                     _fb_cap = [(s, c) for s, c in _pre_suppress_top_k
-                               if _fb_7d.get(c.get("id", ""), 0) < _fb_chunk_ceiling(c) + 2
+                               if _fb_relevance_ok(c)
+                               and _fb_7d.get(c.get("id", ""), 0) < _fb_chunk_ceiling(c) + 2
                                and (c.get("access_count", 0) or 0) < 7]
                 # iter1266: local_knowledge_last_resort — 密集 session 核心知识兜底
                 # 根因（数据驱动，2026-05-09）：memory-os 项目 5/5 下午 3 次空召回（cands=31-34）。
