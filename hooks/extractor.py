@@ -1529,7 +1529,9 @@ def _is_quality_chunk(summary: str) -> bool:
                 "PA 14/14", "PA 12/12", "PA 13/13", "PA 15/15", "PA 16/16",
                 "rowid NOT IN",
                 # iter1348: 通用 "量化：" + 度量指标组合 — 迭代器自评快照
-                "检索能力", "噪声率"]
+                "检索能力", "噪声率",
+                # iter1355: selfref_gate — 迭代器讨论自身 gate 机制的自引用
+                "noise_kw", "知识密度", "tests pass"]
     if any(kw in s for kw in noise_kw):
         return False
     # iter1348: pa_regex_gate — 通用 PA 报告正则拦截（"PA N/N" 任意数字）
