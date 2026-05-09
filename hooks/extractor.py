@@ -2865,6 +2865,10 @@ def _write_chunk(chunk_type: str, summary: str, project: str, session_id: str,
     if re.match(r'^(?:[-•*]\s*)?问题[：:]', summary) \
        and re.search(r'(?:\d+%|注入|chunk|召回|suppress|score|gate|fallback|ac=|7d|24h)', summary):
         return
+    # iter1341: data_statement_iter_gate — "数据：" + 系统指标 = 迭代器自诊断
+    if re.match(r'^(?:[-•*]\s*)?数据[：:]', summary) \
+       and re.search(r'(?:\d+%|注入|chunk|召回|suppress|score|gate|fallback|ac=|7d|24h|content|summary|iter\d{3,4})', summary):
+        return
     # iter1247: injection_stats_narrative_gate — 含注入统计叙事的迭代器量化结论
     # 根因（数据驱动，2026-05-09）：15e53f00(ac=0) "量化效果：过去 7d 的 16 次 global 注入中，
     #   6 次 score<0.25 的低相关性注入将被拦截（37.5% 降噪）"
