@@ -1531,7 +1531,11 @@ def _is_quality_chunk(summary: str) -> bool:
                 # iter1348: 通用 "量化：" + 度量指标组合 — 迭代器自评快照
                 "检索能力", "噪声率",
                 # iter1355: selfref_gate — 迭代器讨论自身 gate 机制的自引用
-                "noise_kw", "知识密度", "tests pass"]
+                "noise_kw", "知识密度", "tests pass",
+                # iter1364: quantitative_expectation_gate — 迭代器"量化预期"自评噪声
+                # 数据驱动（2026-05-10）：306890f5 "量化预期：7d 内 global constraint..."
+                #   ac=0，纯迭代器工作日志。"量化预期" 不在 noise_kw 且 PA 在 content 非 summary。
+                "量化预期", "无测试回归"]
     if any(kw in s for kw in noise_kw):
         return False
     # iter1348: pa_regex_gate — 通用 PA 报告正则拦截（"PA N/N" 任意数字）

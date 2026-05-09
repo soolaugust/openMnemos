@@ -5908,7 +5908,8 @@ def main():
                     if _dbuf_row:
                         _dbuf_chunk = {"id": _dbuf_row[0], "summary": _dbuf_row[1],
                                        "content": _dbuf_row[2], "chunk_type": _dbuf_row[3] or "",
-                                       "importance": _dbuf_row[4] or 0.5}
+                                       "importance": _dbuf_row[4] or 0.5,
+                                       "_fallback_protected": True}
                         top_k = [(0.001, _dbuf_chunk)]
                         _deferred.log(DMESG_WARN, "retriever",
                                       f"iter902_db_ultimate_fallback: "
@@ -6646,7 +6647,8 @@ def main():
                         _dbuf_row = _dbuf_rows[_dbuf_idx]
                         _dbuf_chunk = {"id": _dbuf_row[0], "summary": _dbuf_row[1],
                                        "content": _dbuf_row[2], "chunk_type": _dbuf_row[3] or "",
-                                       "importance": _dbuf_row[4] or 0.5}
+                                       "importance": _dbuf_row[4] or 0.5,
+                                       "_fallback_protected": True}
                         top_k = [(0.001, _dbuf_chunk)]
                         _deferred.log(DMESG_WARN, "retriever",
                                       f"iter938_db_ultimate_fallback_rotate: "
@@ -6679,7 +6681,8 @@ def main():
                         if _esc_row:
                             _esc_chunk = {"id": _esc_row[0], "summary": _esc_row[1],
                                           "content": _esc_row[2], "chunk_type": _esc_row[3] or "",
-                                          "importance": _esc_row[4] or 0.5}
+                                          "importance": _esc_row[4] or 0.5,
+                                          "_fallback_protected": True}
                             top_k = [(0.001, _esc_chunk)]
                             _deferred.log(DMESG_WARN, "retriever",
                                           f"iter932_fallback_ceiling_escalation: "
@@ -7182,7 +7185,8 @@ def main():
                     _dbuf_lite_row = _dbuf_lite_rows[_dbuf_lite_idx]
                     _dbuf_lite_chunk = {"id": _dbuf_lite_row[0], "summary": _dbuf_lite_row[1],
                                         "content": _dbuf_lite_row[2], "chunk_type": _dbuf_lite_row[3] or "",
-                                        "importance": _dbuf_lite_row[4] or 0.5}
+                                        "importance": _dbuf_lite_row[4] or 0.5,
+                                        "_fallback_protected": True}
                     top_k = [(0.001, _dbuf_lite_chunk)]
                     _deferred.log(DMESG_WARN, "retriever",
                                   f"iter988_db_ultimate_fallback_lite: "
@@ -7378,20 +7382,18 @@ def main():
                 #   全灭时 fallback 保留最高分 1 条（score=0.06~0.11）与用户上下文无关，
                 #   注入 kernel/PE 知识到 memory-os Python 开发 session 纯属噪声。
                 # 修复：全灭直接 skip，不强制注入无关知识。用户不看到噪声 > 少看到 1 条。
-                # iter1358: floor_gate_local_preserve — 同项目 chunk 在小库时保留
-                # 根因（数据驱动，2026-05-10）：46% 空召回率。db_ultimate_fallback 恢复的
-                #   同项目 chunk(score=0.001) 被 floor_gate 二次清空。小库(<=30)中同项目知识
-                #   即使 BM25 低分仍有上下文价值（词汇不重叠≠语义不相关）。
-                # 修复：<=30 chunk 库中保留最高分同项目 chunk；跨项目仍清空。
-                _sf_local = [(s, c) for s, c in top_k
-                             if c.get("project", "") == project] if _db_chunk_count <= 30 else []
-                if _sf_local:
-                    _sf_best_local = max(_sf_local, key=lambda x: x[0])
-                    top_k = [_sf_best_local]
+                # iter1365: fallback_floor_gate_bypass — fallback 注入的 chunk 不被 floor_gate 二次清空
+                # 根因（数据驱动，2026-05-10）：55% 空召回率(70/128)。db_ultimate_fallback 恢复的
+                #   chunk(score=0.001) 被 floor_gate 清空。iter1358 修复 <=30 库，但中型库(30-100)同理。
+                #   fallback 机制与 floor_gate 存在结构性矛盾：fallback 绕过 suppress 注入 → floor_gate 按 score 清空。
+                # 修复：带 _fallback_protected 标记的 chunk 跳过 floor_gate；其余保持原逻辑。
+                _sf_protected = [(s, c) for s, c in top_k if c.get("_fallback_protected")]
+                _sf_unprotected = [(s, c) for s, c in top_k if not c.get("_fallback_protected")]
+                if _sf_protected:
+                    top_k = _sf_protected
                     _deferred.log(DMESG_DEBUG, "retriever",
-                                  f"iter1358_floor_gate_local_preserve: kept local "
-                                  f"{_sf_best_local[1].get('id','')[:12]} s={_sf_best_local[0]:.3f} "
-                                  f"db_size={_db_chunk_count}",
+                                  f"iter1365_fallback_floor_gate_bypass: kept {len(_sf_protected)} "
+                                  f"fallback-protected, dropped {len(_sf_unprotected)} below floor={_score_floor}",
                                   session_id=session_id, project=project)
                 else:
                     _sf_best = max(top_k, key=lambda x: x[0])
