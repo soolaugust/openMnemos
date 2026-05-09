@@ -7577,8 +7577,13 @@ def main():
             _tgc_keep = set()
             for _tgc_i, (_tgc_s, _tgc_c) in enumerate(top_k):
                 _tgc_ct = _tgc_c.get("chunk_type", "")
-                # iter1016: only exempt fresh constraints (ac<7); saturated ones compete normally
-                if _tgc_ct == "design_constraint" and (_tgc_c.get("access_count", 0) or 0) < 7:
+                # iter1016: only exempt fresh constraints; saturated ones compete normally
+                # iter1310: dc_exempt_tighten — ac<7→ac<4
+                # 根因（数据驱动，2026-05-09）：5 个 global design_constraint(ac=3-6)
+                #   全部豁免 type_group_cap，7d 内占 20 次注入（全库 7d 注入的 17%）。
+                #   ac>=4 已内化 4+ 次，不应无条件跳过群体限制。
+                # 修复：豁免门槛 7→4，仅真正新鲜(ac<4)的约束免竞争。
+                if _tgc_ct == "design_constraint" and (_tgc_c.get("access_count", 0) or 0) < 4:
                     _tgc_keep.add(_tgc_i)
                     continue
                 _tgc_cid = _tgc_c.get("id", "")
