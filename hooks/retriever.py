@@ -2450,8 +2450,16 @@ def main():
             # iter1340: content_echo_suppress — content==summary 无论长度都 hard suppress
             # 数据驱动（2026-05-10）：35/71(49%) chunk content==summary，其中 >=100字的
             #   逃逸 iter1339 的 <100 gate。注入 content==summary 等于重复 summary，零信息增量。
+            # iter1350: tech_decision_exempt — 含代码标识符的高重要性 decision 降权而非全杀
+            #   根因（数据驱动，2026-05-10）："smp_wmb() 是充分的"(imp=0.78) 被全杀，
+            #   但该结论含明确技术锚点，检索"smp_wmb 是否充分"时应能命中。
             if _c_content.strip() == _c_summary.strip() and _c_content:
-                return 0.0
+                if (chunk.get("chunk_type") == "decision"
+                        and float(chunk.get("importance", 0)) >= 0.75
+                        and _re.search(r'[a-z_]{2,}\(|[A-Z][a-z]+[A-Z]|_[a-z]{2,}_|smp_\w+|SCX_\w+', _c_summary)):
+                    score *= 0.35
+                else:
+                    return 0.0
             if len(_c_content) <= len(_c_summary) + 5 and len(_c_content) < 100:
                 _ct = chunk.get("chunk_type", "")
                 if _ct == "decision" and float(chunk.get("importance", 0)) >= 0.75:
