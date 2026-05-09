@@ -1551,6 +1551,21 @@ def damon_scan(conn: sqlite3.Connection, project: str) -> dict:
     # 迭代104：排除 pinned chunks（hard pin 阻止 DEAD swap out）
     dead_ids = [r[0] for r in dead_ids if r[0] not in _pinned]
 
+    # iter1366: ephemeral_type_dead_fast — 已知无跨会话价值类型不受 importance/age 保护
+    # 根因（数据驱动，2026-05-10）：conversation_summary(imp=0.65) 逃逸 DEAD 标记
+    #   因 importance >= threshold(0.65)。extractor 已拦截新写入(iter596)，但遗留 chunk
+    #   占 FTS 索引+候选池位，零访问即证明无价值。
+    _EPHEMERAL_DEAD_TYPES = ("conversation_summary", "prompt_context", "tool_insight")
+    _eph_dead = conn.execute(
+        """SELECT id FROM memory_chunks
+           WHERE project = ?
+             AND COALESCE(access_count, 0) = 0
+             AND chunk_type IN (?, ?, ?)
+             AND COALESCE(oom_adj, 0) > -1000""",
+        (project, *_EPHEMERAL_DEAD_TYPES),
+    ).fetchall()
+    dead_ids.extend(r[0] for r in _eph_dead if r[0] not in _pinned and r[0] not in dead_ids)
+
     # COLD: access_count = 0 且 age > cold_age_days（排除已分类为 DEAD 的）
     # 迭代147：datetime(created_at) 修复同上
     cold_ids = conn.execute(
