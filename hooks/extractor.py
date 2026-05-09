@@ -2847,7 +2847,8 @@ def _write_chunk(chunk_type: str, summary: str, project: str, session_id: str,
         r'注入仅含|(?:\d+\s*条\s*chunk|\d+\s*chunks).*(?:阈值|项目|库)|'
         r'[+\-]\d+\s*行.{0,10}[+\-]\d+\s*行|'
         r'迭代器.*(?:逃逸|自记录|gate)|_DOMAIN_KW|_ITER_IMPL|iterator_impl|'
-        r'碎片.*逃逸.*gate|\w+_gate\s*[（(]|ACTIVE\s*\d+\s*→\s*\d+|PA\s*\d+/\d+)',
+        r'碎片.*逃逸.*gate|\w+_gate\s*[（(]|ACTIVE\s*\d+\s*→\s*\d+|PA\s*\d+/\d+|'
+        r'gate.*(?:部署|覆盖|deploy)|时序问题.*(?:gate|写入))',
         re.IGNORECASE)
     _DOMAIN_KW = re.compile(
         r'(?:kernel|sched|cpu|proxy|\bPE\b|binder|Android|飞书|feishu|git(?![:r]oot:|:[0-9a-f])|patch|commit|'
