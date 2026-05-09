@@ -2447,10 +2447,12 @@ def main():
             # 修复：<60字硬suppress，60-100字降权0.5。
             _c_content = chunk.get("content", "") or ""
             _c_summary = chunk.get("summary", "") or ""
+            # iter1340: content_echo_suppress — content==summary 无论长度都 hard suppress
+            # 数据驱动（2026-05-10）：35/71(49%) chunk content==summary，其中 >=100字的
+            #   逃逸 iter1339 的 <100 gate。注入 content==summary 等于重复 summary，零信息增量。
+            if _c_content.strip() == _c_summary.strip() and _c_content:
+                return 0.0
             if len(_c_content) <= len(_c_summary) + 5 and len(_c_content) < 100:
-                # iter1307+1339: thin_content_align_extractor — 阈值对齐 extractor iter1293(80字)
-                # 数据驱动（2026-05-10）：15/48(31%) ACTIVE chunk content<80字为存量碎片，
-                #   降权0.5仍胜出注入。base 60→80 消除；reasoning/causal 保留70（含因果上下文）。
                 _ct = chunk.get("chunk_type", "")
                 if _ct == "decision" and float(chunk.get("importance", 0)) >= 0.75:
                     _thin_hard_thresh = 40
