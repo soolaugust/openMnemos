@@ -1487,7 +1487,14 @@ def _is_quality_chunk(summary: str) -> bool:
                 # iter1257: chunk_structure_diag_noise — chunk 数据结构诊断逃逸
                 # 数据驱动（2026-05-09）：ef7ff2e7 "54% chunk 的 content 等于 summary，FTS5 检索面窄"
                 #   combo hits=2(chunk+FTS) < 阈值3 逃逸。描述 chunk 字段关系是纯迭代器诊断。
-                "content 等于 summary", "检索面窄"]
+                "content 等于 summary", "检索面窄",
+                # iter1263: iterator_deploy_timing_noise — gate 部署时序/PA 报告逃逸
+                # 数据驱动（2026-05-09）：3 条 ac=0 噪声逃逸：
+                #   "量化：zero_access 3→1/55 (1.8%)，PA 10/10 HEALTHY" — 迭代器 PA 报告
+                #   "chunk 在同一 session 的 gate 部署前写入（时序问题）" — 内部时序描述
+                #   逃逸原因："量化：" prefix gate 只匹配 "量化[：:]" 紧跟特定后缀，
+                #   "gate 部署" 不在 noise_kw 列表中。
+                "PA 10/10", "gate 部署", "HEALTHY"]
     if any(kw in s for kw in noise_kw):
         return False
     # iter1026: iterator_combo_gate — memory-os 运行时术语组合检测
@@ -1547,6 +1554,8 @@ def _is_quality_chunk(summary: str) -> bool:
         #   根因：这些是迭代器的系统健康诊断/度量变化报告，含百分比/chunk 数量变化等。
         # 修复：加入 垄断/零访问/top-k/候选位/历史遗留 作为 combo term。
         '垄断', '零访问', 'top-k', '候选位', '历史遗留',
+        # iter1263: gate 部署/PA 报告术语
+        'gate 部署', 'PA ', 'HEALTHY',
     ) if _t in s)
     # iter1114: regex 补充 — iter+3~4位数字是迭代器自引用标识
     # iter1164: 扩展 \d{4}→\d{3,4} 覆盖 iter805 等 3 位迭代号逃逸
