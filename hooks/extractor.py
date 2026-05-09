@@ -1214,7 +1214,9 @@ def _is_selfref_noise(summary: str, chunk_type: str) -> bool:
         # iter1306: effect_prediction_gate — 迭代器效果预测/垄断度量逃逸
         r'预期效果.{0,10}(?:垄断|注入|suppress)|垄断.{0,10}[→>]\s*[<\d]|'
         r'\d+\.?\d*%\s*→\s*[<>]?\s*\d+\.?\d*%|'
-        r'rs\[:\d+\]|截取.{0,5}token)',
+        r'rs\[:\d+\]|截取.{0,5}token|'
+        # iter1329: recall_behavior_gate — memory-os 检索行为讨论术语
+        r'无法被召回|恢复路径|注入资格|召回路径|知识库可达性|可达性\s*\d+%)',
         summary
     ))
     # iter1325: constraint_selfref_gate — design_constraint 用更严格阈值(>=3)防误杀
