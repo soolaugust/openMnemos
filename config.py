@@ -88,6 +88,8 @@ _REGISTRY: dict = {
         "召回注入的最大字符数（迭代72：600→800 支撑 Top-5）"),
     "retriever.max_context_chars_fault": (1000, int, 100, 5000, None,
         "缺页场景的最大注入字符数（迭代72：800→1000 支撑 Top-7）"),
+    "retriever.oversample_factor": (3, int, 2, 4, None,
+        "FTS5 超采样倍数（候选池 = top_k × factor），延迟压力下 governor 可降为 2"),
     "retriever.min_score_threshold": (0.30, float, 0.0, 1.0, None,
         "最低注入分数阈值（迭代86→87：0.15→0.30，A/B评测T4残留干扰BM25 0.29仍通过旧阈值）"),
     "retriever.generic_query_min_threshold": (0.85, float, 0.0, 1.0, None,
