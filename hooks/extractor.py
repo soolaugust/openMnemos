@@ -2021,6 +2021,9 @@ def _is_quality_chunk(summary: str) -> bool:
     if re.search(r'chunk\s*库|ac\s*[=＝]', s, re.I) and re.search(r'\d+\s*(?:条|个|%)', s):
         if not re.search(r'(?:kernel|sched|Android|feishu|飞书|patch)', s, re.I):
             return False
+    # iter1289: dangling_tail_gate — 拦截以介词/连词/冠词结尾的截断片段
+    if re.search(r'\b(?:from|to|in|on|with|for|at|by|of|the|a|an|that|which|who|whom|whose|where|when|and|or|but|nor|if|as|than|because|since|while|although|before|after|until|unless|into|onto|upon|about|between|through|during|without|within|among|across|against|along|toward|towards|under|over|below|above|beneath|beside|besides|beyond|despite|except|like|near|off|out|past|per|plus|via|versus)\s*$', s, re.I):
+        return False
     return True
 
 
