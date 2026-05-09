@@ -4244,7 +4244,18 @@ def main():
                         _fb_hd_hash = hashlib.md5(_fb_hd[1].get("id", "").encode()).hexdigest()[:8]
                         if _fb_hd_hash == _last_hash_hd:
                             _fb_hd = _fb_hd_sorted[1]
-                    top_k = [_fb_hd]
+                    # iter1324: fallback_pair_inject — suppress 全灭后注入 top-2（非 top-1）
+                    # 根因（数据驱动，2026-05-09）：50% injection 为 single-chunk（33/65），
+                    #   用户缺少多知识组合上下文。suppress 全灭是主因（34 candidates→1 fallback）。
+                    #   pool 中第 2 条 chunk 已通过 7d ceiling + cooldown，与 top-1 共同注入
+                    #   可提供互补上下文，不增加垄断风险（两条不同 chunk）。
+                    # 条件：pool>=2 且 #2 score >= #1 score * 0.4（相关性不太差）
+                    _fb_hd_pair = [_fb_hd]
+                    if len(_fb_hd_sorted) >= 2:
+                        _fb2 = _fb_hd_sorted[1] if _fb_hd is _fb_hd_sorted[0] else _fb_hd_sorted[0]
+                        if _fb2[0] >= _fb_hd[0] * 0.4:
+                            _fb_hd_pair.append(_fb2)
+                    top_k = _fb_hd_pair
                     _deferred.log(DMESG_WARN, "retriever",
                                   f"iter670_suppress_fallback_hd: all {len(_pre_suppress_top_k_hd)} "
                                   f"suppressed, fallback to best={_fb_hd[1].get('id','')[:12]}",
@@ -6483,7 +6494,13 @@ def main():
                         _fb_hash = hashlib.md5(_fb[1].get("id", "").encode()).hexdigest()[:8]
                         if _fb_hash == _last_hash:
                             _fb = _fb_sorted[1]  # 选次优
-                    top_k = [_fb]
+                    # iter1324: fallback_pair_inject — FULL path sync
+                    _fb_pair = [_fb]
+                    if len(_fb_sorted) >= 2:
+                        _fb2 = _fb_sorted[1] if _fb is _fb_sorted[0] else _fb_sorted[0]
+                        if _fb2[0] >= _fb[0] * 0.4:
+                            _fb_pair.append(_fb2)
+                    top_k = _fb_pair
                     _deferred.log(DMESG_WARN, "retriever",
                                   f"iter670_suppress_fallback: all {len(_pre_suppress_top_k)} "
                                   f"suppressed, fallback to best={_fb[1].get('id','')[:12]}",

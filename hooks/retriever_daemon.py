@@ -5553,7 +5553,13 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                         _fb_hash = '%08x' % zlib.crc32(_fb[1][_CI_ID].encode())
                         if _fb_hash == last_hash:
                             _fb = _fb_sorted[1]
-                    top_k = [_fb]
+                    # iter1324: fallback_pair_inject — LITE path sync
+                    _fb_pair = [_fb]
+                    if len(_fb_sorted) >= 2:
+                        _fb2 = _fb_sorted[1] if _fb is _fb_sorted[0] else _fb_sorted[0]
+                        if _fb2[0] >= _fb[0] * 0.4:
+                            _fb_pair.append(_fb2)
+                    top_k = _fb_pair
                     _deferred.log(DMESG_WARN, "retriever_daemon",
                                   f"iter670_suppress_fallback: all {len(_pre_suppress_top_k)} "
                                   f"suppressed, fallback to best={_fb[1][_CI_ID][:12]}",
