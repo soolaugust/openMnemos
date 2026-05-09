@@ -2412,7 +2412,8 @@ def main():
                     #   7d suppress 因跨项目分散计数（per-proj<=2）不触发。ac>=4 已见 4+ 次。
                     # 修复：global + ac>=4 + 极低 relevance → 零信息增量，直接返回 0。
                     #   不影响 relevance>=0.005 的正常匹配路径（真正相关时仍注入）。
-                    if chunk.get("project", "") == "global" and _acc_ee >= 4:
+                    # iter1364: sparse_shield — local<=3 项目豁免（唯一知识源不应被 suppress）
+                    if chunk.get("project", "") == "global" and _acc_ee >= 4 and not _local_sparse:
                         return 0.0
                 return float(chunk.get("importance", 0.5)) * 0.1  # 极低相关性：快速降权
             # 迭代322: Query-Conditioned Importance — 动态 α
