@@ -4137,7 +4137,12 @@ def main():
                     #   lifetime>=4，阈值=5 导致大部分知识被永久封锁→47% 空召回。
                     #   小库 chunk 经人工审核保留，5 次注入不代表"已内化"。
                     _lt_thresh = 8 if _hd_tiny_db else 5
-                    _lt_dc_thresh = 6 if _hd_tiny_db else 4
+                    # iter1372: global_dc_lifetime_tighten — global dc 在 tiny_db 不享受放宽
+                    # 根因（数据驱动，2026-05-10）：0aff0d67(git commit,lt=5),c9accb7b(feishu CLI,lt=4)
+                    #   是通用工具约束，与项目核心知识无关，但 tiny_db 阈值=6 使其持续逃逸。
+                    #   非 tiny_db 阈值=4 已验证安全，global dc 应对齐（不会导致空召回：
+                    #   suppress 的是 global chunk，local 候选不受影响）。
+                    _lt_dc_thresh = 4 if (not _hd_tiny_db or c.get("project") == "global") else 6
                     if _lt >= _lt_thresh:
                         return False
                     if c.get("chunk_type") == "design_constraint" and _lt >= _lt_dc_thresh:
@@ -4585,6 +4590,25 @@ def main():
                         _nonzero = [(s, c) for s, c in top_k if s > 0]
                         if _nonzero:
                             top_k = _nonzero
+
+                    # iter1372: final_monopoly_gate (LITE path) — 同 FULL 路径
+                    if _injection_timeline and len(top_k) > 1:
+                        from datetime import datetime as _dt1372h, timedelta as _td1372h, timezone as _tz1372h
+                        _cut_1372h = (_dt1372h.now(_tz1372h.utc) - _td1372h(hours=48)).isoformat()
+                        _mf_hd = []
+                        _md_hd = []
+                        for _s1372h, _c1372h in top_k:
+                            _tl_h = _injection_timeline.get(_c1372h["id"], [])
+                            if sum(1 for t in _tl_h if t > _cut_1372h) >= 3:
+                                _md_hd.append(_c1372h["id"][:12])
+                            else:
+                                _mf_hd.append((_s1372h, _c1372h))
+                        if _mf_hd:
+                            top_k = _mf_hd
+                        if _md_hd:
+                            _deferred.log(DMESG_INFO, "retriever",
+                                          f"iter1372_final_monopoly_gate_hd: dropped {_md_hd}",
+                                          session_id=session_id, project=project)
 
                     # 迭代98：分离约束知识和普通知识，约束优先展示
                     # 迭代306：hard_deadline 路径也附加 raw_snippet（importance >= 0.75）
@@ -6281,7 +6305,8 @@ def main():
                     # iter1326: lifetime_thresh_lower — sync FULL path
                     # iter1359: tiny_db_lifetime_relax — sync FULL path
                     _lt_thresh = 8 if _tiny_db else 5
-                    _lt_dc_thresh = 6 if _tiny_db else 4
+                    # iter1372: global_dc_lifetime_tighten — sync FULL path
+                    _lt_dc_thresh = 4 if (not _tiny_db or c.get("project") == "global") else 6
                     if _lt >= _lt_thresh:
                         return False
                     if c.get("chunk_type") == "design_constraint" and _lt >= _lt_dc_thresh:
@@ -7921,6 +7946,30 @@ def main():
             _nonzero = [(s, c) for s, c in top_k if s > 0]
             if _nonzero:
                 top_k = _nonzero
+
+        # iter1372: final_monopoly_gate — 最终出口 48h 注入频次硬上限
+        # 根因（数据驱动，2026-05-10）：7d=5 的 chunk 仍经 fallback/pair 等路径逃逸全部 suppress。
+        #   中间层 suppress 有 ~8 条逃逸路径，无法在每条路径都修堵。
+        # 修复：在 top_k→inject_lines 之前做不可绕过的最终过滤。
+        #   48h 内已注入 >=3 次的 chunk 直接剔除（保留至少 1 条避免空注入）。
+        if _injection_timeline and len(top_k) > 1:
+            from datetime import datetime as _dt1372, timedelta as _td1372, timezone as _tz1372
+            _cut_1372 = (_dt1372.now(_tz1372.utc) - _td1372(hours=48)).isoformat()
+            _monopoly_filtered = []
+            _monopoly_dropped = []
+            for _s1372, _c1372 in top_k:
+                _tl = _injection_timeline.get(_c1372["id"], [])
+                _cnt_48h = sum(1 for t in _tl if t > _cut_1372)
+                if _cnt_48h >= 3:
+                    _monopoly_dropped.append(_c1372["id"][:12])
+                else:
+                    _monopoly_filtered.append((_s1372, _c1372))
+            if _monopoly_filtered:
+                top_k = _monopoly_filtered
+            if _monopoly_dropped:
+                _deferred.log(DMESG_INFO, "retriever",
+                              f"iter1372_final_monopoly_gate: dropped {_monopoly_dropped}",
+                              session_id=session_id, project=project)
 
         constraint_items = []
         normal_items = []
