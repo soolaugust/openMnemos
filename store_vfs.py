@@ -2009,7 +2009,7 @@ def _vfs_write_protect(summary: str) -> bool:
     # 根因（数据驱动，2026-05-04）：cf82fd00 "zero_access_rate: 6% → 0%" 只命中 1 个
     #   self-ref 关键词（需 >=2），但"关键词 + → + 数值"是迭代器度量的独有格式。
     #   extractor._is_quality_chunk 行 1306 已有此规则，但 direct/MCP 写入路径绕过。
-    if '→' in s and _RE_VFS_SELFREF.search(s) and _re_vfs.search(r'\d+%?\s*→\s*\d+%?', s):
+    if '→' in s and _RE_VFS_SELFREF.search(s) and _re_vfs.search(r'\d+%?\s*→\s*~?\d+%?', s):
         return True
     # iter1030: vfs_combo_gate — 同步 extractor iter1026 运行时术语组合检测
     # 根因（数据驱动，2026-05-07）：7 条 ac=0 噪声经 direct/MCP 路径绕过 extractor，
@@ -2026,11 +2026,16 @@ def _vfs_write_protect(summary: str) -> bool:
         'access_count', 'burst-inflat', 'burst inflation', 'chunk 的 ac', 'inflat',
         # iter1238: zero_access_metric — 拦截迭代器零访问率自评
         'zero_access_rate', 'zero_access',
+        # iter1297: gate_selfref_terms — 含 gate 名称/内部函数引用的迭代器自描述
+        'selfref', '_gate', 'cooldown', 'traces', '_noise', 'gate 覆盖',
     ) if _t in s)
     if _mos_hits >= 3:
         return True
     # iter1238: ac_ops_strong_signal — access_count/zero_access 是强迭代器信号，2 个即拒绝
     if _mos_hits >= 2 and ('access_count' in s or 'zero_access' in s):
+        return True
+    # iter1297: metric_arrow_combo — selfref 术语 + 箭头数值 = 迭代器度量（2 hit 即拒绝）
+    if _mos_hits >= 2 and '→' in s and _re_vfs.search(r'\d+%?\s*→', s):
         return True
     return False
 
