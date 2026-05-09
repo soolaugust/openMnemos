@@ -1201,6 +1201,7 @@ def _is_selfref_noise(summary: str, chunk_type: str) -> bool:
         #   "管道符号过滤"）hits=1 逃逸。含 project=git:/abspath: + 聚合/注入动词是迭代器分析特征。
         r'跨项目聚合|project[=:].{0,5}(?:git|abspath)|管道符号过滤|'
         r'burst.suppress|daemon.*(?:注入|进程内)|retriever_daemon|'
+        r'recall_trace|shadow_trace|注入质量|可观测性退化|'
         # iter1261: direct_cap_final_gate — retriever 内部路径对齐术语
         r'direct.cap|final_gate|_score_chunk|base[=-]\d|'
         # iter1278: iterator_stats_report_gate — 迭代器统计报告/效果描述逃逸
