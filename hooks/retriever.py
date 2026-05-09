@@ -4144,6 +4144,15 @@ def main():
                         return False
                     if _lt >= _lt_dc_thresh and _tl[-1] > _cutoff_7d:
                         return False
+                    # iter1370: density_aware_lifetime — tiny_db lifetime<8 但 7d 内高密度注入仍 suppress
+                    # 根因（数据驱动，2026-05-10）：import-90139(ac=3,lifetime=7) tiny_db 阈值=8 逃逸，
+                    #   timeline 7 次中 5 次在 5/4-5/5 两天内（burst density），7d 滑出后将再次注入。
+                    #   无条件降低阈值会导致空召回（iter1359 验证），但高密度 burst 应更早 suppress。
+                    # 修复：lifetime>=5 且 7d 内注入>=3 次 → suppress（拦截 burst，放行分散使用）。
+                    if _hd_tiny_db and _lt >= 5:
+                        _r7d = _recent_7d_counts.get(c["id"], 0)
+                        if _r7d >= 3:
+                            return False
                     return True
                 top_k = [(s, c) for s, c in top_k
                          if _recent_6h_counts.get(c["id"], 0) < _hd1042_6h_thresh(c)  # iter1042
@@ -6279,6 +6288,11 @@ def main():
                         return False
                     if _lt >= _lt_dc_thresh and _tl[-1] > _cutoff_7d:
                         return False
+                    # iter1370: density_aware_lifetime — sync FULL path
+                    if _tiny_db and _lt >= 5:
+                        _r7d = _rt663_7d.get(c["id"], 0)
+                        if _r7d >= 3:
+                            return False
                     return True
                 if _db_chunk_count > 5:
                     top_k = [(s, c) for s, c in top_k

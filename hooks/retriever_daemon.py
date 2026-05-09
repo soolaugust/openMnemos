@@ -5283,6 +5283,10 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                         return False
                     if _lt_cnt >= 5 and _lt_last > _cutoff_72h:
                         return False
+                    # iter1370: density_aware_lifetime — tiny_db lifetime>=5 + 7d>=3 suppress
+                    if _sf663d_tiny_db and _lt_cnt >= 5:
+                        if _rt663d_7d.get(c[_CI_ID], 0) >= 3:
+                            return False
                     return True
                 if _db_chunk_count > 5:
                     top_k = [(s, c) for s, c in top_k
