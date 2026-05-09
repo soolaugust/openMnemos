@@ -1633,8 +1633,10 @@ def _is_quality_chunk(summary: str) -> bool:
     # 修复：指示/连接词开头 + 短于 60 字 + 无文件路径/量化/代码引用 → 拒绝。
     _CONTEXTLESS_STARTS = re.compile(
         r'^(?:所以|一样的|也就是|这样|那么|这个|那个|同样|确实|其实|用的|人会|'
-        r'就是说|说白了|总之就是|换句话说|简单来说)\s*')
-    if _CONTEXTLESS_STARTS.match(s) and len(s) < 60:
+        r'就是说|说白了|总之就是|换句话说|简单来说|这是|你已有|你已经有)\s*')
+    # iter1301: widen_contextless_gate — 60→150 字，覆盖中长对话碎片
+    # 数据驱动（2026-05-09）：6 个逃逸碎片 72-130 字以连接词开头+无技术锚点
+    if _CONTEXTLESS_STARTS.match(s) and len(s) < 150:
         if not re.search(r'[\w./]+\.(?:py|js|ts|json|db|sql|yaml|toml|sh|md)\b', s) \
            and not re.search(r'\d+(?:\.\d+)?(?:%|ms|s|MB|GB|次|条|个|行|倍|x)', s) \
            and not re.search(r'`[^`]+`', s):
