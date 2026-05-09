@@ -2979,19 +2979,13 @@ def main():
                         # 修复：直接 thresh=2（不依赖 base），7d 内第 2 次即 suppress。
                         _suppress_7d_thresh = 2
                     # iter1143: local_mid_saturated_suppress — ac>=4 本项目 chunk 7d 阈值 -1
-                    # 根因（数据驱动，2026-05-08）：Kernel Patch 格式规范(ac=4) tiny_db 7d=3
-                    #   仍注入（阈值=5）。ac=4 表明用户已见过 4 次，7d 允许 4 次过于宽松。
-                    # 修复：ac>=4 → -1（5→4），7d 内最多 3 次注入后 suppress。
-                    # iter1171: constraint_local_saturated — design_constraint ac>=4 用 -2
-                    # 根因（数据驱动，2026-05-08）：飞书CLI(ac=4,7d=4)、微信公众号(ac=4,7d=3)
-                    #   small_db score>=0.5 基础=6, -1=5, 7d=4 不触发。
-                    #   design_constraint 是硬规则，ac=4 已充分内化（比 decision 更快收敛）。
-                    # 修复：design_constraint ac>=4 → -2（6→4/5→3），7d 内最多 3/2 次后 suppress。
+                    # iter1276: ac4_7d_tighten — ac>=4 统一用 max(2, thresh-2)
+                    # 根因（数据驱动，2026-05-09）：21-chunk 库中 9 个 ac=4-5 chunk 各 7d=3-4，
+                    #   max(3,thresh-1)=4 允许注入 3 次，top10 占 7d 注入 38%。
+                    #   ac>=4 已内化 4+ 次，第 3 次注入零边际信息。
+                    # 修复：ac>=4 统一 max(2, thresh-2)，与 ac>=5/design_constraint 对齐。
                     elif _l_ac >= 4:
-                        if chunk.get("chunk_type") == "design_constraint":
-                            _suppress_7d_thresh = max(2, _suppress_7d_thresh - 2)
-                        else:
-                            _suppress_7d_thresh = max(3, _suppress_7d_thresh - 1)
+                        _suppress_7d_thresh = max(2, _suppress_7d_thresh - 2)
                     # iter1256: ac3_7d_direct_cap3 — ac>=3 直接 cap thresh=3
                     # 根因（数据驱动，2026-05-09）：import-90139(ac=3,procedure) small_db
                     #   高分 base=6, iter1242 max(3,6-1)=5 仍过宽→7d=6 逃逸。
@@ -3968,6 +3962,9 @@ def main():
                         return 2
                     elif _l_ac >= 5:
                         return max(2, _t - 2)  # iter1152: local_mid_saturated_tighten
+                    # iter1276: ac4_7d_tighten — ac>=4 统一 max(2, _t-2) sync FULL path
+                    elif _l_ac >= 4:
+                        return max(2, _t - 2)
                     return _t
                 # iter1019: saturated_24h_tighten — sync suppress_final_gate
                 def _hd1019_24h_thresh(s, c):
@@ -6000,10 +5997,13 @@ def main():
                         return max(2, _t - 2)  # iter1152: local_mid_saturated_tighten
                     # iter1143: local_mid_saturated_suppress — ac>=4 阈值 -1
                     # iter1171: constraint_local_saturated — design_constraint ac>=4 用 -2
+                    # iter1276: ac4_7d_tighten — ac>=4 统一用 max(2, _t-2)
+                    # 根因（数据驱动，2026-05-09）：21-chunk 库中 9 个 ac=4-5 chunk 各 7d=3-4，
+                    #   max(3,5-1)=4 允许注入 3 次，top10 chunk 占 7d 注入 38%（44/115）。
+                    #   ac>=4 已内化 4+ 次，7d 第 3 次注入零边际信息。12/21 chunk 仍可注入=安全。
+                    # 修复：ac>=4 统一 max(2, _t-2)，与 design_constraint 对齐。
                     elif _l_ac >= 4:
-                        if c.get("chunk_type") == "design_constraint":
-                            return max(2, _t - 2)
-                        return max(3, _t - 1)
+                        return max(2, _t - 2)
                     # iter1242: ac3_7d_tighten — ac>=3 阈值 -1 sync suppress_final_gate
                     # iter1260: ac3_7d_direct_cap3_sync — direct cap 对齐 _score_chunk iter1256
                     elif _l_ac >= 3:
