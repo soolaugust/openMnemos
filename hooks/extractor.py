@@ -1197,6 +1197,7 @@ def _is_selfref_noise(summary: str, chunk_type: str) -> bool:
         # 修复：补充 retriever 内部函数名和评分变量。
         r'pair_preserve|score_floor|_ac_gated|pair_from_db|diversity_pair|'
         r'imp_pair|suppress_fallback|bw_window|hard_cap|_min_thresh|'
+        r'_effective_top_k|top_k_data|accessed_ids|_pre_suppress|'
         r'candidates?全灭|候选池|'
         # iter1218: cross_project_analysis_gate — 跨项目注入分析噪声
         # 根因（数据驱动，2026-05-09）：2 条 causal_chain 描述跨项目聚合逻辑（"不走跨项目聚合"
