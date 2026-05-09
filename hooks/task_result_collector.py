@@ -124,17 +124,23 @@ def main():
         conn = open_db(STORE_DB)
         ensure_schema(conn)
 
+        _ts = _now_iso()
         chunk = {
-            "chunk_id":   f"agent_result_{session_id[:16]}_{int(datetime.now().timestamp())}",
-            "project":    project_id,
-            "chunk_type": "procedure",
-            "summary":    summary[:200],
-            "raw_snippet": resp_text[:800],
-            "importance": 0.70,
-            "source":     "task_result_collector",
-            "session_id": session_id,
-            "created_at": _now_iso(),
-            "oom_adj":    0,
+            "id":             f"agent_result_{session_id[:16]}_{int(datetime.now().timestamp())}",
+            "project":        project_id,
+            "chunk_type":     "procedure",
+            "summary":        summary[:200],
+            "content":        resp_text[:800],
+            "importance":     0.70,
+            "retrievability": 1.0,
+            "last_accessed":  _ts,
+            "lru_gen":        0,
+            "stability":      0.6,
+            "source_type":    "task_result_collector",
+            "source_session": session_id,
+            "created_at":     _ts,
+            "updated_at":     _ts,
+            "oom_adj":        0,
         }
         insert_chunk(conn, chunk)
 
@@ -144,7 +150,7 @@ def main():
             "task_desc":  task_desc,
             "project":    project_id,
             "session_id": session_id,
-            "chunk_id":   chunk["chunk_id"],
+            "chunk_id":   chunk["id"],
             "summary":    summary[:200],
             "ts":         _now_iso(),
         })
