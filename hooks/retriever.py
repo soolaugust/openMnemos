@@ -3987,14 +3987,22 @@ def main():
                 #   但 7d 窗口滑过后重新计数，导致已饱和知识反复出现。
                 #   用户在 5+ 次注入后已充分内化，继续注入零边际价值。
                 # 修复：lifetime>=7 无条件 suppress；lifetime>=5 且最近 3d 内注入过则 suppress。
+                # iter1277: lifetime_thresh_tighten — 阈值 7/5 → 6/4
+                # 根因（数据驱动，2026-05-09）：import-90139(lifetime=6) 7d 窗口滑过后
+                #   72h cooldown 也过期 → suppress 全失效，重新累积注入。
+                #   design_constraint 是固化规则，4 次已充分内化。
+                # 修复：lifetime>=6 无条件 suppress；>=4 且 72h 内注入过则 suppress；
+                #   design_constraint lifetime>=4 无条件 suppress。
                 def _hd1273_lifetime_ok(c):
                     _tl = _injection_timeline.get(c["id"])
                     if not _tl:
                         return True
                     _lt = len(_tl)
-                    if _lt >= 7:
+                    if _lt >= 6:
                         return False
-                    if _lt >= 5 and _tl[-1] > _cutoff_72h:
+                    if c.get("chunk_type") == "design_constraint" and _lt >= 4:
+                        return False
+                    if _lt >= 4 and _tl[-1] > _cutoff_72h:
                         return False
                     return True
                 top_k = [(s, c) for s, c in top_k
@@ -6044,14 +6052,17 @@ def main():
                     _hac = c.get("access_count", 0) or 0
                     return 1 if (_hac >= 7 or (c.get("chunk_type") == "design_constraint" and _hac >= 5) or (c.get("project") == "global" and _hac >= 4)) else 2
                 # iter1273: lifetime_injection_suppress — FULL 路径同步
+                # iter1277: lifetime_thresh_tighten — sync FULL path
                 def _sf1273_lifetime_ok(c):
                     _tl = _injection_timeline.get(c["id"])
                     if not _tl:
                         return True
                     _lt = len(_tl)
-                    if _lt >= 7:
+                    if _lt >= 6:
                         return False
-                    if _lt >= 5 and _tl[-1] > _cutoff_72h:
+                    if c.get("chunk_type") == "design_constraint" and _lt >= 4:
+                        return False
+                    if _lt >= 4 and _tl[-1] > _cutoff_72h:
                         return False
                     return True
                 if _db_chunk_count > 5:
