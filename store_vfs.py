@@ -2204,7 +2204,10 @@ def insert_chunk(conn: sqlite3.Connection, chunk_dict: dict) -> None:
     #   其中 clen=54/55 逃逸 <50 阈值。80 字中文约 25-40 字，单句无法构成有价值知识。
     _content_973 = (d.get("content") or "").strip()
     _summary_973 = (d.get("summary") or "").strip()
-    if _content_973 and len(_content_973) < 80 and _content_973 == _summary_973:
+    # iter1298: content_eq_summary_any_len — content==summary 无论长度都=零信息增量
+    # 根因（数据驱动，2026-05-09）：c38ac559(72 chars) content==summary 逃逸 <80 gate，
+    #   summary 本身是 FTS 索引的，content 如无增量只浪费存储+检索噪声。
+    if _content_973 and _content_973 == _summary_973:
         return
     # ── iter973b: vfs_ephemeral_type_gate — 对齐 extractor 的 _EPHEMERAL_TYPES ──
     # 根因（数据驱动，2026-05-06）：writer.py 直接调用 insert_chunk 绕过 _write_chunk 的
