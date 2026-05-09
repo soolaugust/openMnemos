@@ -3865,8 +3865,9 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                             # iter1225: constraint_7d_sync — design_constraint ac>=4 用 -2 对齐 retriever.py iter1171
                             _7d_base = max(2, _7d_base - 2) if chunk[_CI_CT] == "design_constraint" else max(3, _7d_base - 1)
                         # iter1242: ac3_7d_tighten — ac>=3 阈值 -1（sync retriever.py）
+                        # iter1260: ac3_7d_direct_cap3_sync — direct cap 对齐 retriever.py iter1256
                         elif _l_ac_d >= 3:
-                            _7d_base = max(3, _7d_base - 1)
+                            _7d_base = min(_7d_base, 3)
                     if _recent_7d_counts.get(_cid, 0) >= _7d_base:
                         score = 0.0
                 # iter1072: cooldown_widen — ac>=10 cooldown 72h→7d, ac>=7 48h→5d
@@ -4042,8 +4043,9 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                         elif _l_ac_d2 >= 4:
                             _7d_base_d2 = max(3, _7d_base_d2 - 1)
                         # iter1242: ac3_7d_tighten — sync dict path
+                        # iter1260: ac3_7d_direct_cap3_sync — direct cap (dict path)
                         elif _l_ac_d2 >= 3:
-                            _7d_base_d2 = max(3, _7d_base_d2 - 1)
+                            _7d_base_d2 = min(_7d_base_d2, 3)
                     if _recent_7d_counts.get(_cid, 0) >= _7d_base_d2:
                         score = 0.0
                 # iter1072: cooldown_widen — ac>=10 cooldown 72h→7d, ac>=7 48h→5d (dict path)
@@ -5185,8 +5187,9 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                     elif _lac >= 4:
                         return max(3, _t - 1)
                     # iter1242: ac3_7d_tighten — ac>=3 阈值 -1 sync suppress_final_gate
+                    # iter1260: ac3_7d_direct_cap3_sync — direct cap
                     elif _lac >= 3:
-                        return max(3, _t - 1)
+                        return min(_t, 3)
                     return _t
                 # iter1015: daemon_micro_db_final_gate_bypass — 对齐 retriever.py line 5052
                 # 根因（数据驱动，2026-05-07）：<=5 chunk 项目经 daemon 路径时 suppress_final_gate
@@ -5277,8 +5280,9 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 elif _lac >= 4:
                     return max(3, _t - 1)
                 # iter1242: ac3_7d_tighten — sync closure fallback
+                # iter1260: ac3_7d_direct_cap3_sync — direct cap
                 elif _lac >= 3:
-                    return max(3, _t - 1)
+                    return min(_t, 3)
                 return _t
             # iter1019: saturated_24h_tighten — sync suppress_final_gate
             def _d1019_24h_thresh(s, c):

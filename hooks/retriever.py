@@ -5969,8 +5969,9 @@ def main():
                             return max(2, _t - 2)
                         return max(3, _t - 1)
                     # iter1242: ac3_7d_tighten — ac>=3 阈值 -1 sync suppress_final_gate
+                    # iter1260: ac3_7d_direct_cap3_sync — direct cap 对齐 _score_chunk iter1256
                     elif _l_ac >= 3:
-                        return max(3, _t - 1)
+                        return min(_t, 3)
                     return _t
                 # iter968: micro_db_final_gate_bypass — <=5 自有 chunk 库跳过 final_gate
                 # 根因（数据驱动，2026-05-06）：git:78dc99a5695f（2 自有 chunk）空注入率 86%（6/7）。
