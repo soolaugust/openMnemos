@@ -6183,7 +6183,22 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 if _top_k_data and len(_top_k_data) == len(_accessed_ids):
                     _effective_top_k = list(_top_k_data)
                 else:
-                    _effective_top_k = [{"id": cid} for cid in _accessed_ids] if _accessed_ids else list(_top_k_data or ())
+                    # iter1290: trace_enrich_fallback — id-only 退化时从 DB 补全 summary/chunk_type
+                    # 根因（数据驱动，2026-05-09）：23% trace 退化为 id-only，注入质量不可审计。
+                    #   _top_k_data 长度偶发不匹配（GC/thread 时序），但 _wconn 已打开可查。
+                    # 修复：用 DB 查询补全，失败时仍退化为 id-only（best-effort）。
+                    if _accessed_ids:
+                        _enrich_map = {}
+                        try:
+                            _ph = ",".join("?" for _ in _accessed_ids)
+                            _wconn.execute(f"SELECT id, summary, chunk_type FROM memory_chunks WHERE id IN ({_ph})", tuple(_accessed_ids))
+                            for _r in _wconn.fetchall():
+                                _enrich_map[_r[0]] = {"summary": _r[1] or "", "chunk_type": _r[2] or ""}
+                        except Exception:
+                            pass
+                        _effective_top_k = [{"id": cid, "summary": _enrich_map.get(cid, {}).get("summary", ""), "chunk_type": _enrich_map.get(cid, {}).get("chunk_type", "")} for cid in _accessed_ids]
+                    else:
+                        _effective_top_k = list(_top_k_data or ())
                 # iter721: trace_injected_fix — 用 _top_k_len 决定 injected 标志
                 # 数据驱动（2026-05-04）：dmesg 确认 daemon 注入了 N chunk（_top_k_len>0），
                 #   但闭包捕获的 _top_k_data/_accessed_ids 偶发为空（根因未确定）。
