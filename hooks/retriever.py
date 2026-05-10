@@ -4169,6 +4169,9 @@ def main():
                     # iter1276: ac4_7d_tighten — ac>=4 统一 max(2, _t-2) sync FULL path
                     elif _l_ac >= 4:
                         return max(2, _t - 2)
+                    # iter1457: ac3_hd_cap_sync — ac>=3 cap 与主路径对齐
+                    elif _l_ac >= 3:
+                        return min(_t, 3 if _hd_tiny_db else 2)
                     return _t
                 # iter1019: saturated_24h_tighten — sync suppress_final_gate
                 def _hd1019_24h_thresh(s, c):
@@ -6371,8 +6374,9 @@ def main():
                         return max(2, _t - 2)
                     # iter1242: ac3_7d_tighten — ac>=3 阈值 -1 sync suppress_final_gate
                     # iter1260: ac3_7d_direct_cap3_sync — direct cap 对齐 _score_chunk iter1256
+                    # iter1457: ac3_full_cap_sync — tiny_db 区分与主路径对齐
                     elif _l_ac >= 3:
-                        return min(_t, 3)
+                        return min(_t, 3 if _sf663_tiny_db else 2)
                     return _t
                 # iter968: micro_db_final_gate_bypass — <=5 自有 chunk 库跳过 final_gate
                 # 根因（数据驱动，2026-05-06）：git:78dc99a5695f（2 自有 chunk）空注入率 86%（6/7）。
@@ -6495,6 +6499,11 @@ def main():
                     return 2
                 elif _l_ac >= 5:
                     return max(2, _t - 1)
+                # iter1457: ac3_4_closure_cap_sync — ac>=3/4 cap 与主路径对齐
+                elif _l_ac >= 4:
+                    return max(2, _t - 2)
+                elif _l_ac >= 3:
+                    return min(_t, 3 if _fg887_tiny else 2)
                 return _t
             # iter1020: suppress_final_gate_24h_saturated_sync — closure_fallback 同步
             def _fg1020_24h_thresh(s, c):
@@ -7285,6 +7294,11 @@ def main():
                             return 1
                         elif _lac >= 5:
                             return max(2, _fb_lite_ceiling - 1)
+                        # iter1457: ac3_4_lite_cap_sync — ac>=3/4 cap 与主路径对齐
+                        elif _lac >= 4:
+                            return max(2, _fb_lite_ceiling - 2)
+                        elif _lac >= 3:
+                            return min(_fb_lite_ceiling, 3)
                         return _fb_lite_ceiling
                     # iter1027: fallback_24h_align — 对齐 _lt1020_24h_thresh 动态阈值
                     # iter1093: lite_fallback_cooldown — fallback 也必须检查 cooldown
