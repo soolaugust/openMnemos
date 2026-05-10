@@ -4691,10 +4691,10 @@ def main():
                             _tl_h = _injection_timeline.get(_c1372h["id"], [])
                             _cnt_48h_h = sum(1 for t in _tl_h if t > _cut_1372h)
                             _cnt_7d_h = sum(1 for t in _tl_h if t > _cut_7d_h)
-                            # iter1466: global_monopoly_gate_tighten — sync LITE path
+                            # iter1467: monopoly_gate_7d_tighten — sync LITE path
                             _is_global_h = _c1372h.get("project") == "global"
                             _c_ac_h = _c1372h.get("access_count", 0) or 0
-                            _7d_th_h = 3 if _is_global_h else (4 if _c_ac_h >= 4 else 5)
+                            _7d_th_h = 2 if _is_global_h else (3 if _c_ac_h >= 4 else 5)
                             if _cnt_48h_h >= 3 or _cnt_7d_h >= _7d_th_h:
                                 _md_hd.append(_c1372h["id"][:12])
                             else:
@@ -8129,9 +8129,14 @@ def main():
                 #   根因（数据驱动，2026-05-11）：微信公众号(global,dc,ac=4,7d=3) 逃逸阈值=4。
                 #   global chunk 全是通用约束/流程，7d 内 3 次重复注入零边际信息。
                 #   同时 non-global ac>=4 收紧到 4（已内化 4+ 次，7d 第 4 次无价值）。
+                # iter1467: monopoly_gate_7d_tighten — global 3→2, non-global ac>=4 4→3
+                #   根因（数据驱动，2026-05-11）：global chunk(feishu CLI/git commit) 7d=3
+                #   仍占满注入位，40 个新导入 kernel 知识(ac=0) 7d 内零注入机会。
+                #   global 通用约束 7d 内 2 次足够（用户 ac>=4 早已内化）；
+                #   non-global ac>=4 同理，7d 内第 3 次注入零边际信息。
                 _is_global = _c1372.get("project") == "global"
                 _c_ac = _c1372.get("access_count", 0) or 0
-                _7d_thresh = 3 if _is_global else (4 if _c_ac >= 4 else 5)
+                _7d_thresh = 2 if _is_global else (3 if _c_ac >= 4 else 5)
                 if _cnt_48h >= 3 or _cnt_7d >= _7d_thresh:
                     _monopoly_dropped.append(_c1372["id"][:12])
                 else:
