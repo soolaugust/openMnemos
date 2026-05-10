@@ -1780,7 +1780,9 @@ def _is_quality_chunk(summary: str) -> bool:
     # 根因：迭代 agent 写入自身度量（"X→Y", "PA 10/10", "chunks N→M"），100% 零访问。
     if '→' in s and re.search(r'(?:PA\s*\d+/\d+|chunks?\s*\d+|zero_access|test.*pass)', s, re.I):
         return False
-    if re.match(r'^量化[：:改]', s):
+    # iter1425: quantify_prefix_gate_widen — 对齐 _is_selfref_noise 字符集
+    # 根因（数据驱动，2026-05-10）：[：:改] 遗漏 量化预期/量化影响/量化结果/量化效果 格式
+    if re.match(r'^量化[预改效结影响：:]', s):
         return False
     # ── iter795: goal_declaration_noise — 纯指标目标声明拦截 ──
     # 根因（数据驱动）：e76579b5 "空召回：27% → 预期 ~0%" (ac=1) — 不是决策是目标宣言
