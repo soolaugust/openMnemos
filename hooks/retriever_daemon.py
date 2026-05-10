@@ -3862,10 +3862,10 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                     #   高价值约束（git author/feishu CLI/memory验证）整周不可见。
                     #   small_db 内 global 知识尚未内化，需更多曝光。
                     if (chunk[_CI_CP] or "") == "global":
-                        # iter1473: global_monopoly_ac_cap — ac>=4 已内化 thresh 3, 其余 4
+                        # iter1478: global_deep_saturated_7d_tighten — ac>=4 thresh 3→2
                         _g_ac_d = chunk[_CI_AC] or 0
                         if _s672_small:
-                            _7d_base = 3 if _g_ac_d >= 4 else 4
+                            _7d_base = 2 if _g_ac_d >= 4 else 4
                         else:
                             _7d_base = 2
                         # iter1227: sparse_global_shield — local_sparse 时 global 7d 阈值 +1
@@ -4056,11 +4056,11 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 if score > 0:  # iter1071: fix syntax — 原 else 与 if 不配对
                     _7d_base_d2 = 7 if _s672d_tiny else (6 if score >= 0.5 else 4) if _s672d_small else (5 if score >= 0.5 else 3)  # iter1477: tiny 5→7
                     # iter1194: global_unified_thresh — sync daemon dict path
-                    # iter1473: global_monopoly_ac_cap — sync dict path
+                    # iter1478: global_deep_saturated_7d_tighten — sync dict path
                     if (chunk.get("project", "") or "") == "global":
                         _g_ac_d2 = chunk.get("access_count", 0) or 0
                         if _s672d_small:
-                            _7d_base_d2 = 3 if _g_ac_d2 >= 4 else 4
+                            _7d_base_d2 = 2 if _g_ac_d2 >= 4 else 4
                         else:
                             _7d_base_d2 = 2
                         # iter1227: sparse_global_shield — dict path sync
@@ -5268,13 +5268,12 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                     # 根因：daemon suppress_final_gate 缺少 global chunk 7d 收紧，
                     #   feishu CLI(ac=4)/memory验证(ac=6) 经 daemon 路径 7d suppress 逃逸。
                     elif _is_global:
-                        # iter1194: global_unified_thresh — sync daemon suppress_final_gate
-                        # iter1473: global_monopoly_ac_cap — ac>=4 thresh 3, 其余 4
+                        # iter1478: global_deep_saturated_7d_tighten — sync daemon suppress_final_gate
                         _g_ac_fg = c[_CI_AC] or 0
                         if _local_sparse_d:
-                            return 4 if _g_ac_fg >= 4 else 5
+                            return 3 if _g_ac_fg >= 4 else 5
                         if _s672_small:
-                            return 3 if _g_ac_fg >= 4 else 4
+                            return 2 if _g_ac_fg >= 4 else 4
                         return 2
                     # iter1017: daemon_local_saturated_suppress — sync retriever.py iter1009
                     # iter1053: fallback_ceiling_align_local_deep — ac>=7 直接=2 对齐 suppress thresh
@@ -5393,13 +5392,13 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 if _cross:
                     return max(2, _t - 2)
                 # iter1194: global_unified_thresh — sync daemon closure_fallback
-                # iter1473: global_monopoly_ac_cap — ac>=4 thresh 3, 其余 4
+                # iter1478: global_deep_saturated_7d_tighten — sync closure fallback
                 elif _is_global:
                     _g_ac_cf = c[_CI_AC] or 0
                     if _local_sparse_d:
-                        return 4 if _g_ac_cf >= 4 else 5
+                        return 3 if _g_ac_cf >= 4 else 5
                     if _s672_small:
-                        return 3 if _g_ac_cf >= 4 else 4
+                        return 2 if _g_ac_cf >= 4 else 4
                     return 2
                 # iter1017: daemon_local_saturated_suppress — sync retriever.py iter1009
                 # iter1053: fallback_ceiling_align_local_deep — ac>=7 直接=2 对齐 suppress thresh
