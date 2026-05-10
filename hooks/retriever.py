@@ -2445,7 +2445,17 @@ def main():
                     # 修复：去掉 `not _local_sparse` 条件。global+ac>=4+relevance<0.005 无条件 suppress。
                     if chunk.get("project", "") == "global" and _acc_ee >= 4:
                         return 0.0
-                return float(chunk.get("importance", 0.5)) * 0.1  # 极低相关性：快速降权
+                # iter1435: ee_discovery_boost — early exit 路径也给从未注入的 chunk 加成
+                # 根因（数据驱动，2026-05-10）：61% chunk ac=0 从未被注入。
+                #   大部分 cold chunk FTS5 relevance<0.005 走 early exit 直接返回 imp*0.1，
+                #   discovery_boost(iter1434) 在 line 3333 只对 relevance>=0.01 生效，
+                #   early exit 路径被完全跳过 → 1.8x boost 对 61% 零访问 chunk 无效。
+                # 修复：early exit 也检查 injection_timeline，从未注入的 chunk 返回 imp*0.3
+                #   （3x base），使 cold chunk 0.05→0.15 可竞争衰减后的 veteran(0.10-0.20)。
+                _ee_score = float(chunk.get("importance", 0.5)) * 0.1
+                if not _injection_timeline.get(chunk.get("id", "")):
+                    _ee_score *= 3.0
+                return _ee_score
             # 迭代322: Query-Conditioned Importance — 动态 α
             # OS 类比：CPUFreq P-state — 高负载（高 relevance）降低 importance 依赖；
             #   低负载（弱命中）升高 importance 依赖（靠先验筛选）
@@ -3330,8 +3340,8 @@ def main():
             # 修复：_never_injected + relevance>=0.01(真实 FTS 匹配) → score *= 1.8。
             #   使 cold chunk 0.10→0.18, 0.15→0.27，可胜过衰减后的 veteran(0.15-0.20)。
             #   不影响 hard_suppressed chunk（已被归零）；不影响 relevance<0.01 的噪声。
-            if _never_injected and relevance >= 0.01 and score > 0:
-                score *= 1.8
+            if _never_injected and relevance >= 0.001 and score > 0:
+                score *= 2.2
             # ── iter616: final_hard_gate — 防止 additive bonus 绕过 hard suppression ──
             # 根因：24h_burst_suppression (iter614) 和 bandwidth_hard_cap (iter601) 设
             #   score=0.0，但后续 focus_bonus/emotional_boost/priming_boost 是 += 操作，
