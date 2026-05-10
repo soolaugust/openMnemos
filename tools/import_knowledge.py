@@ -454,6 +454,9 @@ def incremental_import():
         _gc_ids = [r[0] for r in _gc_rows]
         _gc_ph = ",".join("?" * len(_gc_ids))
         _gc_conn.execute(f"DELETE FROM memory_chunks WHERE id IN ({_gc_ph})", _gc_ids)
+        _gc_conn.execute(
+            "DELETE FROM memory_chunks_fts WHERE rowid NOT IN "
+            "(SELECT rowid FROM memory_chunks)")
         _gc_tombstones = _load_tombstones()
         _gc_tombstones.update(_gc_ids)
         _save_tombstones(_gc_tombstones)
@@ -461,6 +464,46 @@ def incremental_import():
         bump_chunk_version()
         _gc_conn.commit()
     _gc_conn.close()
+
+    # iter1421: retroactive_doc_cap — 按 doc 分组，超 cap 的低价值 chunk 立即回收
+    # 根因：per_doc_chunk_cap(iter1420) 只对新 import 生效，历史数据仍有 doc 5-8 chunk
+    #   83/100 chunk 是 import，13/19 doc 超 cap → 检索信噪比极低
+    # 修复：按 tags[:2] 分 doc，每 doc 保留 importance+ac 最高的 3 个，其余回收+tombstone
+    _DOC_CAP = 3
+    _cap_conn = open_db()
+    ensure_schema(_cap_conn)
+    _cap_rows = _cap_conn.execute(
+        "SELECT id, tags, importance, access_count FROM memory_chunks WHERE id LIKE 'import-%'"
+    ).fetchall()
+    _cap_docs = {}
+    for _cid, _tags_str, _imp, _ac in _cap_rows:
+        try:
+            _tgs = json.loads(_tags_str) if _tags_str else []
+        except Exception:
+            _tgs = []
+        _dk = "/".join(_tgs[:2]) if len(_tgs) >= 2 else _cid
+        _cap_docs.setdefault(_dk, []).append((_cid, _imp or 0.0, _ac or 0))
+    _cap_del_ids = []
+    for _dk, _chunks in _cap_docs.items():
+        if len(_chunks) <= _DOC_CAP:
+            continue
+        _chunks.sort(key=lambda x: (x[2], x[1]), reverse=True)
+        for _cid, _, _ in _chunks[_DOC_CAP:]:
+            _cap_del_ids.append(_cid)
+    if _cap_del_ids:
+        _cap_ph = ",".join("?" * len(_cap_del_ids))
+        _cap_conn.execute(f"DELETE FROM memory_chunks WHERE id IN ({_cap_ph})", _cap_del_ids)
+        # FTS5 orphan cleanup: keep only ACTIVE chunks indexed
+        _cap_conn.execute(
+            "DELETE FROM memory_chunks_fts WHERE rowid NOT IN "
+            "(SELECT rowid FROM memory_chunks WHERE chunk_state='ACTIVE')")
+        _cap_ts = _load_tombstones()
+        _cap_ts.update(_cap_del_ids)
+        _save_tombstones(_cap_ts)
+        gc_deleted += len(_cap_del_ids)
+        bump_chunk_version()
+        _cap_conn.commit()
+    _cap_conn.close()
 
     if not has_new:
         return {"status": "skip" if gc_deleted == 0 else "gc_only",
