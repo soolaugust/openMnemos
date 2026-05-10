@@ -2122,6 +2122,18 @@ def _is_quality_chunk(summary: str) -> bool:
     # iter1289: dangling_tail_gate — 拦截以介词/连词/冠词结尾的截断片段
     if re.search(r'\b(?:from|to|in|on|with|for|at|by|of|the|a|an|that|which|who|whom|whose|where|when|and|or|but|nor|if|as|than|because|since|while|although|before|after|until|unless|into|onto|upon|about|between|through|during|without|within|among|across|against|along|toward|towards|under|over|below|above|beneath|beside|besides|beyond|despite|except|like|near|off|out|past|per|plus|via|versus)\s*$', s, re.I):
         return False
+    # iter1458: iterator_selfref_combo_gate — 拦截 memory-os 迭代器自身度量/诊断组合模式
+    # 数据驱动（2026-05-11）：删除 12 条 ac=0 噪声后，8 条曾逃逸 noise_kw，
+    #   共同特征：含 memory-os 内部变量名/度量指标/iter 编号 + 系统自引用语境。
+    #   堆积 noise_kw 是打地鼠，用组合正则拦截结构模式。
+    _SELFREF_SIGNALS = re.compile(
+        r'(?:ghost_purge|幽灵条目|density\s*gate|sess_cnt|min_thresh'
+        r'|iter\d{3,4}|HEALTHY|PA\s+\d+/\d+'
+        r'|(?:ac|AC)\s*[=:]\s*\d|(?:zero.?ac|Zero.?AC)\b'
+        r'|用户触发[，,]不是\s*bug|痛点已在.*iter)', re.I)
+    if _SELFREF_SIGNALS.search(s):
+        if not re.search(r'(?:kernel|sched|Android|feishu|飞书|patch|cgroup|binder|thermal)', s, re.I):
+            return False
     return True
 
 
