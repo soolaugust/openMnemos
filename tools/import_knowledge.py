@@ -182,6 +182,13 @@ def extract_wiki_knowledge():
                     continue
                 _candidates.append((i, sec_title, sec_body))
             _candidates.sort(key=lambda x: len(x[2]), reverse=True)
+            # iter1480: subset_dedup — 短 section content 完全被长 section 包含时去重
+            _deduped = []
+            for _ci, _ct, _cb in _candidates:
+                if any(_cb.strip() in _ob for _, _, _ob in _deduped):
+                    continue
+                _deduped.append((_ci, _ct, _cb))
+            _candidates = _deduped
             for i, sec_title, sec_body in _candidates[:_MAX_CHUNKS_PER_DOC]:
                 sec_summary = f"[{rel.parent.name}] {title} > {sec_title}"[:120]
                 tags = [str(rel.parent.name), md_file.stem, f"sec{i}"]

@@ -1,12 +1,12 @@
 {
-  "timestamp": "2026-05-10T20:10:30.526544",
+  "timestamp": "2026-05-10T23:05:45.419216",
   "iteration": 71,
   "project_id": "test:e2e_baseline",
   "swap_out": {
     "hit_ids_count": 0,
     "decisions_count": 3,
     "excluded_paths_count": 1,
-    "elapsed_ms": 0.07343292236328125,
+    "elapsed_ms": 0.07605552673339844,
     "hit_ids": [],
     "decisions": [
       {
@@ -47,7 +47,7 @@
     "issues": []
   },
   "metrics": {
-    "total_time_ms": 0.07963180541992188,
+    "total_time_ms": 0.08225440979003906,
     "hit_rate": 0.0,
     "quality_score": 0.0
   }
