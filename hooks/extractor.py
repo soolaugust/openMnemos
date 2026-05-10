@@ -1232,7 +1232,9 @@ def _is_selfref_noise(summary: str, chunk_type: str) -> bool:
         # iter1348: sql_diag_gate — 内部 SQL 诊断/rowid 操作逃逸
         r'rowid\s+NOT\s+IN|DELETE\s+FROM\s+memory|INSERT\s+INTO\s+memory|清空了.*表|'
         # iter1373: pair_internal_gate — pair/候选/单条注入 内部检索概念逃逸
-        r'\bpair\b.*(?:候选|失败|排除|不包含)|候选[池=]|单条注入率?|预期改善[：:])',
+        r'\bpair\b.*(?:候选|失败|排除|不包含)|候选[池=]|单条注入率?|预期改善[：:]|'
+        # iter1408: selfref_component_gate — extractor/retriever 组件名 + 碎片写入逃逸
+        r'\bextractor\b|碎片写入|无条件拒绝)',
         summary
     ))
     # iter1325: constraint_selfref_gate — design_constraint 用更严格阈值(>=3)防误杀
