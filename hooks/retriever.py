@@ -5540,6 +5540,31 @@ def main():
                     and float(c.get("importance", 0) or 0) >= _cs_imp_threshold
                     for imp_val in [float(c.get("importance", 0) or 0)]
                 ]
+                # iter1427: cold_start_db_fallback — FTS5 未命中 ac=0 chunk 时直查 DB
+                # 根因（数据驱动，2026-05-10）：41/70(58%) chunk ac=0 全为今日批量导入，
+                #   但 FTS5 query 与这些知识无语义交集 → final 不含 ac=0 → cold_start 死锁。
+                # 修复：_cold_candidates 为空时，从 DB 查本项目最新 ac=0 chunk 作为候选。
+                if not _cold_candidates:
+                    try:
+                        import sqlite3 as _cs_sql
+                        _cs_conn = _cs_sql.connect(str(STORE_DB))
+                        _cs_rows = _cs_conn.execute(
+                            "SELECT id, summary, content, chunk_type, importance, tags, access_count "
+                            "FROM memory_chunks WHERE chunk_state='ACTIVE' AND access_count=0 "
+                            "AND (project=? OR project='global') AND importance>=? "
+                            "ORDER BY created_at DESC LIMIT 3",
+                            (project, _cs_imp_threshold)
+                        ).fetchall()
+                        _cs_conn.close()
+                        for _r in _cs_rows:
+                            if _r[0] not in _positive_ids:
+                                _cold_candidates.append((_r[4], {
+                                    "id": _r[0], "summary": _r[1], "content": _r[2],
+                                    "chunk_type": _r[3], "importance": _r[4],
+                                    "tags": _r[5], "access_count": 0,
+                                }))
+                    except Exception:
+                        pass
                 if _cold_candidates:
                     _cold_candidates.sort(key=lambda x: x[0], reverse=True)
                     _cs_slots = effective_top_k - len(positive)
