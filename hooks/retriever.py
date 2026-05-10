@@ -2641,6 +2641,7 @@ def main():
             #   global chunk ac=4-6 被 cooldown suppress，_sparse_cd_shield 只保护 local chunk。
             #   sparse 项目的 global chunk 是主知识源，不应被 cooldown 锁死。
             _sparse_cd_shield = _local_sparse and (not _cd_is_cross_project or chunk.get("project") == "global")
+            _never_injected = not _injection_timeline.get(chunk.get("id", ""))
             if not _never_injected and not _sparse_cd_shield and (not _micro_db or _cd_is_cross_project) and (_cd_is_global or _acc >= _cd_acc_floor) and _cutoff_48h:
                 _cd_id = chunk.get("id", "")
                 _cd_ts_list = _injection_timeline.get(_cd_id) if _injection_timeline else None
@@ -3342,6 +3343,17 @@ def main():
             #   不影响 hard_suppressed chunk（已被归零）；不影响 relevance<0.01 的噪声。
             if _never_injected and relevance >= 0.001 and score > 0:
                 score *= 2.2
+            # iter1436: saturation_decay — 7d 高频注入 chunk 指数衰减（去垄断）
+            # 根因（数据驱动，2026-05-10）：feishu CLI/memory验证/git SOB 各 7d=4，
+            #   sparse_global_relax 将 suppress 阈值放宽到 5 → 全部逃逸。
+            #   收紧阈值会引发空召回（iter1384 数据证实），陷入调参死循环。
+            # 修复：不改 suppress 阈值，改用 soft decay 使高频 chunk 自然排名下降，
+            #   被 cold/fresh chunk 替代。0.5^(n-2): 7d=3→0.5x, 7d=4→0.25x, 7d=5→0.125x。
+            #   不归零（区别于 hard suppress），空召回时仍可被 fallback 选中。
+            if not _hard_suppressed and score > 0:
+                _sd_7d = _recent_7d_counts.get(chunk.get("id", ""), 0)
+                if _sd_7d >= 3:
+                    score *= 0.5 ** (_sd_7d - 2)
             # ── iter616: final_hard_gate — 防止 additive bonus 绕过 hard suppression ──
             # 根因：24h_burst_suppression (iter614) 和 bandwidth_hard_cap (iter601) 设
             #   score=0.0，但后续 focus_bonus/emotional_boost/priming_boost 是 += 操作，
@@ -5631,8 +5643,10 @@ def main():
                                       f"cold_start: injected={_cold_start_injected} "
                                       f"imp>={_cs_imp_threshold:.2f} replaced_saturated={_cs_slots if _cs_slots > 0 else 0}",
                                       session_id=session_id, project=project)
-            except Exception:
-                pass  # cold_start 失败不阻塞主流程
+            except Exception as _cs_err:
+                _deferred.log(DMESG_WARN, "retriever",
+                              f"cold_start_error: {type(_cs_err).__name__}: {_cs_err}",
+                              session_id=session_id, project=project)
 
         if _sysctl("retriever.drr_enabled") and len(positive) > effective_top_k:
             top_k = _drr_select(positive, effective_top_k)
