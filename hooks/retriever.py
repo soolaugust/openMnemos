@@ -5529,9 +5529,12 @@ def main():
         #   打破 cold-start 死锁（cold 不访问 → access_count=0 → LRU 永驻冷端）
         #   memory-os 等价：zero-recall → acc=0 → starvation_boost 无法补偿语义鸿沟
         #   → IWCSI 强制曝光1个最高 imp 的零召回 chunk（打破死锁）
-        # 触发条件：FULL 模式 + positive 不足 effective_top_k + 未超 soft deadline
+        # 触发条件：FULL/LITE 模式 + positive 不足 effective_top_k + 未超 soft deadline
+        # iter1433: cold_start_lite — 扩展到 LITE 模式，打破 58% chunk 零访问死锁
+        # 根因（数据驱动，2026-05-10）：70% 检索走 LITE 模式，cold_start 仅 FULL 触发，
+        #   43/73 chunk(58%) 从未被注入。LITE 的 DB 查询（单次 SELECT LIMIT 5）<1ms 不影响 deadline。
         _cold_start_injected = 0
-        if (priority == "FULL"
+        if (priority in ("FULL", "LITE")
                 and _sysctl("retriever.cold_start_enabled")
                 and not _check_deadline("cold_start")):
             try:
