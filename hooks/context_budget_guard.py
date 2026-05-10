@@ -240,6 +240,9 @@ def _db_vacuum(db_path: Path):
         # 清理条件：access_count=0 AND (extractor gate 判定为噪声 OR chunk_type='prompt_context')
         # 安全性：只删零访问 chunk，不影响任何已被用户使用的知识。
         try:
+            _hooks_dir = str(Path(__file__).parent)
+            if _hooks_dir not in sys.path:
+                sys.path.insert(0, _hooks_dir)
             from extractor import _is_metric_report_noise, _is_selfref_noise, _is_quality_chunk
             _zero_ac_rows = conn.execute(
                 "SELECT id, summary, chunk_type FROM memory_chunks WHERE access_count = 0"
