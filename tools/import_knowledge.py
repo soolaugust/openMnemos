@@ -434,8 +434,31 @@ def incremental_import():
             has_new = True
             break
 
+    # iter1418: stale_import_gc — 每次 SessionStart 无条件执行
+    # ac=0 且存活 >3 天的 import chunk 自动回收，不等 wiki 文件变更
+    gc_deleted = 0
+    _gc_conn = open_db()
+    ensure_schema(_gc_conn)
+    _gc_rows = _gc_conn.execute(
+        "SELECT id FROM memory_chunks "
+        "WHERE id LIKE 'import-%' AND access_count = 0 "
+        "AND created_at < datetime('now', '-3 days')"
+    ).fetchall()
+    if _gc_rows:
+        _gc_ids = [r[0] for r in _gc_rows]
+        _gc_ph = ",".join("?" * len(_gc_ids))
+        _gc_conn.execute(f"DELETE FROM memory_chunks WHERE id IN ({_gc_ph})", _gc_ids)
+        _gc_tombstones = _load_tombstones()
+        _gc_tombstones.update(_gc_ids)
+        _save_tombstones(_gc_tombstones)
+        gc_deleted = len(_gc_ids)
+        bump_chunk_version()
+        _gc_conn.commit()
+    _gc_conn.close()
+
     if not has_new:
-        return {"status": "skip", "reason": "no_changes"}
+        return {"status": "skip" if gc_deleted == 0 else "gc_only",
+                "reason": "no_changes", "gc_deleted": gc_deleted}
 
     # 有变化，执行完整导入
     conn = open_db()
@@ -488,4 +511,5 @@ def incremental_import():
 
     return {"status": "imported", "count": imported,
             "skipped_tombstone": skipped_tombstone,
-            "skipped_exists": skipped_exists}
+            "skipped_exists": skipped_exists,
+            "gc_deleted": gc_deleted}
