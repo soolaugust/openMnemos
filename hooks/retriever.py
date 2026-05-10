@@ -4675,14 +4675,22 @@ def main():
                             top_k = _nonzero
 
                     # iter1372: final_monopoly_gate (LITE path) — 同 FULL 路径
+                    # iter1464: global_dc_7d_monopoly — sync LITE path
                     if _injection_timeline and len(top_k) > 1:
                         from datetime import datetime as _dt1372h, timedelta as _td1372h, timezone as _tz1372h
-                        _cut_1372h = (_dt1372h.now(_tz1372h.utc) - _td1372h(hours=48)).isoformat()
+                        _now_1372h = _dt1372h.now(_tz1372h.utc)
+                        _cut_1372h = (_now_1372h - _td1372h(hours=48)).isoformat()
+                        _cut_7d_h = (_now_1372h - _td1372h(days=7)).isoformat()
                         _mf_hd = []
                         _md_hd = []
                         for _s1372h, _c1372h in top_k:
                             _tl_h = _injection_timeline.get(_c1372h["id"], [])
-                            if sum(1 for t in _tl_h if t > _cut_1372h) >= 3:
+                            _cnt_48h_h = sum(1 for t in _tl_h if t > _cut_1372h)
+                            _cnt_7d_h = sum(1 for t in _tl_h if t > _cut_7d_h)
+                            _is_gdc_h = (_c1372h.get("project") == "global"
+                                         and _c1372h.get("chunk_type") == "design_constraint")
+                            _7d_th_h = 4 if _is_gdc_h else 5
+                            if _cnt_48h_h >= 3 or _cnt_7d_h >= _7d_th_h:
                                 _md_hd.append(_c1372h["id"][:12])
                             else:
                                 _mf_hd.append((_s1372h, _c1372h))
@@ -8092,15 +8100,26 @@ def main():
         #   中间层 suppress 有 ~8 条逃逸路径，无法在每条路径都修堵。
         # 修复：在 top_k→inject_lines 之前做不可绕过的最终过滤。
         #   48h 内已注入 >=3 次的 chunk 直接剔除（保留至少 1 条避免空注入）。
+        # iter1464: global_dc_7d_monopoly — global design_constraint 7d>=4 suppress
+        #   根因（数据驱动，2026-05-11）：0aff0d67(git commit,7d=5),c9accb7b(feishu CLI,7d=4),
+        #   93cbc985(memory验证,7d=4) 是通用工具约束，注入分散在多天（每48h<3），
+        #   逃逸 48h 窗口但 7d 累积仍构成垄断，挤占项目核心知识的注入位。
+        #   修复：增加 7d 窗口，global+design_constraint 阈值=4，其他=5。
         if _injection_timeline and len(top_k) > 1:
             from datetime import datetime as _dt1372, timedelta as _td1372, timezone as _tz1372
-            _cut_1372 = (_dt1372.now(_tz1372.utc) - _td1372(hours=48)).isoformat()
+            _now_1372 = _dt1372.now(_tz1372.utc)
+            _cut_1372 = (_now_1372 - _td1372(hours=48)).isoformat()
+            _cut_7d = (_now_1372 - _td1372(days=7)).isoformat()
             _monopoly_filtered = []
             _monopoly_dropped = []
             for _s1372, _c1372 in top_k:
                 _tl = _injection_timeline.get(_c1372["id"], [])
                 _cnt_48h = sum(1 for t in _tl if t > _cut_1372)
-                if _cnt_48h >= 3:
+                _cnt_7d = sum(1 for t in _tl if t > _cut_7d)
+                _is_global_dc = (_c1372.get("project") == "global"
+                                 and _c1372.get("chunk_type") == "design_constraint")
+                _7d_thresh = 4 if _is_global_dc else 5
+                if _cnt_48h >= 3 or _cnt_7d >= _7d_thresh:
                     _monopoly_dropped.append(_c1372["id"][:12])
                 else:
                     _monopoly_filtered.append((_s1372, _c1372))
