@@ -267,9 +267,22 @@ def assert_fts5_covers_all_chunks(conn: sqlite3.Connection, fix: bool = False) -
             chunk_count = conn.execute("SELECT COUNT(*) FROM memory_chunks").fetchone()[0]
         fts_count = conn.execute("SELECT COUNT(*) FROM memory_chunks_fts").fetchone()[0]
 
-        if chunk_count == fts_count:
+        # iter1459: fts_join_coverage — 行数相等不够，还要验证 rowid 实际能 JOIN
+        # 根因（数据驱动，2026-05-11）：FTS5=72 vs chunks=71 行数接近但 rowid 完全不匹配
+        #   （FTS 残留旧 rowid 1-72，chunks 新 rowid 从 742 起），所有 chunk 不可检索。
+        join_count = 0
+        if chunk_count > 0:
+            join_count = conn.execute(
+                "SELECT COUNT(*) FROM memory_chunks mc "
+                "JOIN memory_chunks_fts fts ON mc.rowid = fts.rowid_ref "
+                "WHERE mc.chunk_state='ACTIVE' AND mc.summary != ''" if _has_state else
+                "SELECT COUNT(*) FROM memory_chunks mc "
+                "JOIN memory_chunks_fts fts ON mc.rowid = fts.rowid_ref"
+            ).fetchone()[0]
+        _fts_healthy = chunk_count == fts_count and join_count == chunk_count
+        if _fts_healthy:
             r.passed = True
-            r.message = f"FTS5={fts_count}, chunks={chunk_count} (consistent)"
+            r.message = f"FTS5={fts_count}, chunks={chunk_count}, join={join_count} (consistent)"
         elif fix:
             # 自修复：重建 FTS5（带 CJK 分词，与 insert_chunk 写入路径对齐）
             conn.execute("DELETE FROM memory_chunks_fts")
