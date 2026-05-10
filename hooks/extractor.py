@@ -1341,6 +1341,12 @@ def _is_quality_chunk(summary: str) -> bool:
     if re.match(r'^\d+[.。]\s+', s):
         if not re.search(r'(?:选择|决定|推荐|结论|采用|方向|核心|必须|禁止|不[能可得])', s):
             return False
+    # iter1444: slash_fragment_gate — 以 / 开头的截断碎片拦截
+    # 数据驱动（2026-05-10）：2 条 ac=0 causal_chain 以 "/chunk/score/suppress" 开头，
+    #   是从长文本中间截断出的碎片。/ 开头不是自然语言句首。
+    # 豁免：文件路径（含扩展名）或 Linux 系统路径（/proc/sys/dev/etc）。
+    if s.startswith('/') and not re.match(r'^/(?:[\w\-./]+\.\w{1,5}\b|(?:proc|sys|dev|etc|tmp|var|home|usr)/)', s):
+        return False
     # iter753: 豁免 [topic] 格式（wiki import summary），只拦截裸 [ ] - | 开头的碎片
     if re.match(r'^[\[\]\-|]', s):
         # [word] 后跟中日韩/拉丁内容 = wiki topic tag，不是碎片
