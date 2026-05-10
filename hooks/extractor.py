@@ -2778,6 +2778,11 @@ def _vma_validate(summary: str) -> bool:
     # 特征：含 '→' + 末尾是判定动作词（拒绝/通过/reject/pass/skip）
     if '→' in s and re.search(r'(?:拒绝|通过|reject|pass|skip|suppress|拦截)$', s):
         return False
+    # iter1445: hook_artifact_gate — 拦截 system-reminder/hook 输出泄漏
+    if re.match(r'^\[[\w/ -]{2,20}\]\s*\d+/\d+', s):
+        return False
+    if re.search(r'coach_score|system-reminder|</?[a-z_-]+>', s, re.I):
+        return False
     return True
 
 
