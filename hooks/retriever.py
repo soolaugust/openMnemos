@@ -3024,12 +3024,14 @@ def main():
                     #   跨 project 分散计数使 per-project 7d<3 → suppress 不触发。
                     #   global chunk 本质是固化通用约束，7d 内看 2 次已充分。
                     _suppress_7d_thresh = 2
-                    # iter1227: sparse_global_shield — local_sparse 时 global 7d 阈值 +2
-                    # 根因（数据驱动，2026-05-09）：git:78dc99a5695f(2 local + 6 global)
-                    #   global 统一 thresh=2 导致 3/6 global chunk 被 suppress，连续 5 次空召回。
-                    #   local_sparse 项目依赖 global 作为主要知识源，不应过度 suppress。
+                    # iter1227: sparse_global_shield — local_sparse 时 global 7d 阈值放宽
+                    # iter1384: sparse_global_thresh_raise — 4→5
+                    # 根因（数据驱动，2026-05-10）：git:a4ee2fcfacc4(4 local + 9 global)
+                    #   iter1379 使 _local_sparse=True，但 93cbc985/c9accb7b/0aff0d67 7d=4
+                    #   恰好 >=thresh=4 仍被 suppress → 08:32 cands=59 空召回。
+                    #   sparse 项目依赖 global 作为补充知识源，6h/24h burst suppress 仍有效控制短时重复。
                     if _sparse_global_relax:
-                        _suppress_7d_thresh = 4
+                        _suppress_7d_thresh = 5
                 # iter1009: local_saturated_suppress — 本项目高 ac chunk 7d 阈值收紧
                 # 根因（数据驱动，2026-05-06）：25-chunk 库中 PE分析(ac=7,7d=6)、
                 #   Android诊断(ac=10,7d=5) 等高 ac 本项目 chunk 7d 阈值=5 仍逃逸。
@@ -4087,6 +4089,9 @@ def main():
                         return max(2, _t - 2)
                     elif _is_global:
                         # iter1194: global_unified_thresh — sync hard_deadline
+                        # iter1384: sparse_global_relax_hd_sync — local_sparse 时放宽到 5
+                        if _local_sparse and _cp == "global":
+                            return 5
                         return 2
                     # iter1009: local_saturated_suppress — sync hard_deadline
                     # iter1051: local_deep_saturated_7d — ac>=7 直接=2（对齐 global）
@@ -4117,7 +4122,11 @@ def main():
                 # iter1042+1047: saturated_6h_cap — hard_deadline 路径同步
                 def _hd1042_6h_thresh(c):
                     _hac = c.get("access_count", 0) or 0
-                    return 1 if (_hac >= 7 or (c.get("chunk_type") == "design_constraint" and _hac >= 5) or (c.get("project") == "global" and _hac >= 4)) else 2
+                    _t = 1 if (_hac >= 7 or (c.get("chunk_type") == "design_constraint" and _hac >= 5) or (c.get("project") == "global" and _hac >= 4)) else 2
+                    # iter1384: sparse_global_relax_6h_hd_sync — sync FULL path iter1227
+                    if _local_sparse and c.get("project") == "global":
+                        _t = max(_t, 2)
+                    return _t
                 # iter1273: lifetime_injection_suppress — 累计注入次数饱和 suppress
                 # 根因（数据驱动，2026-05-09）：import-90139(ac=3) timeline 累计 7 次注入，
                 #   但 7d 窗口滑过后重新计数，导致已饱和知识反复出现。
