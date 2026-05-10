@@ -3922,8 +3922,20 @@ def main():
             # iter852: sync tiny_db boundary 30→50 (同 iter848/iter819)
             _FALLBACK_NOISE_FLOOR = 0.15 if _db_chunk_count < 50 else 0.25
             if not positive and final:
-                _sef_hd = max(final, key=lambda x: x[0])
-                if _sef_hd[0] >= _FALLBACK_NOISE_FLOOR:
+                # iter1381: fallback_exclude_saturated_global — 正常 fallback 也排除已内化 global dc
+                # 根因（数据驱动，2026-05-10）：feishu CLI(ac=4)、memory验证(ac=6)、git SOB(ac=4)
+                #   score 0.15-0.30 通过正常 fallback(>=noise_floor) 逃逸 iter1319 排除。
+                #   iter1319 只覆盖 dead_zone(<noise_floor)，正常 fallback 无排除 → 32% 噪声注入。
+                # 修复：正常 fallback 也过滤 global dc ac>=4，与 dead_zone 路径对齐。
+                def _fb_eligible_hd(sc_pair):
+                    _s, _c = sc_pair
+                    if _c.get("project", "") == "global" and _c.get("chunk_type") == "design_constraint":
+                        if (_c.get("access_count", 0) or 0) >= 4:
+                            return False
+                    return True
+                _fb_final_hd = [(s, c) for s, c in final if _fb_eligible_hd((s, c))]
+                _sef_hd = max(_fb_final_hd, key=lambda x: x[0]) if _fb_final_hd else (max(final, key=lambda x: x[0]) if final else None)
+                if _sef_hd and _sef_hd[0] >= _FALLBACK_NOISE_FLOOR:
                     positive = [_sef_hd]
                 else:
                     # iter772: dead_zone_fallback — 消除 (0, noise_floor) 死区
@@ -5309,8 +5321,16 @@ def main():
         # iter852: sync tiny_db boundary 30→50 (同 iter848/iter819)
         _FALLBACK_NOISE_FLOOR_FULL = 0.15 if _db_chunk_count < 50 else 0.25
         if not positive and final:
-            _sef_full = max(final, key=lambda x: x[0])
-            if _sef_full[0] >= _FALLBACK_NOISE_FLOOR_FULL:
+            # iter1381: fallback_exclude_saturated_global — sync FULL path
+            def _fb_eligible_full(sc_pair):
+                _s, _c = sc_pair
+                if _c.get("project", "") == "global" and _c.get("chunk_type") == "design_constraint":
+                    if (_c.get("access_count", 0) or 0) >= 4:
+                        return False
+                return True
+            _fb_final_full = [(s, c) for s, c in final if _fb_eligible_full((s, c))]
+            _sef_full = max(_fb_final_full, key=lambda x: x[0]) if _fb_final_full else (max(final, key=lambda x: x[0]) if final else None)
+            if _sef_full and _sef_full[0] >= _FALLBACK_NOISE_FLOOR_FULL:
                 positive = [_sef_full]
                 _deferred.log(DMESG_WARN, "retriever",
                               f"iter700_score_empty_fallback_full: fallback "
