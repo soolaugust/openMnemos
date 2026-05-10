@@ -1380,7 +1380,7 @@ def _is_quality_chunk(summary: str) -> bool:
                 # iter649: 迭代器自身度量/诊断记录 — 这些是 memory-os 迭代器
                 # 写入的内部诊断信息（suppress 效果、注入统计、PA 通过率），
                 # 对用户零价值且占用 FTS 和 Top-K 槽位
-                "PA 10/10", "PA 9/10", "PA 8/10", "注入垄断", "injection_timeline",
+                "注入垄断", "injection_timeline",
                 "零访问率", "e2e 测试通过", "production assertions",
                 # iter673: 迭代器工作汇报模式 — "+N/-M 行"改动量报告
                 "改动 +", "改动 -",
