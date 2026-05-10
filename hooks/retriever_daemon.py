@@ -4475,6 +4475,18 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                                       f"iter694_suppress_pierce_fallback_hd: "
                                       f"pierce best={_spf_hd_best[1][_CI_ID][:12]} imp={_spf_hd_best[0]:.2f}",
                                       session_id=session_id, project=project)
+                    elif final:
+                        # iter1392: exhaust_pierce — 全库 7d 耗尽时选 7d 最低的候选
+                        _epf_hd = [(c[_CI_IMP] or 0.5, _recent_7d_counts.get(c[_CI_ID], 0), c)
+                                   for _, c in final if (c[_CI_AC] or 0) < 30]
+                        if _epf_hd:
+                            _epf_hd.sort(key=lambda x: (x[1], -x[0]))
+                            _epf_hd_best = _epf_hd[0]
+                            top_k = [(_epf_hd_best[0], _epf_hd_best[2])]
+                            _deferred.log(DMESG_WARN, "retriever_daemon",
+                                          f"iter1392_exhaust_pierce_hd: 7d_min={_epf_hd_best[1]} "
+                                          f"imp={_epf_hd_best[0]:.2f} id={_epf_hd_best[2][_CI_ID][:12]}",
+                                          session_id=session_id, project=project)
             if top_k:
                 # iter919: score_floor_gate_hd — hard_deadline 路径 score_floor 保护（同步 retriever.py）
                 _sf_hd = 0.12
@@ -5071,6 +5083,18 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                                       f"iter694_suppress_pierce_fallback: all suppressed, "
                                       f"pierce best={_spf_best[1][_CI_ID][:12]} imp={_spf_best[0]:.2f}",
                                       session_id=session_id, project=project)
+                    elif final:
+                        # iter1392: exhaust_pierce — 全库 7d 耗尽时选 7d 最低的候选
+                        _epf = [(c[_CI_IMP] or 0.5, _recent_7d_counts.get(c[_CI_ID], 0), c)
+                                for _, c in final if (c[_CI_AC] or 0) < 30]
+                        if _epf:
+                            _epf.sort(key=lambda x: (x[1], -x[0]))
+                            _epf_best = _epf[0]
+                            top_k = [(_epf_best[0], _epf_best[2])]
+                            _deferred.log(DMESG_WARN, "retriever_daemon",
+                                          f"iter1392_exhaust_pierce: 7d_min={_epf_best[1]} "
+                                          f"imp={_epf_best[0]:.2f} id={_epf_best[2][_CI_ID][:12]}",
+                                          session_id=session_id, project=project)
                 if not top_k:
                     # iter780: empty_result_tlb — 写入空结果标记避免重复空转
                     _tlb_write(prompt_hash, "__empty__", _get_db_mtime())
