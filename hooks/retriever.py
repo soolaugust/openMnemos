@@ -4149,9 +4149,13 @@ def main():
                     elif _is_global:
                         # iter1194: global_unified_thresh — sync hard_deadline
                         # iter1462: small_db_global_7d_relax — <100 库 4, sparse +1
+                        # iter1465: global_saturated_ac6_tighten — ac>=6 阈值 4→3
+                        _g_ac = c.get("access_count", 0) or 0
                         if _local_sparse and _cp == "global":
-                            return 5
-                        return 4 if _hd_small_db else 2
+                            return 4 if _g_ac >= 6 else 5
+                        if _hd_small_db:
+                            return 3 if _g_ac >= 6 else 4
+                        return 2
                     # iter1009: local_saturated_suppress — sync hard_deadline
                     # iter1051: local_deep_saturated_7d — ac>=7 直接=2（对齐 global）
                     # iter1214: deep_saturated_7d_thresh1 — ac>=10→1 sync hard_deadline
@@ -6357,7 +6361,11 @@ def main():
                     elif _is_global:
                         # iter1194: global_unified_thresh — sync suppress_final_gate
                         # iter1462: small_db_global_7d_relax
-                        return 4 if _sf663_small_db else 2
+                        # iter1465: global_saturated_ac6_tighten — ac>=6 阈值 4→3
+                        _g_ac = c.get("access_count", 0) or 0
+                        if _sf663_small_db:
+                            return 3 if _g_ac >= 6 else 4
+                        return 2
                     # iter1009: local_saturated_suppress — sync suppress_final_gate
                     # iter1051: local_deep_saturated_7d — ac>=7 直接=2（对齐 global）
                     # iter1214: deep_saturated_7d_thresh1 — ac>=10→1 sync FULL path
