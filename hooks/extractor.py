@@ -388,6 +388,12 @@ def _extract_quantitative_conclusions(text: str) -> list:
         r')',
         re.IGNORECASE
     )
+    # iter1383: self_referential_quant_gate — 拦截 memory-os 迭代器自身的量化记录
+    _SELF_REF_QUANT_RE = re.compile(
+        r'(?:zero_access|chunk|inject|suppress|recall|retriever|extractor|'
+        r'迭代器|噪声降|空召回|注入率|命中率|coverage|hit.?rate)',
+        re.IGNORECASE
+    )
     # 代码行特征：Python/shell 关键字 + 函数调用/f-string 组合
     _CODE_LINE_RE = re.compile(
         r'\bfor\b.+\bin\b|\bprint\s*\(|f[\'"][^\'\"]*\{|'
@@ -425,6 +431,9 @@ def _extract_quantitative_conclusions(text: str) -> list:
         clean = re.sub(r'^[-*•]\s*', '', clean)  # 去列表符号
         # 迭代71：排除纯验证/测试报告
         if LOW_VALUE_QUANT.search(clean):
+            continue
+        # iter1383: 排除 memory-os 自身量化噪声
+        if _SELF_REF_QUANT_RE.search(clean):
             continue
         if _sysctl("extractor.min_length") <= len(clean) <= _sysctl("extractor.max_summary"):
             results.append(clean)
