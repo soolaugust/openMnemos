@@ -4699,16 +4699,17 @@ def main():
                                         _hd_raw[_rid] = _delta
                         except Exception:
                             pass
-                    # iter1448: topic_dedup_gate — hard_deadline 路径同步
+                    # iter1449: topic_dedup_gate — hard_deadline 路径同步（max=3）
                     import re as _re1448hd
+                    _TOPIC_DEDUP_MAX_HD = 3
                     _topic_seen_hd = {}
                     _topic_deduped_hd = []
                     for _s1448h, _c1448h in top_k:
                         _m1448h = _re1448hd.match(r'\[([^\]]+)\]', _c1448h.get('summary', ''))
                         _tk_hd = _m1448h.group(1) if _m1448h else None
                         if _tk_hd:
-                            if _tk_hd not in _topic_seen_hd:
-                                _topic_seen_hd[_tk_hd] = True
+                            _topic_seen_hd[_tk_hd] = _topic_seen_hd.get(_tk_hd, 0) + 1
+                            if _topic_seen_hd[_tk_hd] <= _TOPIC_DEDUP_MAX_HD:
                                 _topic_deduped_hd.append((_s1448h, _c1448h))
                         else:
                             _topic_deduped_hd.append((_s1448h, _c1448h))
@@ -8069,20 +8070,22 @@ def main():
                               f"iter1372_final_monopoly_gate: dropped {_monopoly_dropped}",
                               session_id=session_id, project=project)
 
-        # iter1448: topic_dedup_gate — 同主题多 chunk 只保留最高分 1 条
+        # iter1448: topic_dedup_gate — 同主题 chunk 保留最高分 N 条
+        # iter1449: topic_dedup_widen — 1→3，同主题不同子知识（如 PE 的 barrier/on_cpu/find_proxy）不应被丢弃
         import re as _re1448
+        _TOPIC_DEDUP_MAX = 3
         _topic_seen = {}
         _topic_deduped = []
         for _s1448, _c1448 in top_k:
             _m1448 = _re1448.match(r'\[([^\]]+)\]', _c1448.get('summary', ''))
             _topic_key = _m1448.group(1) if _m1448 else None
             if _topic_key:
-                if _topic_key not in _topic_seen:
-                    _topic_seen[_topic_key] = True
+                _topic_seen[_topic_key] = _topic_seen.get(_topic_key, 0) + 1
+                if _topic_seen[_topic_key] <= _TOPIC_DEDUP_MAX:
                     _topic_deduped.append((_s1448, _c1448))
                 else:
                     _deferred.log(DMESG_INFO, "retriever",
-                                  f"iter1448_topic_dedup: drop {_c1448.get('id','')[:12]} topic=[{_topic_key}]",
+                                  f"iter1449_topic_dedup: drop {_c1448.get('id','')[:12]} topic=[{_topic_key}] ({_topic_seen[_topic_key]}>{_TOPIC_DEDUP_MAX})",
                                   session_id=session_id, project=project)
             else:
                 _topic_deduped.append((_s1448, _c1448))
