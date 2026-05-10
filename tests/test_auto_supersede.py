@@ -42,6 +42,7 @@ def conn():
 def _make_chunk(cid, summary, chunk_type="decision", project="test",
                 importance=0.8, access_count=1):
     now = datetime.now(timezone.utc).isoformat()
+    padded = summary if len(summary) >= 15 else summary + "（测试用补充上下文信息）"
     return {
         "id": cid,
         "created_at": now,
@@ -50,8 +51,8 @@ def _make_chunk(cid, summary, chunk_type="decision", project="test",
         "source_session": "s1",
         "chunk_type": chunk_type,
         "info_class": "semantic",
-        "content": f"[{chunk_type}] {summary}",
-        "summary": summary,
+        "content": f"[{chunk_type}] {padded} — context for testing",
+        "summary": padded,
         "tags": [chunk_type],
         "importance": importance,
         "retrievability": 0.8,
