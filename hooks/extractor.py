@@ -1234,7 +1234,8 @@ def _is_selfref_noise(summary: str, chunk_type: str) -> bool:
         # iter1373: pair_internal_gate — pair/候选/单条注入 内部检索概念逃逸
         r'\bpair\b.*(?:候选|失败|排除|不包含)|候选[池=]|单条注入率?|预期改善[：:]|'
         # iter1408: selfref_component_gate — extractor/retriever 组件名 + 碎片写入逃逸
-        r'\bextractor\b|碎片写入|无条件拒绝)',
+        # iter1414: anchor_internal_gate — memory-os 内部检索概念（noise chunk/domain anchor）
+        r'\bextractor\b|碎片写入|无条件拒绝|noise.?chunk|domain.?anchor)',
         summary
     ))
     # iter1325: constraint_selfref_gate — design_constraint 用更严格阈值(>=3)防误杀
