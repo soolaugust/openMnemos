@@ -3322,6 +3322,16 @@ def main():
                         score *= 0.30
             except Exception:
                 pass
+            # iter1434: discovery_boost — 从未注入的 chunk 在正常评分中获得竞争力加成
+            # 根因（数据驱动，2026-05-10）：76 chunk 中 46 个(60%) ac=0 从未被注入。
+            #   cold_start(iter1433) 仅在 positive 不足或可替换时生效，正常满载时失效。
+            #   _score_chunk 对 ac=0 chunk 无任何加成，veteran(ac>=4) 即使被多层衰减
+            #   仍以 0.15-0.25 胜出，cold chunk 的 base score 0.10-0.18 无法竞争。
+            # 修复：_never_injected + relevance>=0.01(真实 FTS 匹配) → score *= 1.8。
+            #   使 cold chunk 0.10→0.18, 0.15→0.27，可胜过衰减后的 veteran(0.15-0.20)。
+            #   不影响 hard_suppressed chunk（已被归零）；不影响 relevance<0.01 的噪声。
+            if _never_injected and relevance >= 0.01 and score > 0:
+                score *= 1.8
             # ── iter616: final_hard_gate — 防止 additive bonus 绕过 hard suppression ──
             # 根因：24h_burst_suppression (iter614) 和 bandwidth_hard_cap (iter601) 设
             #   score=0.0，但后续 focus_bonus/emotional_boost/priming_boost 是 += 操作，
