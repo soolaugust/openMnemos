@@ -4440,7 +4440,8 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 top_k = positive[:effective_top_k]
             # iter842: post_suppress_pair_from_final (hard_deadline path)
             # iter936: pair_7d_align_final_gate — 加 7d suppress 检查堵逃逸
-            if len(top_k) == 1 and len(final) >= 3:
+            # iter1461: lite_pair_final_relax — final>=3→>=2 sync retriever.py
+            if len(top_k) == 1 and len(final) >= 2:
                 _ps842_hd_top1_id = top_k[0][1][_CI_ID]
                 _ps842_hd_cands = [(float(c[_CI_IMP] or 0), c) for _, c in final
                                    if c[_CI_ID] != _ps842_hd_top1_id
@@ -5450,8 +5451,9 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                               f"iter832_post_suppress_pair: paired {_ps_best[1][_CI_ID][:12]} "
                               f"s={_ps_best[0]:.3f} with top1={_ps_top1_id[:12]}",
                               session_id=session_id, project=project)
-        elif len(top_k) == 1 and len(final) >= 3:
+        elif len(top_k) == 1 and len(final) >= 2:
             # iter842: post_suppress_pair_from_final — 从 final 按 importance 兜底配对
+            # iter1461: lite_pair_final_relax — sync retriever.py
             _ps842_top1_id = top_k[0][1][_CI_ID]
             _ps842_cands = [(float(c[_CI_IMP] or 0), c) for _, c in final
                             if c[_CI_ID] != _ps842_top1_id

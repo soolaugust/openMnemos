@@ -7436,8 +7436,13 @@ def main():
                               f"iter832_post_suppress_pair_lite: paired "
                               f"{_ps_lite_best[1].get('id','')[:12]} s={_ps_lite_best[0]:.3f}",
                               session_id=session_id, project=project)
-        elif len(top_k) == 1 and len(final) >= 3:
+        elif len(top_k) == 1 and len(final) >= 2:
             # iter842: post_suppress_pair_from_final (LITE path)
+            # iter1461: lite_pair_final_relax — final>=3→>=2 降低 LITE pair 门槛
+            # 根因（数据驱动，2026-05-11）：LITE 路径 86% 单条注入（6/7）。
+            #   iter842 要求 final>=3，但小项目 FTS 命中少（final=2）时跳过，
+            #   落到 iter868 DB 盲查 → 注入不相关 global chunk（schedqos 到 kernel 项目）。
+            #   final>=2 时已有 1 条 FTS 相关候选可配对，无需等 3 条。
             _ps842_lite_top1_id = top_k[0][1].get("id", "")
             # iter1197: lite_pair_min_score_gate — sync iter842 path
             _ps842_lite_cands = [(float(c.get("importance", 0) or 0), c) for s, c in final
