@@ -2835,7 +2835,13 @@ def main():
             #   用户在非相关项目中反复看到已内化的跨项目知识=零信息增量。
             # 修复：cross-project + ac>=7 → score *= 0.4，让本地相关知识胜出。
             #   不 hard_suppress（保留 fallback 资格），但 60% 降权足以在正常竞争中让位。
-            if not _hard_suppressed and _cd_is_cross_project and _acc >= 7:
+            # iter1380: global_cross_proj_lower_floor — global chunk ac>=4 即降权
+            # 根因（数据驱动，2026-05-10）：global design_constraint（feishu CLI ac=4, memory验证 ac=6,
+            #   git SOB ac=4）在非源项目中 7d 各注入 3-4 次，因 ac<7 跳过此降权。
+            #   global chunk ac 增长慢（不常检索），ac=4 已表明 agent 内化 4+ 次。
+            # 修复：global chunk floor 7→4；non-global 保持 7。
+            _cross_proj_floor = 4 if _cd_is_global else 7
+            if not _hard_suppressed and _cd_is_cross_project and _acc >= _cross_proj_floor:
                 score *= 0.4
             # ── iter614: temporal_burst_suppression — 24h 注入频率 cap ─────────
             # 同一 chunk 在 24h 内注入 >=2 次 → suppress（score=0）
