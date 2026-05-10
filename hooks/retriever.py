@@ -2754,7 +2754,15 @@ def main():
             #   *0.40 衰减将 score 从 0.25→0.10 < min_thresh(0.18)，后续 6 次连续空召回。
             #   micro_db 无替代候选，session 衰减等于永久 suppress。
             # 修复：micro_db 完全跳过 session density gate（与 24h/7d bypass 对齐）。
-            if not _micro_db:
+            # iter1456: sparse_session_density_shield — local_sparse 本地 chunk 跳过 session density gate
+            # 根因（数据驱动，2026-05-11）：git:a4ee2fcfacc4(3 local, 46 global, _db_chunk_count=49)
+            #   _micro_db=False(49>5) → session density gate 对 local chunk(ac=4) sess_cnt=2 执行 *0.40
+            #   → score 从 ~0.45 降至 ~0.18，刚好或低于 min_thresh(0.18) → 8/13 trace 空召回(62%)。
+            #   iter989 保护了 micro_db(<=5)，iter1200 保护了 session suppress(line 2711)，
+            #   但 session density gate 遗漏 → sparse 项目唯一知识被衰减至不可用。
+            # 修复：_local_sparse + 本地 chunk → 跳过 session density gate（与 iter1200/iter1313 对齐）。
+            _sdg_sparse_shield = _local_sparse and chunk.get("project", "") == project
+            if not _micro_db and not _sdg_sparse_shield:
                 # iter1125: saturated_session_hard_suppress — 高饱和 chunk session >=2 直接 suppress
                 # 根因（数据驱动，2026-05-08）：93cbc985(global,ac=6) 在 session 6ca148eb 内
                 #   被注入 2 次（01:37 + 02:33），*0.40 衰减不足以排除（仍为最高分候选）。
