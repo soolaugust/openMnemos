@@ -2815,6 +2815,10 @@ def main():
                 #   7d=3→1/(1+3*1.1)=23%, 7d=4→18%, 7d=5→15%。有效让位给项目相关知识。
                 if chunk.get("project", "") == "global" and project != "global":
                     _dp_factor *= 2.0
+                # iter1453: ac_weighted_diversity — access_count 加权 diversity factor
+                # ac>=4 的 chunk 已被多次内化，边际信息更低，应受更强 7d 衰减。
+                if _acc is not None and _acc >= 4:
+                    _dp_factor *= 1.0 + 0.15 * (_acc - 3)
                 score *= 1.0 / (1.0 + _r7d_dp * _dp_factor)
                 # iter1004: type_concentration_penalty — 群体垄断额外衰减
                 # iter1005: progressive_type_penalty — 按个体 7d 计数累进衰减
