@@ -1239,7 +1239,9 @@ def _is_selfref_noise(summary: str, chunk_type: str) -> bool:
         # iter1417: store_vfs_internal_gate — store_vfs 内部函数/路径逃逸
         r'store_vfs|_write_trace|insert_trace|ghost.*(?:inject|注入)|empty.*guard|'
         r'writeback|trace.*标记|pollut|污染.*(?:count|统计)|'
-        r'scoring\s*崩溃|traces\b.*\d+/\d+)',
+        r'scoring\s*崩溃|traces\b.*\d+/\d+|'
+        # iter1429: cold_start_selfref_gate — cold_start/零访问/曝光死锁 逃逸
+        r'cold_start|零访问|曝光死锁|首次曝光|候选池)',
         summary
     ))
     # iter1325: constraint_selfref_gate — design_constraint 用更严格阈值(>=3)防误杀
