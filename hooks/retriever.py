@@ -3071,19 +3071,14 @@ def main():
                 #   ac>=4 表明 agent 已多次见过该知识，边际信息为零，应更早 suppress。
                 # 修复：ac>=4 的 global chunk 阈值 -2（与 cross 同级），ac<4 保持 -1。
                 if chunk.get("project", "") == "global":
-                    # iter1194: global_unified_thresh — global chunk 统一 7d thresh=2
-                    # 根因（数据驱动，2026-05-08）：feishu CLI(ac=4) thresh=3 仍 7d=4 逃逸，
-                    #   跨 project 分散计数使 per-project 7d<3 → suppress 不触发。
-                    #   global chunk 本质是固化通用约束，7d 内看 2 次已充分。
-                    _suppress_7d_thresh = 2
-                    # iter1227: sparse_global_shield — local_sparse 时 global 7d 阈值放宽
-                    # iter1384: sparse_global_thresh_raise — 4→5
-                    # 根因（数据驱动，2026-05-10）：git:a4ee2fcfacc4(4 local + 9 global)
-                    #   iter1379 使 _local_sparse=True，但 93cbc985/c9accb7b/0aff0d67 7d=4
-                    #   恰好 >=thresh=4 仍被 suppress → 08:32 cands=59 空召回。
-                    #   sparse 项目依赖 global 作为补充知识源，6h/24h burst suppress 仍有效控制短时重复。
+                    # iter1194: global_unified_thresh — global chunk 统一 7d thresh
+                    # iter1462: small_db_global_7d_relax — <100 库 global 阈值 2→4
+                    #   根因（数据驱动，2026-05-11）：66-chunk 库 5/8 global chunk 被 7d>=2 封杀，
+                    #   高价值约束（git author/feishu CLI/memory验证）整周不可见。
+                    _suppress_7d_thresh = 4 if _small_db else 2
+                    # iter1227: sparse_global_shield — local_sparse 时 +1
                     if _sparse_global_relax:
-                        _suppress_7d_thresh = 5
+                        _suppress_7d_thresh += 1
                 # iter1009: local_saturated_suppress — 本项目高 ac chunk 7d 阈值收紧
                 # 根因（数据驱动，2026-05-06）：25-chunk 库中 PE分析(ac=7,7d=6)、
                 #   Android诊断(ac=10,7d=5) 等高 ac 本项目 chunk 7d 阈值=5 仍逃逸。
@@ -4152,10 +4147,10 @@ def main():
                         return max(2, _t - 2)
                     elif _is_global:
                         # iter1194: global_unified_thresh — sync hard_deadline
-                        # iter1384: sparse_global_relax_hd_sync — local_sparse 时放宽到 5
+                        # iter1462: small_db_global_7d_relax — <100 库 4, sparse +1
                         if _local_sparse and _cp == "global":
                             return 5
-                        return 2
+                        return 4 if _hd_small_db else 2
                     # iter1009: local_saturated_suppress — sync hard_deadline
                     # iter1051: local_deep_saturated_7d — ac>=7 直接=2（对齐 global）
                     # iter1214: deep_saturated_7d_thresh1 — ac>=10→1 sync hard_deadline
@@ -6352,7 +6347,8 @@ def main():
                         return max(2, _t - 2)
                     elif _is_global:
                         # iter1194: global_unified_thresh — sync suppress_final_gate
-                        return 2
+                        # iter1462: small_db_global_7d_relax
+                        return 4 if _sf663_small_db else 2
                     # iter1009: local_saturated_suppress — sync suppress_final_gate
                     # iter1051: local_deep_saturated_7d — ac>=7 直接=2（对齐 global）
                     # iter1214: deep_saturated_7d_thresh1 — ac>=10→1 sync FULL path
@@ -6488,7 +6484,8 @@ def main():
                     return max(2, _t - 2)
                 elif _is_global:
                     # iter1194: global_unified_thresh — sync closure_fallback
-                    return 2
+                    # iter1462: small_db_global_7d_relax
+                    return 4 if _sf663_small_db else 2
                 # iter1009: local_saturated_suppress — sync closure_fallback
                 # iter1053: fallback_ceiling_align_local_deep — ac>=7 直接=2 对齐 suppress thresh
                 # iter1214: deep_saturated_7d_thresh1 — ac>=10→1 sync closure_fallback
@@ -7166,7 +7163,8 @@ def main():
                         return max(2, _t - 2)
                     elif _is_global:
                         # iter1194: global_unified_thresh — sync LITE path
-                        return 2
+                        # iter1462: small_db_global_7d_relax
+                        return 4 if _sf758_small_db else 2
                     # iter1021: lite_local_saturated_suppress — sync FULL/hd iter1009
                     # iter1051: local_deep_saturated_7d — ac>=7 直接=2（对齐 global）
                     # iter1214: deep_saturated_7d_thresh1 — ac>=10→1 sync LITE path
