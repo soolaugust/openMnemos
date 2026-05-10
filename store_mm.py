@@ -2557,10 +2557,21 @@ class IoUringSQ:
 
         to_insert = []
         now_iso = datetime.now(timezone.utc).isoformat()
+
+        # iter1390: selfref_gate_io_uring — 对齐 extractor selfref 噪声拦截
+        try:
+            from hooks.extractor import _is_selfref_noise
+        except Exception:
+            _is_selfref_noise = None
+
         for entry in new_entries:
             summary = entry["summary"]
             chunk_type = entry["chunk_type"]
             importance = entry["importance"]
+
+            if _is_selfref_noise and _is_selfref_noise(summary, chunk_type):
+                skipped_quality += 1
+                continue
 
             # KSM Jaccard 检查
             q_tokens = _sq_tokenize(summary)
