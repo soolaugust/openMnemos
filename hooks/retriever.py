@@ -3342,7 +3342,9 @@ def main():
             #   使 cold chunk 0.10→0.18, 0.15→0.27，可胜过衰减后的 veteran(0.15-0.20)。
             #   不影响 hard_suppressed chunk（已被归零）；不影响 relevance<0.01 的噪声。
             if _never_injected and relevance >= 0.001 and score > 0:
-                score *= 2.2
+                score *= 3.0
+            elif _acc == 1 and relevance >= 0.001 and score > 0:
+                score *= 2.0
             # iter1436: saturation_decay — 7d 高频注入 chunk 指数衰减（去垄断）
             # 根因（数据驱动，2026-05-10）：feishu CLI/memory验证/git SOB 各 7d=4，
             #   sparse_global_relax 将 suppress 阈值放宽到 5 → 全部逃逸。
