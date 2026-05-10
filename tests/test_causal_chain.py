@@ -78,22 +78,22 @@ def test_content_override_stored_correctly(conn):
     """content_override 写入后可以正确读取。"""
     chunk = _make_cc_chunk(
         "c1",
-        summary="这导致了性能下降",
-        content="[causal_chain] A → 这导致了性能下降 → 最终结果",
+        summary="内存分配路径导致了严重的调度延迟上升问题",
+        content="[causal_chain] kmalloc → 内存分配路径导致了严重的调度延迟上升问题 → 最终结果",
     )
     insert_chunk(conn, chunk)
     conn.commit()
     row = conn.execute("SELECT summary, content FROM memory_chunks WHERE id='c1'").fetchone()
-    assert row["summary"] == "这导致了性能下降"
-    assert "A" in row["content"]
+    assert row["summary"] == "内存分配路径导致了严重的调度延迟上升问题"
+    assert "kmalloc" in row["content"]
     assert "最终结果" in row["content"]
     assert row["content"] != row["summary"]
 
 
 def test_content_richer_than_summary(conn):
     """content 长度显著大于 summary（聚合后 token 密度提升）。"""
-    summary = "内存分配导致延迟增加"
-    neighbors = ["原因是 FTS5 token 不足", summary, "最终 acc 从 1.3 提升到 15.0"]
+    summary = "内存分配路径中 kmalloc 调用导致调度延迟增加"
+    neighbors = ["原因是 slab 碎片化导致 buddy allocator 回退", summary, "最终 P99 延迟从 1.3ms 提升到 15.0ms"]
     content = "[causal_chain] " + " → ".join(neighbors)
     chunk = _make_cc_chunk("c2", summary=summary, content=content)
     insert_chunk(conn, chunk)
@@ -203,9 +203,9 @@ def test_fts5_recall_via_neighbor_content(conn):
     """FTS5 能通过邻居节点的 content token 召回中间节点。"""
     # 模拟三个相邻节点，中间节点 content 包含前后节点文本
     chains = [
-        "cp_non_rt_waker 触发了异常唤醒",
-        "所以调度器判定为异常",
-        "最终影响了实时线程优先级",
+        "cp_non_rt_waker 函数触发了异常的任务唤醒路径",
+        "因此调度器将该任务判定为异常抢占行为",
+        "最终影响了系统中实时线程的优先级调度决策",
     ]
     results = _simulate_chain_write(chains)
 
@@ -214,9 +214,7 @@ def test_fts5_recall_via_neighbor_content(conn):
         insert_chunk(conn, chunk)
     conn.commit()
 
-    # 用中间节点的邻居关键词查询：
-    # 中间节点 content = "cp_non_rt_waker触发了异常唤醒 → 所以调度器判定为异常 → 最终影响了实时线程优先级"
-    # 同时包含 "cp_non_rt_waker" 和 "实时线程" → 两个词都匹配 → 中间节点排名最高
+    # 用中间节点的邻居关键词查询
     fts_results = fts_search(conn, "cp_non_rt_waker 实时线程", project="test", top_k=5)
     recalled_ids = {r["id"] for r in fts_results}
 
@@ -236,14 +234,14 @@ def test_fts5_recall_improves_with_rich_content(conn):
     # 修复前：content = "[causal_chain] summary"（极短）
     chunk_before = _make_cc_chunk(
         "before",
-        summary="所以调度器判定为异常",
-        content="[causal_chain] 所以调度器判定为异常",
+        summary="因此调度器将该任务判定为异常抢占行为",
+        content="[causal_chain] 因此调度器将该任务判定为异常抢占行为",
     )
     # 修复后：content 包含前后节点
     chunk_after = _make_cc_chunk(
         "after",
-        summary="所以调度器判定为异常",
-        content="[causal_chain] 非RT线程抢占了RT线程 → 所以调度器判定为异常 → 最终影响了实时线程优先级",
+        summary="因此调度器将该任务判定为异常抢占行为",
+        content="[causal_chain] 非RT线程抢占了RT线程 → 因此调度器将该任务判定为异常抢占行为 → 最终影响了实时线程优先级",
     )
 
     insert_chunk(conn, chunk_before)
