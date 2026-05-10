@@ -2341,6 +2341,11 @@ def main():
         #   _micro_db=False(8>5)，6h suppress 在 15min 内连续 6 次空召回。
         #   2 个 local chunk 是该项目唯一相关知识，不应因 global 膨胀失去保护。
         # 修复：_local_sparse = local<=3，对 local chunk suppress 判定等同 micro_db。
+        # iter1379: sparse_shield_widen — local<=3→<=5
+        # 根因（数据驱动，2026-05-10）：git:a4ee2fcfacc4(4 local + 9 global = 13 visible)
+        #   _local_sparse=False(4>3) → global_unified_thresh=2 → 9 global chunk 7d>=2 全灭
+        #   → cands=59 空召回。4 local chunk 仍高度依赖 global 作为补充知识源。
+        # 修复：边界 3→5，覆盖 4-5 local chunk 项目的 global 保护需求。
         _local_chunk_count = _db_chunk_count  # fallback
         try:
             _local_chunk_count = _rc_conn.execute(
@@ -2348,7 +2353,7 @@ def main():
             ).fetchone()[0] or 0
         except Exception:
             pass
-        _local_sparse = _local_chunk_count <= 3
+        _local_sparse = _local_chunk_count <= 5
         _tiny_db = _db_chunk_count < 50  # iter848: tiny_db boundary 40→50
         _small_db = _db_chunk_count < 100
 
