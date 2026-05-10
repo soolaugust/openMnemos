@@ -1245,7 +1245,9 @@ def _is_selfref_noise(summary: str, chunk_type: str) -> bool:
         # iter1463: lite_full_path_gate — "LITE/FULL 路径" 是 retriever 内部概念
         r'LITE\s*路径|FULL\s*路径|hard_deadline\s*路径|'
         # iter1463: effect_prediction_arrow — "预期：X→Y" 百分比箭头是迭代器效果预测
-        r'预期[：:].{0,30}→)',
+        r'预期[：:].{0,30}→|'
+        # iter1475: sparse_internal_var_gate — retriever 内部分级/保护变量逃逸
+        r'_local_sparse|local_sparse|sparse_shield|lifetime\s*suppress|额外保护)',
         summary
     ))
     # iter1325: constraint_selfref_gate — design_constraint 用更严格阈值(>=3)防误杀
@@ -1542,7 +1544,7 @@ def _is_quality_chunk(summary: str) -> bool:
                 # 数据驱动（2026-05-08）：486dfa84 "跨项目/global ac>=7 chunk"(ac=0)
                 #   excluded_path 描述内部 suppress 规则，不含其他 noise_kw 而逃逸。
                 #   "ac>=N" 只出现在 memory-os 内部（用户对话不会用此格式）。
-                "ac>=",
+                "ac>=", "ac=0",
                 # iter1257: chunk_structure_diag_noise — chunk 数据结构诊断逃逸
                 # 数据驱动（2026-05-09）：ef7ff2e7 "54% chunk 的 content 等于 summary，FTS5 检索面窄"
                 #   combo hits=2(chunk+FTS) < 阈值3 逃逸。描述 chunk 字段关系是纯迭代器诊断。
