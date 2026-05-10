@@ -2626,7 +2626,11 @@ def main():
             #   iter1200 保护了 session suppress，iter1172 保护了 24h/7d，唯独 cooldown 遗漏。
             #   导致 5/6 凌晨 7 次连续空召回（该项目唯一本地知识被锁死）。
             # 修复：local_sparse + 本地 chunk → 跳过 cooldown（与 iter1200 对齐）。
-            _sparse_cd_shield = _local_sparse and not _cd_is_cross_project
+            # iter1411: sparse_global_cooldown_shield — global chunk 在 sparse 项目也受 cooldown 保护
+            # 根因（数据驱动，2026-05-10）：abspath:51963532bc1b(1 local + 10 global) 空召回 66%，
+            #   global chunk ac=4-6 被 cooldown suppress，_sparse_cd_shield 只保护 local chunk。
+            #   sparse 项目的 global chunk 是主知识源，不应被 cooldown 锁死。
+            _sparse_cd_shield = _local_sparse and (not _cd_is_cross_project or chunk.get("project") == "global")
             if not _never_injected and not _sparse_cd_shield and (not _micro_db or _cd_is_cross_project) and (_cd_is_global or _acc >= _cd_acc_floor) and _cutoff_48h:
                 _cd_id = chunk.get("id", "")
                 _cd_ts_list = _injection_timeline.get(_cd_id) if _injection_timeline else None
@@ -2698,7 +2702,9 @@ def main():
             #   后续 5 次连续空召回。iter1172 _local_sparse 保护了 24h/7d suppress，
             #   但此处 session_injection suppress 未对齐，local chunk 仍被过杀。
             # 修复：条件加入 _sparse_shield_cd（local_sparse + 本地 chunk），与 24h/7d 路径对齐。
-            _sparse_shield_cd = _local_sparse and not _cd_is_cross_project
+            # iter1411: sparse_global_session_shield — global chunk 在 sparse 项目也受 session suppress 保护
+            # 根因同 iter1411 cooldown shield：sparse 项目 global chunk 是主知识源。
+            _sparse_shield_cd = _local_sparse and (not _cd_is_cross_project or chunk.get("project") == "global")
             # iter1262: session_suppress_floor_align — session suppress floor 5→3
             # 根因（数据驱动，2026-05-09）：import-90139(ac=3) 5/4 同 session 30min 内注入 3 次，
             #   因 session suppress floor=5 > ac=3，跨 session cooldown(iter1251)无法阻止同 session 密集注入。

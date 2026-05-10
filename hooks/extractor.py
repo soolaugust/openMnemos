@@ -2066,7 +2066,10 @@ def _is_quality_chunk(summary: str) -> bool:
             r'公众号|微信|curl|HTTP|API|REST|gRPC|proto|'
             # iter809: claude_tool_anchor — Glob/Read/CLAUDE.md 是用户工作流约束
             # 根因：93cbc985 "memory 引用前必须用 Glob/Read 验证" 被误杀
-            r'Glob|Read|Write|Edit|Grep|CLAUDE\.md|claude[\s-]code)',
+            # iter1412: anchor_word_boundary — \bGlob\b 防止匹配 "global" 中的 "glob"
+            # 根因（数据驱动，2026-05-10）：d2c9eb2b "空召回...global chunk 被 suppress"
+            #   domain_anchor 误匹配 "global" 中的 "glob"(re.I) → 1-match 放行逃逸。
+            r'\bGlob\b|\bRead\b|\bWrite\b|\bEdit\b|\bGrep\b|CLAUDE\.md|claude[\s-]code)',
             s, re.I
         )
         if not _has_domain_anchor:
