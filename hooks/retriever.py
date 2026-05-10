@@ -6578,6 +6578,27 @@ def main():
                               f"iter887_closure_fallback_suppress: filtered "
                               f"{_pre887 - len(top_k)} chunks (closure 6h/24h/7d)",
                               session_id=session_id, project=project)
+        # ── iter1437: full_path_suppress_fallback — suppress 全灭后从快照恢复 ──
+        # 根因（数据驱动，2026-05-10）：FULL 路径 75% 空召回（15/20 traces top_k=0）。
+        #   suppress_final_gate + closure_fallback 清空 top_k 后无恢复逻辑。
+        #   hard_deadline 有 iter670/677 从 _pre_suppress_top_k_hd 恢复，FULL 缺失。
+        # 修复：从 _pre_suppress_top_k 中选 ac 最低 + 7d 最低的 1 条恢复。
+        #   优先 never_injected（打破 cold chunk 死锁），次选 7d=0 的低 ac chunk。
+        if not top_k and _pre_suppress_top_k:
+            _fpsf_cands = sorted(
+                _pre_suppress_top_k,
+                key=lambda x: (x[1].get("access_count", 0) or 0,
+                               _recent_7d_counts.get(x[1].get("id", ""), 0),
+                               -float(x[1].get("importance", 0) or 0))
+            )
+            _fpsf_best = _fpsf_cands[0] if _fpsf_cands else None
+            if _fpsf_best and _fpsf_best[0] > 0:
+                top_k = [_fpsf_best]
+                _deferred.log(DMESG_WARN, "retriever",
+                              f"iter1437_full_suppress_fallback: restored "
+                              f"id={_fpsf_best[1].get('id','')[:12]} ac={_fpsf_best[1].get('access_count',0)} "
+                              f"score={_fpsf_best[0]:.4f}",
+                              session_id=session_id, project=project)
         # ── iter832: post_suppress_pair_inject — suppress 后单条时从快照补配对 ──
         # 根因（数据驱动，2026-05-05）：FULL 路径 44% 输出单条。iter826 pair_inject
         #   在 positive 阶段添加第 2 条，但 suppress_final_gate 事后砍掉 → 最终仍单条。
