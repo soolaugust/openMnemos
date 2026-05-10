@@ -2004,13 +2004,26 @@ def main():
         #   长 session 中可节省 150-400 tokens（假设 3-5 个 chunk 被重复 FULL 注入）。
         # 实现：与 _session_injection_counts 共存于同一 JSON 文件（zero extra I/O）。
         _session_full_injected: set = set()
+        _session_inj_timestamps: dict = {}  # iter1396: {chunk_id: last_inject_iso}
         try:
             if os.path.exists(_SESSION_INJ_FILE):
                 with open(_SESSION_INJ_FILE, encoding="utf-8") as _sif:
                     _sij_data = json.loads(_sif.read())
                     # 只保留同一 session 的注入记录（session 切换时重置）
                     if _sij_data.get("session_id") == session_id:
-                        _session_injection_counts = _sij_data.get("counts", {})
+                        _raw_counts = _sij_data.get("counts", {})
+                        _session_inj_timestamps = _sij_data.get("inj_ts", {})
+                        # iter1396: session_suppress_decay — 超过 6h 的注入记录衰减
+                        # 根因（数据驱动，2026-05-10）：长 session(19h) 上午注入 16 chunks 后
+                        #   下午所有 ac>=3 chunk 被 session suppress 永久封锁 → 连续 3 次空召回。
+                        #   session suppress 不应跨越 LLM context compact 周期（~4-6h）。
+                        from datetime import datetime as _dt_decay, timezone as _tz_decay, timedelta as _td_decay
+                        _decay_cutoff = (_dt_decay.now(_tz_decay.utc) - _td_decay(hours=6)).isoformat()
+                        for _dc_id, _dc_cnt in _raw_counts.items():
+                            _dc_ts = _session_inj_timestamps.get(_dc_id, "")
+                            if _dc_ts and _dc_ts < _decay_cutoff:
+                                continue  # expired — don't load into active counts
+                            _session_injection_counts[_dc_id] = _dc_cnt
                         # 迭代361：恢复 full_injected 集合
                         _session_full_injected = set(_sij_data.get("full_injected", []))
         except Exception:
@@ -8295,16 +8308,19 @@ def main():
         #   写回磁盘，下次进程启动时从磁盘恢复，实现跨请求的会话内统计。
         # 每次注入后更新计数，持久化到 _SESSION_INJ_FILE，供下次 _score_chunk 读取。
         try:
+            from datetime import datetime as _dt_wb, timezone as _tz_wb
+            _now_wb_iso = _dt_wb.now(_tz_wb.utc).isoformat()
             for _inj_c in accessed_ids:
                 _session_injection_counts[_inj_c] = _session_injection_counts.get(_inj_c, 0) + 1
+                _session_inj_timestamps[_inj_c] = _now_wb_iso  # iter1396: track last inject time
             # 迭代361：FULL 路径注入的 chunk 加入 full_injected 集合
-            # OS 类比：Linux page cache dirty bit — 已写入页面标记，重复写入走快路径（LITE format）
             if priority == "FULL":
                 _session_full_injected.update(accessed_ids)
             with open(_SESSION_INJ_FILE, 'w', encoding="utf-8") as _sif_w:
                 _sif_w.write(json.dumps({"session_id": session_id,
                                          "counts": _session_injection_counts,
-                                         "full_injected": list(_session_full_injected)},  # 迭代361
+                                         "inj_ts": _session_inj_timestamps,  # iter1396
+                                         "full_injected": list(_session_full_injected)},
                                         ensure_ascii=False))
         except Exception:
             pass  # 计数写入失败不影响已输出的结果
