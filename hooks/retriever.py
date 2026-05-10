@@ -2593,7 +2593,7 @@ def main():
             #   导致 5/6 凌晨 7 次连续空召回（该项目唯一本地知识被锁死）。
             # 修复：local_sparse + 本地 chunk → 跳过 cooldown（与 iter1200 对齐）。
             _sparse_cd_shield = _local_sparse and not _cd_is_cross_project
-            if not _sparse_cd_shield and (not _micro_db or _cd_is_cross_project) and (_cd_is_global or _acc >= _cd_acc_floor) and _cutoff_48h:
+            if not _never_injected and not _sparse_cd_shield and (not _micro_db or _cd_is_cross_project) and (_cd_is_global or _acc >= _cd_acc_floor) and _cutoff_48h:
                 _cd_id = chunk.get("id", "")
                 _cd_ts_list = _injection_timeline.get(_cd_id) if _injection_timeline else None
                 # iter1090: cooldown_db_fallback — timeline GC 后用 last_accessed 兜底
@@ -2673,14 +2673,16 @@ def main():
                 if _session_injection_counts.get(chunk.get("id", ""), 0) >= 1:
                     score = 0.0
                     _hard_suppressed = True
-            if (not _micro_db or _cd_is_cross_project) and not _sparse_shield_cd and _acc >= 12:
+            # iter1378: saturation_never_injected_bypass — timeline 空=从未注入，跳过 ac-based 衰减
+            _never_injected = not _injection_timeline.get(chunk.get("id", ""))
+            if not _never_injected and (not _micro_db or _cd_is_cross_project) and not _sparse_shield_cd and _acc >= 12:
                 # iter1294: small_db_deep_saturated_soften — <100 库改为强衰减而非硬杀
                 if _db_chunk_count < 100:
                     score *= 0.1
                 else:
                     score = 0.0
                     _hard_suppressed = True
-            elif (not _micro_db or _cd_is_cross_project) and _acc >= 5:
+            elif not _never_injected and (not _micro_db or _cd_is_cross_project) and _acc >= 5:
                 # iter1070: deep_saturated_floor — ac>=10 衰减加速
                 # 根因（数据驱动，2026-05-07）：ac=10/11 chunk（Android诊断/PE分析/git commit）
                 #   衰减 *0.3/*0.2，FTS base=0.6 时得 0.18/0.12→仍通过 min_thresh(0.10-0.18)。
@@ -4219,10 +4221,9 @@ def main():
                 #   被 suppress_final_gate 拦截(阈值=2)，但 fallback ceiling=5 → 逃逸。
                 # 修复：global ac>=4 chunk 用 per-chunk ceiling = max(2, base-2)，对齐 final_gate。
                 def _fb_hd_chunk_ceiling(c):
-                    # iter1150: global_fallback_ceiling_align — ac>=5 直接=2
-                    # 根因：suppress_final_gate 对 global ac>=5→thresh=2，但 fallback ceiling
-                    #   仅区分 ac>=4→max(2,base-2)=3，ac=5-6 chunk 经 fallback 逃逸。
-                    # 修复：global ac>=5→2, ac=4→max(2,base-2)。
+                    # iter1378: fallback_ceiling_never_injected — sync FULL/LITE path
+                    if not _injection_timeline.get(c.get("id", "")):
+                        return _fb_hd_ceiling
                     if c.get("project", "") == "global":
                         _gac = c.get("access_count", 0) or 0
                         if _gac >= 5:
@@ -4230,14 +4231,11 @@ def main():
                         if _gac >= 4:
                             return max(2, _fb_hd_ceiling - 2)
                         return _fb_hd_ceiling
-                    # iter1009: local_saturated_suppress — fallback ceiling sync
-                    # iter1053: fallback_ceiling_align_local_deep — ac>=7 ceiling=2 对齐 suppress thresh
-                    # iter1232: deep_saturated_unified_thresh1 — ac>=7 统一=1
                     _lac = c.get("access_count", 0) or 0
                     if _lac >= 7:
                         return 1
                     elif _lac >= 5:
-                        return max(2, _fb_hd_ceiling - 2)  # iter1152: local_mid_saturated_tighten
+                        return max(2, _fb_hd_ceiling - 2)
                     return _fb_hd_ceiling
                 # iter1101: hd_fallback_cooldown — hard_deadline fallback 补充 cooldown 过滤
                 # 根因（数据驱动，2026-05-07）：import-dc534(global,ac=2) 经 _score_chunk cooldown
@@ -6542,12 +6540,11 @@ def main():
                 _fb_ceiling = 5 if _db_chunk_count < 50 else (4 if _db_chunk_count < 100 else 5)  # iter1207: fallback_ceiling_mid_tighten — 50-99 库 6→4 去垄断
                 # iter1008: fallback_global_ceiling_sync — FULL path 同步
                 def _fb_chunk_ceiling(c):
+                    # iter1378: fallback_ceiling_never_injected — timeline 空=从未注入，不应被 ac 误杀
+                    if not _injection_timeline.get(c.get("id", "")):
+                        return _fb_ceiling
                     if c.get("project", "") == "global" and (c.get("access_count", 0) or 0) >= 4:
                         return max(2, _fb_ceiling - 2)
-                    # iter1009: local_saturated_suppress — FULL fallback ceiling sync
-                    # iter1053: fallback_ceiling_align_local_deep — ac>=7 ceiling=2 对齐 suppress thresh
-                    # iter1214: deep_saturated_7d_thresh1 — ac>=10→1 sync FULL fallback
-                    # iter1232: deep_saturated_unified_thresh1 — ac>=7 统一=1
                     _lac = c.get("access_count", 0) or 0
                     if _lac >= 7:
                         return 1
@@ -7129,6 +7126,9 @@ def main():
                     #   ac>=7 chunk（PE LKMM,7d=5）5<5 不过滤 → 经 fallback 逃逸 suppress。
                     #   HD 路径有 _fb_hd_chunk_ceiling 对 ac>=7 返回 2，LITE 遗漏。
                     def _fb_lite_chunk_ceiling(c):
+                        # iter1378: fallback_ceiling_never_injected — sync FULL path
+                        if not _itl758.get(c.get("id", "")):
+                            return _fb_lite_ceiling
                         _lac = c.get("access_count", 0) or 0
                         if c.get("project", "") == "global":
                             # iter1060: global ac>=7 直接=2（对齐 _lt905_7d_thresh）
