@@ -2953,6 +2953,13 @@ def _write_chunk(chunk_type: str, summary: str, project: str, session_id: str,
     #   绕过 ^预期效果 匹配逃逸写入。迭代器输出常带列表前缀。
     if re.match(r'^(?:[-•*]\s*)?(?:量化结果[：:]|量化[：:改预效]|改动[：:]|预期效果[：:]|修复[：:]|净增|iter\d{3,4}\s*[：:_])', summary):
         return
+    # iter1442: rootcause_iter_gate — "根因：/数据驱动根因：" + 内部指标 = 迭代器诊断报告
+    #   数据驱动（2026-05-10）：5 条 ac=0 thin chunk 含 "kernel" 触发 DOMAIN_KW 豁免 iter1202，
+    #   但实为迭代器分析报告（"25 次注入 100% 为不相关 kernel chunk"），非 kernel 技术知识。
+    # 修复：检测"根因"前缀 + memory-os 内部指标共现 → 拦截（不检查 DOMAIN_KW）。
+    if re.match(r'^(?:[-•*]\s*)?(?:数据驱动)?根因[：:]', summary) \
+       and re.search(r'(?:注入|chunk|score|suppress|召回|FTS|relevance|ac[>=]|cold\s*chunk|veteran)', summary):
+        return
     # iter1332: problem_statement_iter_gate — "问题：" + 系统指标 = 迭代器自诊断
     if re.match(r'^(?:[-•*]\s*)?问题[：:]', summary) \
        and re.search(r'(?:\d+%|注入|chunk|召回|suppress|score|gate|fallback|ac=|7d|24h)', summary):
