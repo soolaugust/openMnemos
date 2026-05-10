@@ -3146,6 +3146,7 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
             except Exception:
                 pass
             # iter1227: sparse_global_shield — daemon 同步 retriever.py local_sparse 逻辑
+            # iter1401: sparse_shield_widen_daemon — 同步 retriever.py iter1379: <=3→<=5
             _local_chunk_count_d = _db_chunk_count
             try:
                 _local_chunk_count_d = _rc_conn.execute(
@@ -3153,7 +3154,7 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 ).fetchone()[0] or 0
             except Exception:
                 pass
-            _local_sparse_d = _local_chunk_count_d <= 3
+            _local_sparse_d = _local_chunk_count_d <= 5
             try:
                 if _psi_cached:
                     _recall_counts = _psi_gov_rc_cached[2]
