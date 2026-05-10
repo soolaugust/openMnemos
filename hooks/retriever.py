@@ -3365,6 +3365,16 @@ def main():
                 if _sd_7d >= _sd_thresh:
                     _sd_exp = (_sd_7d - 1) if _sd_is_global else (_sd_7d - 2)
                     score *= 0.5 ** _sd_exp
+            # iter1441: veteran_low_relevance_penalty — 高 ac + 低 FTS 相关性额外衰减
+            # 根因（数据驱动，2026-05-10）：memory-os 项目 25 次注入 100% 为 kernel chunk，
+            #   score 0.07-0.15，ac=3-5，relevance 0.005-0.05（FTS 弱匹配，仅关键词偶然重叠）。
+            #   discovery_boost(3x) 让 cold chunk 0.05→0.15 仍无法稳定胜出 veteran 0.07-0.15。
+            #   saturation_decay 依赖 7d 窗口，GC 后 veteran 满血复活。
+            # 修复：ac>=4 + relevance<0.03（FTS 极弱匹配）→ score *= 0.4。
+            #   使 veteran 0.15→0.06，cold chunk 0.15 可胜出。
+            #   不影响高 relevance 场景（真正相关的 veteran 不受影响）。
+            if not _hard_suppressed and score > 0 and _acc >= 4 and relevance < 0.03:
+                score *= 0.4
             # ── iter616: final_hard_gate — 防止 additive bonus 绕过 hard suppression ──
             # 根因：24h_burst_suppression (iter614) 和 bandwidth_hard_cap (iter601) 设
             #   score=0.0，但后续 focus_bonus/emotional_boost/priming_boost 是 += 操作，
@@ -4065,11 +4075,19 @@ def main():
                                    and not ((c.get("project", "") != project or c.get("project", "") == "global")
                                             and (c.get("access_count", 0) or 0) >= _fb_ac_thresh_hd(c))]
                     if _sef_hd_imp and _sef_hd_max >= _DEAD_ZONE_MIN:
-                        _sef_hd_best = max(_sef_hd_imp, key=lambda x: x[0])
+                        # iter1440: cold_first_fallback — fallback 优先选从未注入的 chunk
+                        # 根因（数据驱动，2026-05-10）：58% chunk(43/73) ac=0 从未注入，
+                        #   cold chunk injection rate = 0/32。discovery_boost(3x) 不够：
+                        #   base BM25 仅 0.03-0.08，boost 后 0.09-0.24 仍被 threshold 卡。
+                        #   fallback 按 max(importance) 排序时 cold/veteran 平分（均 imp=0.5）。
+                        # 修复：排序键 (1 if ac==0 else 0, importance)，cold chunk 绝对优先。
+                        #   已内化知识无需 fallback 再注入（正常路径 score 高自然胜出）。
+                        _sef_hd_best = max(_sef_hd_imp, key=lambda x: (1 if (x[1].get("access_count", 0) or 0) == 0 else 0, x[0]))
                         positive = [(_sef_hd_best[0] * 0.1, _sef_hd_best[1])]
                         _deferred.log(DMESG_WARN, "retriever",
                                       f"iter775_dead_zone_fallback_hd: imp={_sef_hd_best[0]:.2f} "
-                                      f"max_s={_sef_hd_max:.4f} id={_sef_hd_best[1].get('id','')[:12]}",
+                                      f"max_s={_sef_hd_max:.4f} ac={_sef_hd_best[1].get('access_count',0)} "
+                                      f"id={_sef_hd_best[1].get('id','')[:12]}",
                                       session_id=session_id, project=project)
                     # iter776→782: dead_zone_unified_fallback — 统一 [0, DEAD_ZONE_MIN) 兜底
                     # 根因（数据驱动，2026-05-04）：iter775 只覆盖 [DEAD_ZONE_MIN, noise_floor)，
@@ -4077,7 +4095,7 @@ def main():
                     #   用户 project abspath:51963532bc1b 9 次空召回（cands=10~14）均因此。
                     # 修复：条件从 ==0 放宽为 < DEAD_ZONE_MIN，与 iter775 无缝衔接。
                     elif _sef_hd_imp and _sef_hd_max < _DEAD_ZONE_MIN and candidates_count > 0:
-                        _sef_hd_best = max(_sef_hd_imp, key=lambda x: x[0])
+                        _sef_hd_best = max(_sef_hd_imp, key=lambda x: (1 if (x[1].get("access_count", 0) or 0) == 0 else 0, x[0]))
                         positive = [(_sef_hd_best[0] * 0.01, _sef_hd_best[1])]
                         _deferred.log(DMESG_WARN, "retriever",
                                       f"iter776_suppress_zero_fallback_hd: imp={_sef_hd_best[0]:.2f} "
@@ -5477,15 +5495,17 @@ def main():
                                and not ((c.get("project", "") != project or c.get("project", "") == "global")
                                         and (c.get("access_count", 0) or 0) >= _fb_ac_thresh_full(c))]
                 if _sef_by_imp and _sef_full_max >= _DEAD_ZONE_MIN_FULL:
-                    _sef_best = max(_sef_by_imp, key=lambda x: x[0])
+                    # iter1440: cold_first_fallback — sync FULL path
+                    _sef_best = max(_sef_by_imp, key=lambda x: (1 if (x[1].get("access_count", 0) or 0) == 0 else 0, x[0]))
                     positive = [(_sef_best[0] * 0.1, _sef_best[1])]
                     _deferred.log(DMESG_WARN, "retriever",
                                   f"iter775_dead_zone_fallback_full: imp={_sef_best[0]:.2f} "
-                                  f"max_s={_sef_full_max:.4f} id={_sef_best[1].get('id','')[:12]}",
+                                  f"max_s={_sef_full_max:.4f} ac={_sef_best[1].get('access_count',0)} "
+                                  f"id={_sef_best[1].get('id','')[:12]}",
                                   session_id=session_id, project=project)
                 # iter776→782: dead_zone_unified_fallback — 统一 [0, DEAD_ZONE_MIN) 兜底
                 elif _sef_by_imp and _sef_full_max < _DEAD_ZONE_MIN_FULL and candidates_count > 0:
-                    _sef_best = max(_sef_by_imp, key=lambda x: x[0])
+                    _sef_best = max(_sef_by_imp, key=lambda x: (1 if (x[1].get("access_count", 0) or 0) == 0 else 0, x[0]))
                     positive = [(_sef_best[0] * 0.01, _sef_best[1])]
                     _deferred.log(DMESG_WARN, "retriever",
                                   f"iter776_suppress_zero_fallback_full: imp={_sef_best[0]:.2f} "
