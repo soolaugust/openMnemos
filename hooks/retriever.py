@@ -4127,7 +4127,8 @@ def main():
                             return True
                         if _ac_lt >= 6:
                             return False
-                        if c.get("chunk_type") == "design_constraint" and _ac_lt >= 5:
+                        # iter1375: ac_lifetime_dc_floor_align — 对齐 _lt_dc_thresh=4
+                        if c.get("chunk_type") == "design_constraint" and _ac_lt >= 4:
                             return False
                         return True
                     _lt = max(len(_tl), _ac_lt)
@@ -6298,7 +6299,8 @@ def main():
                             return True
                         if _ac_lt >= 6:
                             return False
-                        if c.get("chunk_type") == "design_constraint" and _ac_lt >= 5:
+                        # iter1375: ac_lifetime_dc_floor_align — 对齐 _lt_dc_thresh=4
+                        if c.get("chunk_type") == "design_constraint" and _ac_lt >= 4:
                             return False
                         return True
                     _lt = max(len(_tl), _ac_lt)

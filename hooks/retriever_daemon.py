@@ -5277,6 +5277,12 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                         return True
                     _lt_data = _itl_lifetime.get(c[_CI_ID])
                     if not _lt_data:
+                        # iter1375: ac_lifetime_dc_floor_align — sync retriever.py
+                        _ac_lt_d = c[_CI_AC] or 0
+                        if _ac_lt_d >= 6:
+                            return False
+                        if (c[_CI_CT] or "") == "design_constraint" and _ac_lt_d >= 4:
+                            return False
                         return True
                     _lt_cnt, _lt_last = _lt_data
                     if _lt_cnt >= 7:
