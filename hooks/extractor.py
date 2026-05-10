@@ -2844,7 +2844,7 @@ def _write_chunk(chunk_type: str, summary: str, project: str, session_id: str,
     #   数据驱动（2026-05-10）：ba436dc5 reasoning_chain 36字 content==summary ac=0。
     _EPISODIC_SHORT_TYPES = {"causal_chain", "reasoning_chain", "decision", "excluded_path", "conversation_summary"}
     _episodic_has_rich = content_override and content_override.strip() != summary.strip()
-    if not _episodic_has_rich and chunk_type in _EPISODIC_SHORT_TYPES and len(summary) < 80:
+    if not _episodic_has_rich and chunk_type in _EPISODIC_SHORT_TYPES and len(summary) <= 80:
         return
     # iter844: table_fragment_gate — 表格行碎片拒绝写入
     # 数据驱动（2026-05-05）：e0bd5a39 content="| extractor gate 覆盖 | ... |"
