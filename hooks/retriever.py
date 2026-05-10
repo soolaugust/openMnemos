@@ -3352,8 +3352,17 @@ def main():
             #   不归零（区别于 hard suppress），空召回时仍可被 fallback 选中。
             if not _hard_suppressed and score > 0:
                 _sd_7d = _recent_7d_counts.get(chunk.get("id", ""), 0)
-                if _sd_7d >= 3:
-                    score *= 0.5 ** (_sd_7d - 2)
+                # iter1438: global_saturation_tighten — global chunk 7d>=2 即衰减
+                # 根因（数据驱动，2026-05-10）：feishu CLI(global) 在 memory-os 项目 7d=3 注入。
+                #   global design_constraint FTS 关键词覆盖广，跨项目匹配度虚高。
+                #   7d>=3 衰减对 global 不够：7d=2 时 score 无衰减仍胜出本地候选。
+                # 修复：global chunk 7d>=2 即衰减（0.5^(n-1)），local 保持 7d>=3。
+                #   global 7d=2→0.5x, 7d=3→0.25x; local 7d=3→0.5x, 7d=4→0.25x。
+                _sd_is_global = chunk.get("project", "") == "global"
+                _sd_thresh = 2 if _sd_is_global else 3
+                if _sd_7d >= _sd_thresh:
+                    _sd_exp = (_sd_7d - 1) if _sd_is_global else (_sd_7d - 2)
+                    score *= 0.5 ** _sd_exp
             # ── iter616: final_hard_gate — 防止 additive bonus 绕过 hard suppression ──
             # 根因：24h_burst_suppression (iter614) 和 bandwidth_hard_cap (iter601) 设
             #   score=0.0，但后续 focus_bonus/emotional_boost/priming_boost 是 += 操作，
