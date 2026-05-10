@@ -4710,6 +4710,11 @@ def main():
                     _tlb_write(prompt_hash, current_hash, _get_db_mtime())  # 迭代57: TLB
                     _tlb_bump_generation()  # iter583: FULL 完成后 bump generation
                     duration_ms = _elapsed_ms()
+                    # iter1393: timeline_ids 必须在 zero_score_final_gate 之前提取
+                    # 根因（数据驱动，2026-05-10）：93cbc985 等 chunk 被 context_text 注入用户，
+                    #   但 zero_score_final_gate 将其从 accessed_ids 移除 → timeline 不记录
+                    #   → 7d/24h/6h suppress 对这些 chunk 完全失效 → 垄断注入。
+                    _timeline_ids = [c["id"] for _, c in top_k]
                     # iter1240: zero_score_final_gate — 移除 score=0 的零相关注入
                     if len(top_k) > 1:
                         top_k = [(s, c) for s, c in top_k if s > 0] or top_k[:1]
@@ -4776,7 +4781,7 @@ def main():
                         _itl_hd = {k: [t for t in v if t > _cut_7d] for k, v in _itl_hd.items()}
                         _itl_hd = {k: v for k, v in _itl_hd.items() if v}
                         _now_iso = _now648hd.isoformat()
-                        for _aid in accessed_ids:
+                        for _aid in _timeline_ids:
                             _itl_hd.setdefault(_aid, []).append(_now_iso)
                         with open(_INJECTION_TIMELINE_FILE, 'w', encoding="utf-8") as _itf_hw:
                             _itf_hw.write(json.dumps(_itl_hd, ensure_ascii=False))
