@@ -1538,7 +1538,11 @@ def _is_quality_chunk(summary: str) -> bool:
                 # iter1364: quantitative_expectation_gate — 迭代器"量化预期"自评噪声
                 # 数据驱动（2026-05-10）：306890f5 "量化预期：7d 内 global constraint..."
                 #   ac=0，纯迭代器工作日志。"量化预期" 不在 noise_kw 且 PA 在 content 非 summary。
-                "量化预期", "无测试回归"]
+                "量化预期", "无测试回归",
+                # iter1374: iterator_selfdiag_noise — 迭代器自诊断结论/量化快照逃逸
+                # 数据驱动（2026-05-10）：97e5ea9a "量化：zero_access 4/37→3/37"(ac=0)
+                #   0b39e8e4 "关键诊断结论：痛点描述已过时"(ac=0) — 迭代器自评记录。
+                "诊断结论", "痛点描述", "zero_access"]
     if any(kw in s for kw in noise_kw):
         return False
     # iter1348: pa_regex_gate — 通用 PA 报告正则拦截（"PA N/N" 任意数字）
@@ -1550,6 +1554,11 @@ def _is_quality_chunk(summary: str) -> bool:
     #   "活跃 chunk: 51→37" 逃逸所有 noise_kw（关键词组合不在列表中）。
     #   共性模式：短中文标签 + 冒号 + 数字 → 数字（纯状态变化记录，无决策上下文）。
     if _re_ng.match(r'^[一-鿿\w\s]{1,15}[:：]\s*\d+[%\w]*\s*(?:→|->)\s*\d+[%\w]*', s):
+        return False
+    # iter1374: quantitative_prefix_gate — "量化：" 前缀通用拦截
+    # 数据驱动（2026-05-10）：97e5ea9a "量化：zero_access 4/37 → 3/37 (8.1%)"(ac=0)
+    #   逃逸 metric_transition_gate（冒号后非数字开头）。"量化：" 前缀是迭代器度量快照标志。
+    if _re_ng.match(r'^量化[：:]', s):
         return False
     # iter1026: iterator_combo_gate — memory-os 运行时术语组合检测
     # 数据驱动（2026-05-07）：9 个 ac=0 噪声逃逸所有单关键词 gate，根因是含外部领域词
