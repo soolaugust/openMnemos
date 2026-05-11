@@ -2914,6 +2914,14 @@ def _write_chunk(chunk_type: str, summary: str, project: str, session_id: str,
             re.IGNORECASE)
         if not _CONSTRAINT_MARKERS.search(summary):
             return
+    # iter1494: iterator_self_ref_gate — 拦截迭代器描述自身操作的 chunk
+    # 数据驱动（2026-05-11）：f981f998 "GC 11条echo噪声chunk" + f54e9cb2 "量化：零访问率"
+    #   content==summary，记录迭代器 GC/量化结果，ac=0，对用户零价值。
+    _ITER_SELF_PATTERNS = re.compile(
+        r'GC\s*\d+\s*条|ACTIVE\s*池|零访问率|tests?\s*pass|净增|net$|迭代器|iter\d{3,4}[:\s]',
+        re.IGNORECASE)
+    if _ITER_SELF_PATTERNS.search(summary):
+        return
     # iter1293: episodic_short_fragment_gate — 短于 80 字的 episodic chunk 拒绝写入
     # 数据驱动（2026-05-09）：14 条 ac=0 噪声全 <80 字且无 content_override。
     #   如 "Gap 1：飞轮的...闭环没有打通"(22字)、"所以第一性原理下的..."(14字)。
