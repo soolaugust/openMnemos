@@ -1260,7 +1260,13 @@ def _is_selfref_noise(summary: str, chunk_type: str) -> bool:
         # iter1526: retriever_diag_term_gate — retriever 内部诊断术语逃逸
         # 数据驱动（2026-05-11）：540dd383 "FULL 请求全空召回…BM25 阈值" hits=1 逃逸。
         #   "FULL 请求"≠已有"FULL 路径"；"BM25"/"thresh" 未覆盖。均为 retriever 内部概念。
-        r'FULL\s*请求|BM25\s*阈值|thresh[=\d]|封杀)',
+        r'FULL\s*请求|BM25\s*阈值|thresh[=\d]|封杀|'
+        # iter1561: chunk_state_selfref_gate — DEAD/SWAPPED chunk state + weekly stats 逃逸
+        # 数据驱动（2026-05-12）："78dc 项目只有 1 条 ACTIVE chunk，其余 18 条 DEAD"
+        #   hits=1(ACTIVE chunks) 不够 decision 阈值 2。"DEAD"/"SWAPPED" 是 memory-os 内部状态。
+        # "W18 空召回率 46%，W17 69%" — weekly 注入统计是 retriever 内部指标。
+        r'(?:DEAD|SWAPPED)\b|W\d+\s*空召回|chunk_state|ACTIVE\s*(?:池|chunk|数)|'
+        r'存活率|写入存活)',
         summary
     ))
     # iter1325: constraint_selfref_gate — design_constraint 用更严格阈值(>=3)防误杀
@@ -3410,6 +3416,19 @@ def _write_chunk(chunk_type: str, summary: str, project: str, session_id: str,
     # 修复：扩展 type + 补充中文术语。
     # iter1117: pool_selfref_gate_sync — 使用独立函数（与 extractor_pool 共用）
     if _is_selfref_noise(summary, chunk_type):
+        return
+    # iter1561: qe_selfref_gate — quantitative_evidence 类型的 retriever 内部指标拦截
+    # 数据驱动（2026-05-12）："W18 空召回率 46%，W17 69%" / "7d write survival: 5/70 = 7%"
+    #   quantitative_evidence 不在 _is_selfref_noise 范围（高保护类型），但含空召回/存活率/
+    #   ACTIVE 池统计的内部指标仍逃逸。用高阈值（>=2 内部术语 + 无外部锚点）避免误杀。
+    if chunk_type == "quantitative_evidence" and re.search(
+        r'(?:空召回|存活率|write.?survival|ACTIVE\s*(?:池|chunk)|DEAD\b|SWAPPED\b|'
+        r'W\d+\s*(?:空召回|注入|inject)|注入率|suppress|零访问率|ac=0\s*率)',
+        summary
+    ) and not re.search(
+        r'(?:kernel|sched|CPU|Android|uclamp|cgroup|latency|P\d+|延迟|功耗|帧率)',
+        summary, re.I
+    ):
         return
     # iter1109: code_change_report_gate — 拦截代码改动描述和测试验证结果
     # 数据驱动（2026-05-07）：6 个 ac=0 decision chunk 逃逸 selfref_gate（hits<2），
