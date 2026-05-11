@@ -6016,7 +6016,8 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
         # iter1147: saturated_floor_tighten — ac 门槛收紧 (global 5→4, local 10→7)
         _GLOBAL_SAT_FLOOR = 0.25
         # iter1068: local_saturated_floor — 扩展到本地高 ac chunk
-        _LOCAL_SAT_AC_THRESH = 7
+        # iter1571: local_sat_floor_tighten — 同步 retriever.py
+        _LOCAL_SAT_AC_THRESH = 5
         # iter1562: saturated_floor_tuple_safe — .get() → _CI_* 常量，修复 tuple chunk crash
         def _sat_floor_ac(c):
             return (c[_CI_AC] or 0) if isinstance(c, (list, tuple)) else (c.get("access_count") or 0)

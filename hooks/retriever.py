@@ -7909,7 +7909,11 @@ def main():
         # 修复：global ac 4→4(含), local ac 10→7。预计减少 ~30% 低分垄断注入。
         _GLOBAL_SAT_FLOOR = 0.25
         # iter1068: local_saturated_floor — 扩展到本地高 ac chunk
-        _LOCAL_SAT_AC_THRESH = 7
+        # iter1571: local_sat_floor_tighten — ac 门槛 7→5
+        # 数据驱动（2026-05-12）：memory-os 项目 9 个 ac=5-6 的 kernel chunk
+        #   在迭代开发 session 中以 score<0.25 被注入（与当前工作无关），
+        #   ac>=5 已注入 5+ 次表明 agent 已内化，低分命中是 FTS5 噪声匹配。
+        _LOCAL_SAT_AC_THRESH = 5
         if len(top_k) > 0:
             def _sat_floor_apply(s, c):
                 # iter1567: sat_floor_sparse_local_shield — sparse 项目本地 chunk 豁免 sat_floor
