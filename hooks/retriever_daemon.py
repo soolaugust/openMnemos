@@ -5671,6 +5671,9 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                         if _fb2[0] >= _fb[0] * 0.4:
                             _fb_pair.append(_fb2)
                     top_k = _fb_pair
+                    # iter1516: suppress_fallback_floor_protect — 对齐 iter1506
+                    for _fbp_s, _fbp_c in _fb_pair:
+                        _fallback_protected_ids.add(_fbp_c[_CI_ID])
                     _deferred.log(DMESG_WARN, "retriever_daemon",
                                   f"iter670_suppress_fallback: all {len(_pre_suppress_top_k)} "
                                   f"suppressed, fallback to best={_fb[1][_CI_ID][:12]}",
@@ -5701,6 +5704,7 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                         _dbuf_idx = int(_dbuf_time.time() // 60) % len(_dbuf_rows)
                         _dbuf_row = _dbuf_rows[_dbuf_idx]
                         top_k = [(0.001, _dbuf_row)]
+                        _fallback_protected_ids.add(_dbuf_row[_CI_ID])  # iter1516
                         _deferred.log(DMESG_WARN, "retriever_daemon",
                                       f"iter938_db_ultimate_fallback_rotate: "
                                       f"id={_dbuf_row[0][:12]} imp={_dbuf_row[4]:.2f} "
@@ -5733,6 +5737,7 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                         ).fetchone()
                         if _esc_row:
                             top_k = [(0.001, _esc_row)]
+                            _fallback_protected_ids.add(_esc_row[_CI_ID])  # iter1516
                             _deferred.log(DMESG_WARN, "retriever_daemon",
                                           f"iter932_fallback_ceiling_escalation: "
                                           f"id={_esc_row[0][:12]} imp={_esc_row[4]:.2f} "
