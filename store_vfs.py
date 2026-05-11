@@ -6744,6 +6744,27 @@ def delete_chunks(conn: sqlite3.Connection, chunk_ids: list) -> int:
             pass  # notifier 失败不影响删除本身
     return count
 
+
+def gc_chunks(conn: sqlite3.Connection, chunk_ids: list) -> int:
+    """
+    iter1504: 软 GC — 标记 chunk_state='GC' 并同步删除 FTS5 条目。
+    保留 DB 记录用于 suppress 计数回溯，但从 FTS 检索空间移除。
+    """
+    if not chunk_ids:
+        return 0
+    placeholders = ",".join("?" * len(chunk_ids))
+    conn.execute(
+        f"UPDATE memory_chunks SET chunk_state='GC' WHERE id IN ({placeholders})",
+        chunk_ids,
+    )
+    for cid in chunk_ids:
+        try:
+            conn.execute("DELETE FROM memory_chunks_fts WHERE rowid_ref=?", (cid,))
+        except Exception:
+            pass
+    bump_chunk_version()
+    return len(chunk_ids)
+
 def get_chunk_count(conn: sqlite3.Connection) -> int:
     """返回当前 chunk 总数。"""
     return conn.execute("SELECT COUNT(*) FROM memory_chunks").fetchone()[0]
