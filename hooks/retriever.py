@@ -7632,7 +7632,11 @@ def main():
         # iter913: score_floor_raise — 数据驱动提升阈值
         # 根因（数据驱动，2026-05-06）：73% 注入 score<0.15，useful feedback 最低=0.15。
         #   0.08 阈值过低未过滤任何噪声。提升到 0.12 过滤 40% 低相关性注入。
-        _score_floor = 0.12
+        # iter1507: small_db_score_floor_relax — <50 chunk 库 floor 0.12→0.08
+        # 数据驱动（2026-05-11）：35-chunk 库 BM25 分数天然偏低（vocabulary 有限→IDF 偏差），
+        #   import-901d6(PE/sched_ext, imp=0.84) score=0.0912 被 floor=0.12 拦截→空召回。
+        #   对用户核心知识产生 false negative。>=50 库保持 0.12（足够 vocab 覆盖）。
+        _score_floor = 0.08 if _db_chunk_count < 50 else 0.12
         # iter1067: global_saturated_floor — 已内化 global constraint 提高 floor
         # 数据驱动（2026-05-07）：feishu CLI(ac=4,score=0.19)、memory验证(ac=6,score=0.15)
         #   在 kernel session 中过 0.12 floor 被注入，与当前工作完全无关。
