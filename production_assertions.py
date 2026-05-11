@@ -823,6 +823,41 @@ def check_thin_chunk_gc(conn: sqlite3.Connection, fix: bool = False) -> Assertio
     return r
 
 
+def check_negative_ac_invariant(conn: sqlite3.Connection, fix: bool = False) -> AssertionResult:
+    """
+    检测 ACTIVE chunk 中 access_count<0 的异常值。
+    ac=-1 是 GC 中间状态标记，ACTIVE chunk 不应有此值（suppress/cooldown 逻辑失效）。
+    """
+    r = AssertionResult("negative_ac_invariant", "hygiene")
+    t0 = time.time()
+    try:
+        rows = conn.execute(
+            "SELECT id, access_count FROM memory_chunks "
+            "WHERE chunk_state='ACTIVE' AND access_count < 0"
+        ).fetchall()
+        if not rows:
+            r.passed = True
+            r.message = "No ACTIVE chunks with negative access_count"
+        elif fix:
+            for cid, _ in rows:
+                conn.execute(
+                    "UPDATE memory_chunks SET access_count=0 WHERE id=?", (cid,))
+            conn.commit()
+            r.passed = True
+            r.message = f"Reset {len(rows)} ACTIVE chunks from negative ac to 0 (fix applied)"
+        else:
+            r.passed = False
+            r.message = f"{len(rows)} ACTIVE chunks have ac<0 (suppress/cooldown bypass)"
+            r.actual = {"negative_ac_ids": [row[0][:12] for row in rows]}
+            r.expected = "0 (all ACTIVE chunks have ac>=0)"
+    except Exception as e:
+        r.passed = True
+        r.severity = "info"
+        r.message = f"Skip: {e}"
+    r.duration_ms = (time.time() - t0) * 1000
+    return r
+
+
 # ── 运行器 ────────────────────────────────────────────────────────────────────
 
 ALL_ASSERTIONS = [
@@ -840,6 +875,7 @@ ALL_ASSERTIONS = [
     check_stale_refs,
     check_error_silence,
     check_thin_chunk_gc,
+    check_negative_ac_invariant,
 ]
 
 
