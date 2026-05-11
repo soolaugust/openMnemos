@@ -533,7 +533,10 @@ def _run_extraction_pipeline(payload: dict) -> dict:
                 #   新增的 gate 规则在进程重启前不生效。
                 # 修复：不依赖 import 的内联正则，覆盖"迭代器度量摘要逃逸"模式。
                 if _re.search(r'(?:ACTIVE|DEAD)\s*\d+\s*→\s*\d+', t) or \
-                   (_re.search(r'ac[=≥]\d+', t) and '→' in t and _re.search(r'\d+%\s*→\s*\d+%', t)):
+                   (_re.search(r'ac[=≥]\d+', t) and '→' in t and _re.search(r'\d+\.?\d*%\s*→\s*\d+\.?\d*%', t)):
+                    continue
+                # iter1545: gc_status_snapshot_gate — "GC N 条" + 迭代器术语组合
+                if _re.match(r'GC\s*\d+\s*条', t) and _re.search(r'(?:ac[=≥]|噪声|迭代器|chunk|ACTIVE)', t):
                     continue
                 imp = base_importance
                 if throttle_active:
