@@ -2214,6 +2214,18 @@ def insert_chunk(conn: sqlite3.Connection, chunk_dict: dict) -> None:
             except Exception:
                 pass
             return
+        # iter1502: vfs_quant_prefix_gate — "量化：" 前缀 VFS 末端防线
+        # 根因（数据驱动，2026-05-11）：MCP direct/writer 路径绕过 extractor._write_chunk，
+        #   dfb42513 "量化：ac=0 率 18.4%→11.4%…"(ac=0) 经 direct 路径逃逸写入。
+        # 修复：VFS 层拦截 "量化[：:]" 前缀（迭代器度量快照标志），精准无误杀。
+        import re as _re1502
+        if _re1502.match(r'^量化[：:]', _vfs_s):
+            try:
+                dmesg_log(conn, DMESG_WARN, "vfs",
+                          f"quant_prefix_gate REJECTED: '{_vfs_s[:60]}'")
+            except Exception:
+                pass
+            return
     except ImportError:
         pass
     # ── iter973: content_min_density_gate — content 过短且无增量时拒绝 ──────
