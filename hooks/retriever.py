@@ -2863,6 +2863,10 @@ def main():
                 # ac>=4 的 chunk 已被多次内化，边际信息更低，应受更强 7d 衰减。
                 if _acc is not None and _acc >= 4:
                     _dp_factor *= 1.0 + 0.15 * (_acc - 3)
+                # iter1551: timeline_cumulative_boost — 全历史累积注入加权
+                _total_inj = len(_injection_timeline.get(chunk.get("id", ""), []))
+                if _total_inj >= 5:
+                    _dp_factor *= 1.0 + 0.2 * (_total_inj - 4)
                 score *= 1.0 / (1.0 + _r7d_dp * _dp_factor)
                 # iter1004: type_concentration_penalty — 群体垄断额外衰减
                 # iter1005: progressive_type_penalty — 按个体 7d 计数累进衰减
