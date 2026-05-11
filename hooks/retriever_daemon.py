@@ -3813,6 +3813,19 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                     _pcs_ac_t = 3 if _db_chunk_count < 50 else 7
                     if _r7d_sc >= _pcs_7d_t and (chunk[_CI_AC] or 0) >= _pcs_ac_t:
                         score = 0.0
+            # iter1572: cross_proj_constraint_hard_suppress — sync retriever.py
+            _cp_sc = chunk[_CI_CP] if len(chunk) > _CI_CP else ""
+            _is_xp_sc = (_cp_sc != project) if _cp_sc and _cp_sc != "global" else (_cp_sc == "global")
+            if _is_xp_sc and score > 0:
+                _ac_sc = chunk[_CI_AC] or 0
+                _ct_sc = chunk[_CI_CT] if len(chunk) > _CI_CT else ""
+                _is_cl_sc = _ct_sc in ("design_constraint", "procedure")
+                _xp_floor_sc = 4 if (_cp_sc == "global" or _is_cl_sc) else 7
+                if _ac_sc >= _xp_floor_sc:
+                    if _cp_sc == "global" or _is_cl_sc:
+                        score = 0.0
+                    else:
+                        score *= 0.4
             # iter618: 24h + 7d burst suppress（daemon 此前完全缺失）
             # iter619: 阈值收紧 24h:3→2, 7d:8→5
             # iter672: relevance_exempt — 高分 chunk 放宽阈值，防 suppress 过杀

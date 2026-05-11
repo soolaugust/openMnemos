@@ -2968,7 +2968,15 @@ def main():
             _cd_is_constraint_like = _cd_ctype in ("design_constraint", "procedure")
             _cross_proj_floor = 4 if (_cd_is_global or _cd_is_constraint_like) else 7
             if not _hard_suppressed and _cd_is_cross_project and _acc >= _cross_proj_floor:
-                score *= 0.4
+                # iter1572: cross_proj_constraint_hard_suppress — 降权→hard suppress
+                # 根因（数据驱动，2026-05-12）：93cbc985(memory验证,ac=6,dc) 经 *0.4 降权后
+                #   score=0.08 仍被 suppress_fallback 恢复注入到 kernel 项目 2 次。
+                #   跨项目已内化知识(ac>=4) 信息增量=0，降权不够需 hard suppress。
+                if _cd_is_global or _cd_is_constraint_like:
+                    score = 0.0
+                    _hard_suppressed = True
+                else:
+                    score *= 0.4
             # ── iter614: temporal_burst_suppression — 24h 注入频率 cap ─────────
             # 同一 chunk 在 24h 内注入 >=2 次 → suppress（score=0）
             # iter619: 阈值 3→2，同日看 2 次已足够，第 3 次起 suppress
