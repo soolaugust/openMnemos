@@ -2912,8 +2912,13 @@ def main():
                     # 根因（数据驱动，2026-05-09）：48-chunk 库 10 chunk 各 7d=4-6 ac=3-5，
                     #   ac>=7 条件过严无一触发，群体垄断 82%(40/49) 注入位。
                     # 修复：<50 库 ac>=4 + 7d>=3 即 suppress；>=50 保持 ac>=7 + 7d>=4。
-                    _pcs_7d_thresh = 3 if _db_chunk_count < 50 else 4
-                    _pcs_ac_thresh = 4 if _db_chunk_count < 50 else 7
+                    # iter1540: tiny_db_proj_conc_tighten — <50 库 ac/7d 阈值再收紧
+                    # 根因（数据驱动，2026-05-11）：33-chunk 库 19 chunk 7d 注入，ratio=1.0，
+                    #   7d=2+ac=3 的 kernel chunk（1c6946c4,import-90139 等 5 个）逃逸
+                    #   proj_conc_saturated_suppress(7d>=3,ac>=4)，以 score=0.07-0.10 占满注入位。
+                    # 修复：<50 库 7d>=2+ac>=3 即 suppress，>=50 保持 ac>=7+7d>=4。
+                    _pcs_7d_thresh = 2 if _db_chunk_count < 50 else 4
+                    _pcs_ac_thresh = 3 if _db_chunk_count < 50 else 7
                     if _chunk_7d_pc >= _pcs_7d_thresh:
                         _pc_ac = chunk.get("access_count") or 0
                         if _pc_ac >= _pcs_ac_thresh:

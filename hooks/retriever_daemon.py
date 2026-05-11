@@ -3803,8 +3803,11 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                     if _r7d_sc > 1:
                         score *= 0.70 ** (_r7d_sc - 1)
                     # iter1131: proj_conc_saturated_suppress — 高浓度项目内已内化 chunk hard suppress
-                    # 同步 retriever.py: project_concentrated + 7d>=4 + ac>=7 → hard suppress
-                    if _r7d_sc >= 4 and (chunk[_CI_AC] or 0) >= 7:
+                    # iter1333: small_db_proj_conc_tighten — <50 库收紧
+                    # iter1540: tiny_db_proj_conc_tighten — <50 库 7d>=2+ac>=3
+                    _pcs_7d_t = 2 if _db_chunk_count < 50 else 4
+                    _pcs_ac_t = 3 if _db_chunk_count < 50 else 7
+                    if _r7d_sc >= _pcs_7d_t and (chunk[_CI_AC] or 0) >= _pcs_ac_t:
                         score = 0.0
             # iter618: 24h + 7d burst suppress（daemon 此前完全缺失）
             # iter619: 阈值收紧 24h:3→2, 7d:8→5
