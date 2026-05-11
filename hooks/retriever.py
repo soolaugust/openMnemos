@@ -7898,6 +7898,15 @@ def main():
         _LOCAL_SAT_AC_THRESH = 7
         if len(top_k) > 0:
             def _sat_floor_apply(s, c):
+                # iter1567: sat_floor_sparse_local_shield — sparse 项目本地 chunk 豁免 sat_floor
+                # 根因（数据驱动，2026-05-12）：git:78dc99a5695f(1 ACTIVE local, ac=8)
+                #   唯一本地知识 58c70136 被 sat_floor(ac>=7, score<0.25) 设为 0.0 +
+                #   strip _fallback_protected → floor_gate 全灭 → iter1525 查 DB 恢复
+                #   但下次请求又被 sat_floor 杀掉 → 该项目 100% 空召回。
+                #   sparse 项目本地 chunk 是唯一知识源，不应因 ac 饱和而封杀。
+                # 修复：_local_sparse + 本地 chunk → 跳过 sat_floor（对齐 cooldown/suppress shield）。
+                if _local_sparse and c.get("project") == project:
+                    return (s, c)
                 _sat_hit = (
                     (c.get("project") == "global"
                      and c.get("chunk_type") == "design_constraint"
