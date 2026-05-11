@@ -300,7 +300,9 @@ def test_db_fallback_when_fts_misses():
     import sqlite3, os
     from pathlib import Path
 
-    db_path = os.path.join(os.environ["MEMORY_OS_DIR"], "store.db")
+    import tempfile
+    _tmpdir = tempfile.mkdtemp()
+    db_path = os.path.join(_tmpdir, "store.db")
     conn = sqlite3.connect(db_path)
     conn.execute("""CREATE TABLE IF NOT EXISTS memory_chunks (
         id TEXT PRIMARY KEY, created_at TEXT, updated_at TEXT, project TEXT,
