@@ -2233,6 +2233,22 @@ def insert_chunk(conn: sqlite3.Connection, chunk_dict: dict) -> None:
             return
     except ImportError:
         pass
+    # iter1520: episodic_short_summary_gate — episodic 类型过短 summary 拒绝写入
+    # 数据驱动（2026-05-11）：3 条 ac=0 conversation_summary/reasoning_chain（24-31字）
+    #   "通过 commit message 检测合入状态"(24字)、"你验证了什么（commit in branch），而不只是猜测"(31字)
+    #   过短 episodic 碎片无法构成可复用知识，content==summary 或 content 为空时无增量。
+    _ep_ct = d.get("chunk_type", "")
+    _ep_s = d.get("summary", "")
+    _ep_c = (d.get("content") or "").strip()
+    if _ep_ct == "conversation_summary" and len(_ep_s) < 50:
+        _ep_has_content = _ep_c and _ep_c != _ep_s and len(_ep_c) > len(_ep_s) + 20
+        if not _ep_has_content:
+            try:
+                dmesg_log(conn, DMESG_WARN, "vfs",
+                          f"episodic_short_gate REJECTED: '{_ep_s[:50]}'")
+            except Exception:
+                pass
+            return
     # ── iter973: content_min_density_gate — content 过短且无增量时拒绝 ──────
     # 根因（数据驱动，2026-05-06）：17 个 ac=0 碎片 chunk 逃逸所有上层 gate 写入 DB，
     #   共同特征：content<120 字且 content≈summary（无信息增量）。占 FTS 23% 搜索空间。
