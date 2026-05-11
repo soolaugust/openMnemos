@@ -2215,11 +2215,16 @@ def _is_quality_decision(summary: str) -> bool:
         r'|disputed.*chunk|hard_suppress'
         r'|score_floor|BM25|max_score|ACTIVE\s*\d|chunk\s*库|空召回|逃逸路径|存活率)'
     )
-    if _SELF_IMPL_KW.search(s) and not re.search(r'[\u4e00-\u9fff]{8,}', s.split('：')[0] if '：' in s else ''):
-        # 含系统关键词，且冒号前无 >=8 个连续中文（有中文业务上下文则放行）
-        # 额外放行：以决策动词开头 → 用户明确决策，系统关键词只是被引用
-        if not re.match(r'^(?:决定|选择|采用|推荐|改用)', s):
-            return False
+    if _SELF_IMPL_KW.search(s):
+        _x5_cn_exempt = re.search(r'[\u4e00-\u9fff]{8,}', s.split('：')[0] if '：' in s else '')
+        # iter1546: selfref_multi_signal_override — 多信号自引用不受中文放行保护
+        # 根因（数据驱动，2026-05-11）："GC 2 条 ac=0 迭代器状态快照噪声（当前状态良好：100个chunk..."
+        #   "迭代器状态快照噪声" 9字连续中文触发放行，但含 ac=0 + chunk + 噪声 = 强自引用。
+        # 修复：含迭代器自描述词时，中文放行无效。
+        _x5_self_desc = re.search(r'(?:器噪声|快照|状态良好|GC\s*\d+\s*条|迭代器.*(?:清理|释放|状态))', s)
+        if _x5_self_desc or not _x5_cn_exempt:
+            if not re.match(r'^(?:决定|选择|采用|推荐|改用)', s):
+                return False
 
     # X6. iter955: ephemeral_market_gate — 短期时效性市场数据不应持久化
     #   根因（数据驱动，2026-05-06）：3 条 ac=0 投资决策 chunk（"创业板指 5 日涨幅"、
