@@ -527,6 +527,14 @@ def _run_extraction_pipeline(payload: dict) -> dict:
                 #   "zero-access: 11.8% → 0%"(ac=0,decision) 逃逸写入。
                 if _is_metric_report_noise(t[:120], chunk_type):
                     continue
+                # iter1500: iterator_metric_summary_inline_gate — 内联防线
+                # 根因（数据驱动，2026-05-11）：9eca6e30 "GC 了 2de2ca59…ACTIVE 37→35…ac=0"
+                #   逃逸原因：pool 守护进程缓存了旧版 _is_selfref_noise/_vfs_selfref_noise，
+                #   新增的 gate 规则在进程重启前不生效。
+                # 修复：不依赖 import 的内联正则，覆盖"迭代器度量摘要逃逸"模式。
+                if _re.search(r'(?:ACTIVE|DEAD)\s*\d+\s*→\s*\d+', t) or \
+                   (_re.search(r'ac[=≥]\d+', t) and '→' in t and _re.search(r'\d+%\s*→\s*\d+%', t)):
+                    continue
                 imp = base_importance
                 if throttle_active:
                     imp = round(imp * importance_factor, 3)

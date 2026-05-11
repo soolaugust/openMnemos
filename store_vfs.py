@@ -1928,7 +1928,9 @@ _RE_VFS_SELFREF = _re_vfs.compile(
     r'access.count|hard.?cap|hard.?gate|oom_adj|zero.access|'
     r'垄断|逃逸|burst|saturation|注入|chunk.{0,4}注入|'
     # iter754: 迭代器自评噪声关键词 — 拦截 "空召回率 68%→25%" 等自我描述
-    r'空召回|误杀率|fallback.*率|过滤规则|写入过滤|iter\d{3,4})',
+    r'空召回|误杀率|fallback.*率|过滤规则|写入过滤|iter\d{3,4}|'
+    # iter1500: iterator_metric_summary_gate — 覆盖 "ACTIVE 37→35" "ac=0 率" 迭代器度量摘要
+    r'迭代器|度量快照|ac[=≥]\d+|ACTIVE\s*\d+\s*→)',
     _re_vfs.IGNORECASE
 )
 
