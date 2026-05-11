@@ -2943,7 +2943,8 @@ def _write_chunk(chunk_type: str, summary: str, project: str, session_id: str,
         r'|score_floor|BM25\s*vocabulary|空召回率.*降低|预期效果.*空召回'
         r'|pre.existing\s*failure|与本轮无关|同步.*retriever.*daemon|chunk\s*库.*floor'
         r'|_db_chunk_count|suppress.*阈值.*→|score_floor.*→'
-        r'|空召回率.*\d+%|score\s*<\s*floor',
+        r'|空召回率.*\d+%|score\s*<\s*floor'
+        r'|zero_access_rate|注入垄断|当前状态.*(?:chunk|ac=|zero_access)',
         re.IGNORECASE)
     if _ITER_SELF_PATTERNS.search(summary):
         return
