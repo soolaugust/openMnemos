@@ -7968,6 +7968,44 @@ def main():
         if not top_k:
             conn.close()
             return
+        # ── iter1556: post_dedup_pair — dedup 后单条注入的最终配对安全网 ──
+        # 根因（数据驱动，2026-05-12）：44% 注入为单条（15/34 traces）。
+        #   上游 pair 逻辑（iter826/842/868/895）各有条件限制或 except 静默失败，
+        #   到 dedup 后仍存在 top_k=1 的漏网。此为最终兜底：从 DB 选不同于 top1 的
+        #   低 7d + session 未注入的 chunk 补充配对，确保多知识组合上下文。
+        if len(top_k) == 1 and _db_chunk_count >= 4:
+            _p1556_top1_id = top_k[0][1].get("id", "")
+            try:
+                import sqlite3 as _p1556_sql
+                _p1556_conn = _p1556_sql.connect(str(STORE_DB))
+                _p1556_rows = _p1556_conn.execute(
+                    "SELECT id, summary, content, chunk_type, importance, access_count "
+                    "FROM memory_chunks WHERE (project=? OR project='global') AND chunk_state='ACTIVE' "
+                    "AND id != ? ORDER BY importance DESC, access_count ASC LIMIT 8",
+                    (project, _p1556_top1_id)).fetchall()
+                _p1556_conn.close()
+                _p1556_dedup_thresh = _sysctl("retriever.session_dedup_threshold") or 2
+                _p1556_cands = [r for r in _p1556_rows
+                                if _session_injection_counts.get(r[0], 0) < _p1556_dedup_thresh
+                                and not (r[3] == "design_constraint" and r[4] >= 5)]
+                if _p1556_cands:
+                    from datetime import datetime as _dt1556, timezone as _tz1556
+                    _p1556_ts = _dt1556.now(_tz1556.utc).isoformat()
+                    _p1556_idx = int(_p1556_ts[14:16]) % len(_p1556_cands)
+                    _p1556_pick = _p1556_cands[_p1556_idx]
+                    _p1556_chunk = {"id": _p1556_pick[0], "summary": _p1556_pick[1],
+                                    "content": _p1556_pick[2], "chunk_type": _p1556_pick[3] or "",
+                                    "importance": _p1556_pick[4] or 0.5,
+                                    "access_count": _p1556_pick[5] or 0}
+                    _p1556_score = top_k[0][0] * 0.15
+                    top_k.append((_p1556_score, _p1556_chunk))
+                    _deferred.log(DMESG_DEBUG, "retriever",
+                                  f"iter1556_post_dedup_pair: paired {_p1556_pick[0][:12]} "
+                                  f"imp={_p1556_pick[4]:.2f} ac={_p1556_pick[5]} "
+                                  f"with top1={_p1556_top1_id[:12]}",
+                                  session_id=session_id, project=project)
+            except Exception:
+                pass
         # ─────────────────────────────────────────────────────────────────────
 
         # 迭代100：置信度标识（OS 类比：ECC status bit per cache line）
