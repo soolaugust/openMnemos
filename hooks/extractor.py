@@ -2970,7 +2970,10 @@ def _write_chunk(chunk_type: str, summary: str, project: str, session_id: str,
     #   数据驱动（2026-05-10）：ba436dc5 reasoning_chain 36字 content==summary ac=0。
     _EPISODIC_SHORT_TYPES = {"causal_chain", "reasoning_chain", "decision", "excluded_path", "conversation_summary"}
     _episodic_has_rich = content_override and content_override.strip() != summary.strip()
-    if not _episodic_has_rich and chunk_type in _EPISODIC_SHORT_TYPES and len(summary) <= 80:
+    # iter1515: episodic_echo_threshold_widen — 80→100 字拦截 content==summary 碎片
+    # 数据驱动（2026-05-11）：f7165539(87字 causal_chain) 逃逸 80 字阈值，ac=0。
+    _echo_threshold = 100 if not _episodic_has_rich else 80
+    if not _episodic_has_rich and chunk_type in _EPISODIC_SHORT_TYPES and len(summary) <= _echo_threshold:
         return
     # iter844: table_fragment_gate — 表格行碎片拒绝写入
     # 数据驱动（2026-05-05）：e0bd5a39 content="| extractor gate 覆盖 | ... |"
