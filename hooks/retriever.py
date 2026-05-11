@@ -3964,6 +3964,8 @@ def main():
                     return 2  # iter1167: pair_pre_gate_align — 对齐主路径 suppress thresh=2
                 elif _l_ac >= 5:
                     return min(_hd_pair_7d_ceiling, 3)  # iter1167: 4→3 对齐后期 pair
+                elif _l_ac >= 3:
+                    return min(_hd_pair_7d_ceiling, 3 if _db_chunk_count < 50 else 2)  # iter1488: pair_ac3_cap — 对齐主路径 ac>=3 cap
                 return _hd_pair_7d_ceiling
             if len(positive) == 1 and len(final) >= 3:
                 # iter1397: pair_floor_tinydb_relax — 小库 BM25 分数偏低，0.12 floor 挡住 53% 有效配对
@@ -4374,6 +4376,8 @@ def main():
                         return 1
                     elif _lac >= 5:
                         return max(2, _fb_hd_ceiling - 2)
+                    elif _lac >= 3:
+                        return min(_fb_hd_ceiling, 3 if _db_chunk_count < 50 else 2)  # iter1488: fb_ac3_cap — 对齐主路径 ac>=3 cap
                     return _fb_hd_ceiling
                 # iter1101: hd_fallback_cooldown — hard_deadline fallback 补充 cooldown 过滤
                 # 根因（数据驱动，2026-05-07）：import-dc534(global,ac=2) 经 _score_chunk cooldown
