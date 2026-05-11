@@ -3079,7 +3079,7 @@ def main():
                 #   根因（数据驱动，2026-05-06）：85-chunk 库中 13/21 活跃 chunk 7d>=3 被 suppress，
                 #   candidates=10 全灭 → 40% 空召回。85 chunk 库日均 1 session 使用同一知识是正常频率。
                 #   6h/24h burst suppress 仍有效，7d 过紧导致核心知识被永久封锁。
-                _suppress_7d_thresh = 7 if _tiny_db else (6 if score >= 0.5 else 4) if _small_db else (5 if score >= 0.5 else 3)  # iter1477: tiny 5→7
+                _suppress_7d_thresh = 7 if _tiny_db else (4 if score >= 0.5 else 3) if _small_db else (5 if score >= 0.5 else 3)  # iter1497: small_db 6/4→4/3
                 # iter993: global_chunk_suppress_tighten — global chunk 阈值 -1
                 # iter1006: global_saturated_suppress_tighten — ac>=4 的 global chunk 阈值 -2
                 # 根因（数据驱动，2026-05-06）：feishu CLI(ac=4,7d=4)、memory验证(ac=6,7d=4)、
@@ -4170,7 +4170,7 @@ def main():
                     if _hd_tiny_db:
                         _t = 7  # iter1477: tiny_db_suppress_relax — 5→7
                     elif _hd_small_db:
-                        _t = 6 if s >= 0.5 else 4  # iter990: 4/3→6/4
+                        _t = 4 if s >= 0.5 else 3  # iter1497: small_db 6/4→4/3
                     else:
                         _t = 5 if s >= 0.5 else 3
                     # iter993: global_chunk_suppress_tighten — sync FULL path
@@ -6403,7 +6403,7 @@ def main():
                     if _sf663_tiny_db:
                         _t = 5  # iter1000: tiny 3→5 去垄断反转
                     elif _sf663_small_db:
-                        _t = 6 if s >= 0.5 else 4  # iter990: 4/3→6/4
+                        _t = 4 if s >= 0.5 else 3  # iter1497: small_db 6/4→4/3 去垄断
                     else:
                         _t = 5 if s >= 0.5 else 3
                     # iter993: global_chunk_suppress_tighten — global chunk 阈值 -1
@@ -6560,7 +6560,7 @@ def main():
                 if _fg887_tiny:
                     _t = 5  # iter1000: tiny 3→5 去垄断反转（sync suppress_final_gate）
                 elif _fg887_small:
-                    _t = 6 if s >= 0.5 else 4  # iter990: 4/3→6/4
+                    _t = 4 if s >= 0.5 else 3  # iter1497: small_db 6/4→4/3
                 else:
                     _t = 5 if s >= 0.5 else 3
                 # iter993: global_chunk_suppress_tighten — sync closure_fallback
@@ -6642,7 +6642,7 @@ def main():
                 # iter960: pair_7d_align_final_gate_v2 — tiny_db 5→4 堵 pair 逃逸
                 # 根因（数据驱动，2026-05-06）：7d=4 chunk 被 suppress_final_gate(4) 拦截后
                 #   经 pair 路径逃逸（pair lim=5 > final_gate=4）。对齐消除 1-gap 逃逸窗口。
-                _p7d_lim = 6 if _sf663_tiny_db else (7 if score >= 0.5 else 5) if _sf663_small_db else (6 if score >= 0.5 else 4)  # iter1000: pair_7d sync final_gate+1
+                _p7d_lim = 6 if _sf663_tiny_db else (5 if score >= 0.5 else 4) if _sf663_small_db else (6 if score >= 0.5 else 4)  # iter1497: pair sync final_gate+1
                 # iter1165: pair_saturated_align — 高 ac chunk 对齐 suppress_final_gate 阈值
                 if ac >= 7:
                     _p7d_lim = 3  # suppress_final_gate thresh=2, pair=thresh+1
@@ -7241,7 +7241,7 @@ def main():
                         #   ac>=5/7 有独立收紧逻辑，base 只影响 ac<5 的新 chunk。
                         _t = 5
                     elif _sf758_small_db:
-                        _t = 6 if s >= 0.5 else 4  # iter990: 4/3→6/4
+                        _t = 4 if s >= 0.5 else 3  # iter1497: small_db 6/4→4/3
                     else:
                         _t = 5 if s >= 0.5 else 3
                     if _cross:

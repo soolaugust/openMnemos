@@ -3861,7 +3861,7 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 # iter990: small_db_7d_relax_v3 — small_db 4/3→6/4（sync retriever.py）
                 #   根因：85-chunk 库 13/21 活跃 chunk 7d>=3 被 suppress → 40% 空召回
                 if score > 0:  # iter1071: fix syntax — 原 else 与 if 不配对，改为独立 guard
-                    _7d_base = 7 if _s672_tiny else (6 if score >= 0.5 else 4) if _s672_small else (5 if score >= 0.5 else 3)  # iter1477: tiny 5→7
+                    _7d_base = 7 if _s672_tiny else (4 if score >= 0.5 else 3) if _s672_small else (5 if score >= 0.5 else 3)  # iter1497: small_db 6/4→4/3
                     # iter1194: global_unified_thresh — sync daemon _score_chunk
                     # iter1462: small_db_global_7d_relax — <100 库 global 阈值 2→4
                     #   根因（数据驱动，2026-05-11）：66-chunk 库 5/8 global chunk 被 7d>=2 封杀，
@@ -4060,7 +4060,7 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 # iter971: tiny 4→3 去垄断（sync suppress_final_gate）
                 # iter990: small_db_7d_relax_v3 — daemon dict path 同步
                 if score > 0:  # iter1071: fix syntax — 原 else 与 if 不配对
-                    _7d_base_d2 = 7 if _s672d_tiny else (6 if score >= 0.5 else 4) if _s672d_small else (5 if score >= 0.5 else 3)  # iter1477: tiny 5→7
+                    _7d_base_d2 = 7 if _s672d_tiny else (4 if score >= 0.5 else 3) if _s672d_small else (5 if score >= 0.5 else 3)  # iter1497: small_db 6/4→4/3
                     # iter1194: global_unified_thresh — sync daemon dict path
                     # iter1478: global_deep_saturated_7d_tighten — sync dict path
                     if (chunk.get("project", "") or "") == "global":
@@ -5265,7 +5265,7 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                     if _sf663d_tiny_db:
                         _t = 7  # iter1477: tiny_db_suppress_relax — 5→7
                     elif _sf663d_small_db:
-                        _t = 6 if s >= 0.5 else 4  # iter1000: sync retriever.py
+                        _t = 4 if s >= 0.5 else 3  # iter1497: small_db sync retriever.py
                     else:
                         _t = 5 if s >= 0.5 else 3
                     if _cross:
@@ -5392,7 +5392,7 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 if _fg887d_tiny:
                     _t = 7  # iter1477: tiny_db_suppress_relax — 5→7
                 elif _fg887d_small:
-                    _t = 6 if s >= 0.5 else 4  # iter1000: sync retriever.py
+                    _t = 4 if s >= 0.5 else 3  # iter1497: small_db sync retriever.py
                 else:
                     _t = 5 if s >= 0.5 else 3
                 if _cross:
