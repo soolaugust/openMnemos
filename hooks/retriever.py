@@ -7558,6 +7558,10 @@ def main():
         #   suppress_fallback_lite 因 relevance_floor(<0.10) 或 7d ceiling 全灭后无后续路径。
         # 修复：复用 FULL 路径逻辑——从 DB 选 importance 最高 + access_count 最低的 chunk，
         #   带分钟级轮转 + 7d ceiling 排除。消灭 LITE 路径空召回。
+        # iter1547: lite_ult_ceiling_align_daemon — ceiling 4→5 对齐 daemon _ult_ceiling
+        #   根因（数据驱动，2026-05-12）：git:78dc99a5695f 6 visible chunk 中 2 个 7d>=4
+        #   被排除(ceiling=4)，剩余 4 个通过但仍空召回。daemon 用 ceiling=5 更合理。
+        #   加 escalation：首次查询空时去掉 ceiling 重试（对齐 daemon iter932）。
         if not top_k:
             try:
                 _dbuf_lite_7d = {}
@@ -7566,7 +7570,7 @@ def main():
                                      for cid, ts_list in _itl758.items()}
                 except NameError:
                     pass
-                _dbuf_lite_ceiling = 4 if _db_chunk_count < 50 else (5 if _db_chunk_count < 100 else 5)
+                _dbuf_lite_ceiling = 5 if _db_chunk_count < 50 else (5 if _db_chunk_count < 100 else 5)
                 _dbuf_lite_exclude = [cid for cid, cnt in _dbuf_lite_7d.items() if cnt >= _dbuf_lite_ceiling]
                 _dbuf_lite_ph = ','.join(['?'] * len(_dbuf_lite_exclude)) if _dbuf_lite_exclude else ''
                 _dbuf_lite_where = f" AND id NOT IN ({_dbuf_lite_ph})" if _dbuf_lite_exclude else ''
@@ -7576,6 +7580,13 @@ def main():
                     "ORDER BY importance DESC, access_count ASC LIMIT 5",
                     (project, *_dbuf_lite_exclude)
                 ).fetchall()
+                if not _dbuf_lite_rows:
+                    _dbuf_lite_rows = conn.execute(
+                        "SELECT id, summary, content, chunk_type, importance "
+                        "FROM memory_chunks WHERE (project=? OR project='global') AND chunk_state='ACTIVE' "
+                        "ORDER BY access_count ASC, importance DESC LIMIT 5",
+                        (project,)
+                    ).fetchall()
                 if _dbuf_lite_rows:
                     import time as _dbuf_lite_time
                     _dbuf_lite_idx = int(_dbuf_lite_time.time() // 60) % len(_dbuf_lite_rows)
