@@ -3146,7 +3146,7 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
             try:
                 # iter1146: visible_chunk_count — micro_db 判定计入 global chunk
                 _db_chunk_count = _rc_conn.execute(
-                    "SELECT COUNT(*) FROM memory_chunks WHERE project=? OR project='global'",
+                    "SELECT COUNT(*) FROM memory_chunks WHERE (project=? OR project='global') AND chunk_state='ACTIVE'",
                     (project,)
                 ).fetchone()[0] or 0
             except Exception:
@@ -3156,7 +3156,7 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
             _local_chunk_count_d = _db_chunk_count
             try:
                 _local_chunk_count_d = _rc_conn.execute(
-                    "SELECT COUNT(*) FROM memory_chunks WHERE project=?", (project,)
+                    "SELECT COUNT(*) FROM memory_chunks WHERE project=? AND chunk_state='ACTIVE'", (project,)
                 ).fetchone()[0] or 0
             except Exception:
                 pass
