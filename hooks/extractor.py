@@ -2933,6 +2933,17 @@ def _write_chunk(chunk_type: str, summary: str, project: str, session_id: str,
     if chunk_type in ("causal_chain", "reasoning_chain") and not content_override:
         if re.search(r'[？?]\s*$', summary.rstrip()) or re.match(r'^(?:好问题|所以问题是)', summary.lstrip()):
             return
+    # iter1508: task_execution_status_gate — 任务执行状态/进度报告拦截
+    # 数据驱动（2026-05-11）：4 条 ac=0 chunk 是任务执行快照而非可复用知识：
+    #   "手动触发的 /lore-track 执行了"、"下次定时执行时才会完整跑通"、"#2 merged"、"PR 状态 🗄️"。
+    #   特征：含执行动作词 + 时效性进度状态，无可泛化因果/决策。
+    if chunk_type in ("causal_chain", "decision", "reasoning_chain") and not (content_override and content_override.strip() != summary.strip()):
+        if re.search(
+            r'手动触发|执行了\s*\w+\s*部分|下次.*执行|定时执行|'
+            r'(?:—|──)\s*merged|^\s*[✅❌🗄️⏳]+\s*#\d+\s+\S+.*(?:merged|closed|open)|'
+            r'PR\s*状态|子会话.*跑通|forked\s*子会话',
+            summary, re.IGNORECASE):
+            return
     # iter1496: constraint_semantic_require — 无 content_override 的短 design_constraint 必含约束语义词
     # 数据驱动（2026-05-11）：SWAPPED 4f438de1 "（PROC_EVENT_EXEC 时..."(57字) + 5d1583a6 "fix（最小..."(56字)
     #   content==summary、无约束动词，是对话碎片被误标 constraint。绕过路径：
