@@ -2929,6 +2929,18 @@ def _write_chunk(chunk_type: str, summary: str, project: str, session_id: str,
     if chunk_type in ("causal_chain", "reasoning_chain") and not content_override:
         if re.search(r'[？?]\s*$', summary.rstrip()) or re.match(r'^(?:好问题|所以问题是)', summary.lstrip()):
             return
+    # iter1496: constraint_semantic_require — 无 content_override 的短 design_constraint 必含约束语义词
+    # 数据驱动（2026-05-11）：SWAPPED 4f438de1 "（PROC_EVENT_EXEC 时..."(57字) + 5d1583a6 "fix（最小..."(56字)
+    #   content==summary、无约束动词，是对话碎片被误标 constraint。绕过路径：
+    #   content_override=None → _co_is_echo=False → 跳过 constraint_echo_semantic_gate。
+    # 修复：无 rich content 的 design_constraint <=80 字时，要求含约束语义词。
+    _has_rich_co = content_override and content_override.strip() != summary.strip()
+    if chunk_type == "design_constraint" and not _has_rich_co and len(summary) <= 80:
+        if not re.search(
+            r'必须|禁止|不得|不能|不要|不可|应该|shall|must|never|always|禁用|强制|仅用|'
+            r'不允许|只能|才能|不应|cannot|should not|do not|don.t|avoid',
+            summary, re.IGNORECASE):
+            return
     # iter1293: episodic_short_fragment_gate — 短于 80 字的 episodic chunk 拒绝写入
     # 数据驱动（2026-05-09）：14 条 ac=0 噪声全 <80 字且无 content_override。
     #   如 "Gap 1：飞轮的...闭环没有打通"(22字)、"所以第一性原理下的..."(14字)。
