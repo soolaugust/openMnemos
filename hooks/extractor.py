@@ -2924,7 +2924,9 @@ def _write_chunk(chunk_type: str, summary: str, project: str, session_id: str,
     _ITER_SELF_PATTERNS = re.compile(
         r'GC\s*\d+\s*条|ACTIVE\s*(?:池|\d+\s*→)|ac=0\s*率|零访问率|tests?\s*pass|净增|net$|迭代器|iter\d{3,4}[:\s]'
         r'|retriever\.py|extractor\.py|memory.os不是|vDSO\s*Stage|import\s*链路|冷启动.{0,20}ms'
-        r'|compaction的根因|tool\s*output\s*体积|pathlib.{0,20}import',
+        r'|compaction的根因|tool\s*output\s*体积|pathlib.{0,20}import'
+        r'|hit_rate:\s*[\d.]+%|用.{1,6}定位而非|这边没\s*$|量化改善[：:]|HEALTHY\s*$'
+        r'|swap\s*\d+\s*条|noise\s*chunk|Swapped\s*\d+',
         re.IGNORECASE)
     if _ITER_SELF_PATTERNS.search(summary):
         return
