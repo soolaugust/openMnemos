@@ -2938,7 +2938,11 @@ def _write_chunk(chunk_type: str, summary: str, project: str, session_id: str,
         r'|MMR\s*无法|sim_threshold|diversity.penalty|Jaccard.{0,6}相似|注入位\s*\d+%|_cross_proj_floor'
         r'|量化[：:]\s*(?:PA|预期|ACTIVE|zero)'
         r'|content_override\s*[=≈]|echo_content|rich\s*content.{0,20}chunk|chunk_state|_write_chunk'
-        r'|逃逸.*阈值.{0,20}chunk|合法\s*chunk\s*都有',
+        r'|逃逸.*阈值.{0,20}chunk|合法\s*chunk\s*都有'
+        r'|score_floor|BM25\s*vocabulary|空召回率.*降低|预期效果.*空召回'
+        r'|pre.existing\s*failure|与本轮无关|同步.*retriever.*daemon|chunk\s*库.*floor'
+        r'|_db_chunk_count|suppress.*阈值.*→|score_floor.*→'
+        r'|空召回率.*\d+%|score\s*<\s*floor',
         re.IGNORECASE)
     if _ITER_SELF_PATTERNS.search(summary):
         return
