@@ -3107,7 +3107,11 @@ def main():
                 #   根因（数据驱动，2026-05-06）：85-chunk 库中 13/21 活跃 chunk 7d>=3 被 suppress，
                 #   candidates=10 全灭 → 40% 空召回。85 chunk 库日均 1 session 使用同一知识是正常频率。
                 #   6h/24h burst suppress 仍有效，7d 过紧导致核心知识被永久封锁。
-                _suppress_7d_thresh = 7 if _tiny_db else (4 if score >= 0.5 else 3) if _small_db else (5 if score >= 0.5 else 3)  # iter1497: small_db 6/4→4/3
+                # iter1535: tiny_db_7d_base_tighten — tiny_db base 7→5
+                # 根因（数据驱动，2026-05-11）：37-chunk 库 top8 各 7d=3，ac=4 local chunk
+                #   走 max(2,7-2)=5 永远不触发 suppress（7d 最高仅 3）。base=7 是 iter990 放宽遗留，
+                #   但 37-chunk 库日均 3 session 使用同知识已是垄断。5 让 ac=4 thresh=3 立即生效。
+                _suppress_7d_thresh = 5 if _tiny_db else (4 if score >= 0.5 else 3) if _small_db else (5 if score >= 0.5 else 3)  # iter1535: tiny 7→5
                 # iter993: global_chunk_suppress_tighten — global chunk 阈值 -1
                 # iter1006: global_saturated_suppress_tighten — ac>=4 的 global chunk 阈值 -2
                 # 根因（数据驱动，2026-05-06）：feishu CLI(ac=4,7d=4)、memory验证(ac=6,7d=4)、
