@@ -184,6 +184,21 @@ class SQLiteBackend(VFSBackend):
                 return False
         except ImportError:
             pass
+        # iter1533: vfs_backend_selfref_gate — 对齐 store_mm selfref 拦截
+        # 根因（数据驱动，2026-05-11）：5b21efaa(causal_chain, "count_active — _db_chunk_count...")
+        #   hits=4 应被拦截，但 vfs_backend 路径缺少 _is_selfref_noise → 逃逸写入 ACTIVE。
+        #   store_mm(iter1390) 和 extractor(iter1117) 均有此 gate，唯独 vfs_backend 遗漏。
+        try:
+            from hooks.extractor import _is_selfref_noise
+            if _is_selfref_noise(item.summary or "", item.type or ""):
+                return False
+        except ImportError:
+            pass
+        # iter1533: vfs_backend_echo_gate — content==summary 无 rich content 拒绝
+        _summary = (item.summary or "").strip()
+        _content = (item.content or "").strip()
+        if _summary and _content == _summary and item.type != "design_constraint":
+            return False
 
         try:
             conn = self._get_conn()
