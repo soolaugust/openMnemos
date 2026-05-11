@@ -4522,7 +4522,8 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                                           session_id=session_id, project=project)
             if top_k:
                 # iter919: score_floor_gate_hd — hard_deadline 路径 score_floor 保护（同步 retriever.py）
-                _sf_hd = 0.12
+                # iter1517: daemon_small_db_floor_sync (hd path)
+                _sf_hd = 0.08 if _db_chunk_count < 50 else 0.12
                 if _db_chunk_count > 5:
                     _sf_hd_above = [(s, c) for s, c in top_k if s >= _sf_hd]
                     if _sf_hd_above:
@@ -5915,7 +5916,8 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
         # iter913: score_floor_raise — 数据驱动提升阈值
         # 根因（数据驱动，2026-05-06）：73% 注入 score<0.15，useful feedback 最低=0.15。
         #   0.08 阈值过低未过滤任何噪声。提升到 0.12 过滤 40% 低相关性注入。
-        _score_floor = 0.12
+        # iter1517: daemon_small_db_floor_sync — 同步 retriever.py iter1507
+        _score_floor = 0.08 if _db_chunk_count < 50 else 0.12
         # iter1067: global_saturated_floor — 已内化 global constraint 提高 floor
         # 数据驱动（2026-05-07）：feishu CLI(ac=4,score=0.19)、memory验证(ac=6,score=0.15)
         #   在 kernel session 中过 0.12 floor 被注入，与当前工作完全无关。
