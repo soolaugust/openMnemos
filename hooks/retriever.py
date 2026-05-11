@@ -1051,7 +1051,9 @@ def _build_query(hook_input: dict) -> str:
     1600字 query → ~800 tokens → 9 docs 匹配也要 200ms+。
     截断到 300 字（~150 tokens）可将 FTS5 时间从 200ms+ 降到 <10ms。
     """
-    prompt = hook_input.get("prompt", "") or ""
+    # iter1491: align with vDSO path (iter685) — support hookSpecificInput.userMessage
+    _hsi_bq = hook_input.get("hookSpecificInput", {})
+    prompt = (_hsi_bq.get("userMessage", "") or hook_input.get("prompt", "") or "").strip()
     task_list = hook_input.get("task_list") or hook_input.get("tasks") or []
     if isinstance(task_list, str):
         try:
@@ -1467,7 +1469,9 @@ def main():
                   or os.environ.get("CLAUDE_SESSION_ID", "")
                   or "unknown")
 
-    prompt = hook_input.get("prompt", "") or ""
+    # iter1491: align with vDSO path (iter685) — support hookSpecificInput.userMessage
+    _hsi_main = hook_input.get("hookSpecificInput", {})
+    prompt = (_hsi_main.get("userMessage", "") or hook_input.get("prompt", "") or "").strip()
     query = _build_query(hook_input)
 
     # ── iter372: Context-Aware current context — cwd + focus keywords ──────────
@@ -1511,6 +1515,9 @@ def main():
         # nice 19：零 I/O，直接退出
         # 注：迭代61 vDSO 已在 heavy import 前拦截大部分 SKIP，这里是 defense in depth
         sys.exit(0)
+
+    # iter1491: init closures that may be conditionally defined in branch-specific code
+    _hd1273_lifetime_ok = lambda c: True
 
     # ── 迭代57→64：TLB v2 — Multi-Slot + chunk_version ──
     # 迭代64 升级：vDSO Stage 1 已检查 chunk_version（无缺页时），这里做 defense-in-depth
@@ -2632,6 +2639,8 @@ def main():
             #   导致 5/6 凌晨 7 次连续空召回（该项目唯一本地知识被锁死）。
             # 修复：local_sparse + 本地 chunk → 跳过 cooldown（与 iter1200 对齐）。
             _sparse_cd_shield = _local_sparse and not _cd_is_cross_project
+            # iter1491: _never_injected must be computed before cooldown check (was defined later at line 2720)
+            _never_injected = not _injection_timeline.get(chunk.get("id", ""))
             if not _never_injected and not _sparse_cd_shield and (not _micro_db or _cd_is_cross_project) and (_cd_is_global or _acc >= _cd_acc_floor) and _cutoff_48h:
                 _cd_id = chunk.get("id", "")
                 _cd_ts_list = _injection_timeline.get(_cd_id) if _injection_timeline else None
@@ -4112,6 +4121,8 @@ def main():
             _mpf_live = _live_access_counts([c["id"] for _, c in top_k])
             top_k = [(s, c) for s, c in top_k
                      if (_mpf_live.get(c["id"], c.get("access_count", 0) or 0)) < 30]
+            # iter1491: fallback definition — may be redefined inside suppress_final_gate
+            _hd1273_lifetime_ok = lambda c: True
             # ── iter663: suppress_final_gate — 24h/7d suppress 在最终门禁兜底 ──
             # 根因（数据驱动，2026-05-04）：24h suppress 在 _score_chunk 内依赖
             #   闭包变量 _recent_24h_counts，但该变量在进程启动时一次性从 timeline

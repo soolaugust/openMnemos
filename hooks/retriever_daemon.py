@@ -2509,7 +2509,9 @@ def _run_retrieval(hook_input: dict):
     """
     # iter206: removed dead _modules unpack block (~2.56us) — all vars only used in _retriever_main_impl
 
-    prompt = (hook_input.get("prompt", "") or "").strip()
+    # iter1491: align hookSpecificInput.userMessage (Claude Code format)
+    _hsi_d = hook_input.get("hookSpecificInput", {})
+    prompt = (_hsi_d.get("userMessage", "") or hook_input.get("prompt", "") or "").strip()
     if not prompt:
         return
 
@@ -2801,7 +2803,9 @@ def _build_query_with_entities(hook_input: dict) -> tuple:
     """iter189: 返回 (query, entities) 避免 _retriever_main_impl 二次调用 _extract_key_entities。
     OS 类比：register file passing — Stage1 计算的值通过参数传给 Stage2，不重算。
     """
-    prompt = hook_input.get("prompt", "") or ""
+    # iter1491: align hookSpecificInput.userMessage (Claude Code format)
+    _hsi_bq = hook_input.get("hookSpecificInput", {})
+    prompt = (_hsi_bq.get("userMessage", "") or hook_input.get("prompt", "") or "").strip()
     task_list = hook_input.get("task_list") or hook_input.get("tasks") or []
     if isinstance(task_list, str):
         try:
@@ -2879,7 +2883,9 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
     session_id = (hook_input.get("session_id", "")
                   or os.environ.get("CLAUDE_SESSION_ID", "")
                   or "unknown")
-    prompt = hook_input.get("prompt", "") or ""
+    # iter1491: align hookSpecificInput.userMessage (Claude Code format)
+    _hsi_m = hook_input.get("hookSpecificInput", {})
+    prompt = (_hsi_m.get("userMessage", "") or hook_input.get("prompt", "") or "").strip()
     # iter189: _build_query_with_entities 同时返回 entities，避免下方第二次调用
     # OS 类比：register passing — Stage1 计算结果直接传递，不重算
     query, entities = _build_query_with_entities(hook_input)
