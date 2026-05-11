@@ -6393,11 +6393,19 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 # iter917: write_trace_empty_guard — 对齐 retriever.py，防空 top_k 污染统计
                 if _effective_injected and not _effective_top_k:
                     _effective_injected = 0
-                # iter1221: daemon_ftrace_writeback — 零注入时写入 ftrace 辅助诊断
+                # iter1221+1487: daemon_ftrace_writeback — 零注入时写入 ftrace 辅助诊断
+                # iter1487: 扩大捕获范围 — 空注入+有候选时记录全部 deferred log（不限关键词）
+                #   根因（数据驱动，2026-05-11）：128 条 trace ftrace_json 全 NULL。
+                #   原因：suppress 在 _score_chunk 内返回 0 不写 dmesg，fallback 也不触发时无 log。
+                #   关键词过滤仅匹配 6 个词 → 全 miss → ftrace=None → 空召回无法诊断。
+                # 修复：candidates>0 时记录 deferred log 尾部 5 条（任意内容），兜底诊断。
                 _ftrace_entries = None
                 if not _effective_injected and _deferred_buf:
-                    _ftrace_entries = [msg for _, _, msg, _, _, _ in _deferred_buf
-                                       if any(k in msg for k in ("suppress", "fallback", "全灭", "empty", "zero", "thresh"))]
+                    if _candidates_count > 0:
+                        _ftrace_entries = [msg for _, _, msg, _, _, _ in _deferred_buf[-5:]]
+                    else:
+                        _ftrace_entries = [msg for _, _, msg, _, _, _ in _deferred_buf
+                                           if any(k in msg for k in ("suppress", "fallback", "全灭", "empty", "zero", "thresh"))]
                     if not _ftrace_entries:
                         _ftrace_entries = None
                 store_insert_trace(_wconn, {
