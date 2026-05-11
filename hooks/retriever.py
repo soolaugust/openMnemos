@@ -3159,8 +3159,19 @@ def main():
                     #   根因（数据驱动，2026-05-11）：git:a4ee2fcfacc4(32 chunk) 5/6 五次 FULL 全空召回，
                     #   cands=21-59 但 top_k=0。3 个 global ac>=4 chunk(7d=3-4) 被 thresh=2 封杀，
                     #   剩余 4 个 local ac=1 新知识 BM25 分过低 → 全灭。tiny_db 库更依赖 global 知识。
+                    # iter1562: global_dc_monopoly_cap — global dc ac>=4 thresh 4→3
+                    #   根因（数据驱动，2026-05-12）：feishu CLI(ac=4,dc,global) 7d=4x 跨 3 项目，
+                    #   git commit(ac=4,dc,global) 7d=4x 跨 2 项目。thresh=4 需 4 次才 suppress，
+                    #   跨项目 TOCTOU 使实际达 4 次。dc 约束只需见 1 次即可遵守，7d 3 次仍过多。
+                    #   thresh=3 限制为 2 次/7d（TOCTOU 最差+1=3），释放注入位给领域知识。
+                    #   空召回保护：suppress_fallback 兜底（iter670/776），且仅针对 dc 子类型。
                     if _tiny_db:
-                        _suppress_7d_thresh = 4 if _g_ac_full >= 4 else 5
+                        if _g_ac_full >= 4 and chunk.get("chunk_type") == "design_constraint":
+                            _suppress_7d_thresh = 3
+                        elif _g_ac_full >= 4:
+                            _suppress_7d_thresh = 4
+                        else:
+                            _suppress_7d_thresh = 5
                     elif _small_db:
                         _suppress_7d_thresh = 2 if _g_ac_full >= 4 else 4
                     else:
@@ -4268,7 +4279,10 @@ def main():
                         if _local_sparse and _cp == "global":
                             return 2 if _g_ac >= 4 else 5
                         # iter1524: tiny_db_global_7d_relax — sync hard_deadline
+                        # iter1562: global_dc_monopoly_cap — sync hard_deadline
                         if _hd_tiny_db:
+                            if _g_ac >= 4 and c.get("chunk_type") == "design_constraint":
+                                return 3
                             return 4 if _g_ac >= 4 else 5
                         if _hd_small_db:
                             return 2 if _g_ac >= 4 else 4
@@ -4431,6 +4445,9 @@ def main():
                     _ps842_hd_best = max(_ps842_hd_cands, key=lambda x: x[0])
                     if _ps842_hd_best[0] >= 0.3:
                         _ps842_hd_score = top_k[0][0] * 0.25
+                        # iter1562: pair_inherit_floor_protect
+                        if top_k[0][1].get("_fallback_protected"):
+                            _ps842_hd_best[1]["_fallback_protected"] = True
                         top_k.append((_ps842_hd_score, _ps842_hd_best[1]))
                         _deferred.log(DMESG_DEBUG, "retriever",
                                       f"iter842_pair_from_final_hd: paired "
@@ -6810,6 +6827,9 @@ def main():
                               and _pair_suppress_ok(c.get("id", ""), s, ac=c.get("access_count", 0) or 0)]
             if _ps_candidates:
                 _ps_best = max(_ps_candidates, key=lambda x: x[0])
+                # iter1562: pair_inherit_floor_protect
+                if top_k[0][1].get("_fallback_protected"):
+                    _ps_best[1]["_fallback_protected"] = True
                 top_k.append(_ps_best)
                 _deferred.log(DMESG_DEBUG, "retriever",
                               f"iter832_post_suppress_pair: paired {_ps_best[1].get('id','')[:12]} "
@@ -6833,6 +6853,9 @@ def main():
                 _ps842_best = max(_ps842_cands, key=lambda x: x[0])
                 if _ps842_best[0] >= 0.3:
                     _ps842_score = top_k[0][0] * 0.25
+                    # iter1562: pair_inherit_floor_protect — pair 继承 dead_zone _fallback_protected
+                    if top_k[0][1].get("_fallback_protected"):
+                        _ps842_best[1]["_fallback_protected"] = True
                     top_k.append((_ps842_score, _ps842_best[1]))
                     _deferred.log(DMESG_DEBUG, "retriever",
                                   f"iter842_pair_from_final: paired {_ps842_best[1].get('id','')[:12]} "
@@ -6892,6 +6915,9 @@ def main():
                                     "content": _dp895_pick[2], "chunk_type": _dp895_pick[3] or "",
                                     "importance": _dp895_pick[4] or 0.5}
                     _dp895_score = top_k[0][0] * 0.2  # 配对 score 为主条的 20%
+                    # iter1562: pair_inherit_floor_protect
+                    if top_k[0][1].get("_fallback_protected"):
+                        _dp895_chunk["_fallback_protected"] = True
                     top_k.append((_dp895_score, _dp895_chunk))
                     _deferred.log(DMESG_DEBUG, "retriever",
                                   f"iter895_db_diversity_pair: paired {_dp895_pick[0][:12]} "
@@ -7759,6 +7785,9 @@ def main():
                 _ps842_lite_best = max(_ps842_lite_cands, key=lambda x: x[0])
                 if _ps842_lite_best[0] >= 0.3:
                     _ps842_lite_score = top_k[0][0] * 0.25
+                    # iter1562: pair_inherit_floor_protect
+                    if top_k[0][1].get("_fallback_protected"):
+                        _ps842_lite_best[1]["_fallback_protected"] = True
                     top_k.append((_ps842_lite_score, _ps842_lite_best[1]))
                     _deferred.log(DMESG_DEBUG, "retriever",
                                   f"iter842_pair_from_final_lite: paired "

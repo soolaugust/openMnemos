@@ -3881,9 +3881,15 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                     if (chunk[_CI_CP] or "") == "global":
                         # iter1478: global_deep_saturated_7d_tighten — ac>=4 thresh 3→2
                         # iter1524: tiny_db_global_7d_relax — tiny_db(<50) ac>=4 thresh 2→4
+                        # iter1562: global_dc_monopoly_cap — dc ac>=4 thresh 4→3
                         _g_ac_d = chunk[_CI_AC] or 0
                         if _s672_tiny:
-                            _7d_base = 4 if _g_ac_d >= 4 else 5
+                            if _g_ac_d >= 4 and chunk[_CI_CT] == "design_constraint":
+                                _7d_base = 3
+                            elif _g_ac_d >= 4:
+                                _7d_base = 4
+                            else:
+                                _7d_base = 5
                         elif _s672_small:
                             _7d_base = 2 if _g_ac_d >= 4 else 4
                         else:
@@ -4086,7 +4092,13 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                     if (chunk.get("project", "") or "") == "global":
                         _g_ac_d2 = chunk.get("access_count", 0) or 0
                         if _s672d_tiny:
-                            _7d_base_d2 = 4 if _g_ac_d2 >= 4 else 5
+                            # iter1562: global_dc_monopoly_cap — sync dict path
+                            if _g_ac_d2 >= 4 and chunk.get("chunk_type") == "design_constraint":
+                                _7d_base_d2 = 3
+                            elif _g_ac_d2 >= 4:
+                                _7d_base_d2 = 4
+                            else:
+                                _7d_base_d2 = 5
                         elif _s672d_small:
                             _7d_base_d2 = 2 if _g_ac_d2 >= 4 else 4
                         else:
@@ -4494,6 +4506,9 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                     _ps842_hd_best = max(_ps842_hd_cands, key=lambda x: x[0])
                     if _ps842_hd_best[0] >= 0.3:
                         _ps842_hd_score = top_k[0][0] * 0.25
+                        # iter1562: pair_inherit_floor_protect
+                        if top_k[0][1][_CI_ID] in _fallback_protected_ids:
+                            _fallback_protected_ids.add(_ps842_hd_best[1][_CI_ID])
                         top_k.append((_ps842_hd_score, _ps842_hd_best[1]))
                         _deferred.log(DMESG_DEBUG, "retriever_daemon",
                                       f"iter842_pair_from_final_hd: paired "
@@ -5307,6 +5322,9 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                         if _local_sparse_d:
                             return 3 if _g_ac_fg >= 4 else 5
                         if _s672_tiny:
+                            # iter1562: global_dc_monopoly_cap — sync suppress_final_gate
+                            if _g_ac_fg >= 4 and c[_CI_CT] == "design_constraint":
+                                return 3
                             return 4 if _g_ac_fg >= 4 else 5
                         if _s672_small:
                             return 2 if _g_ac_fg >= 4 else 4
@@ -5436,6 +5454,9 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                     if _local_sparse_d:
                         return 3 if _g_ac_cf >= 4 else 5
                     if _fg887d_tiny:
+                        # iter1562: global_dc_monopoly_cap — sync closure fallback
+                        if _g_ac_cf >= 4 and c[_CI_CT] == "design_constraint":
+                            return 3
                         return 4 if _g_ac_cf >= 4 else 5
                     if _fg887d_small:
                         return 2 if _g_ac_cf >= 4 else 4
@@ -5509,6 +5530,9 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
             if _ps_candidates:
                 _ps_best = max(_ps_candidates, key=lambda x: x[0])
                 top_k.append(_ps_best)
+                # iter1562: pair_inherit_floor_protect
+                if _ps_top1_id in _fallback_protected_ids:
+                    _fallback_protected_ids.add(_ps_best[1][_CI_ID])
                 _deferred.log(DMESG_DEBUG, "retriever_daemon",
                               f"iter832_post_suppress_pair: paired {_ps_best[1][_CI_ID][:12]} "
                               f"s={_ps_best[0]:.3f} with top1={_ps_top1_id[:12]}",
@@ -5526,6 +5550,9 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 if _ps842_best[0] >= 0.3:
                     _ps842_score = top_k[0][0] * 0.25
                     top_k.append((_ps842_score, _ps842_best[1]))
+                    # iter1562: pair_inherit_floor_protect — pair 继承 dead_zone 保护
+                    if top_k[0][1][_CI_ID] in _fallback_protected_ids:
+                        _fallback_protected_ids.add(_ps842_best[1][_CI_ID])
                     _deferred.log(DMESG_DEBUG, "retriever_daemon",
                                   f"iter842_pair_from_final: paired {_ps842_best[1][_CI_ID][:12]} "
                                   f"imp={_ps842_best[0]:.2f} with top1={_ps842_top1_id[:12]}",
@@ -5567,6 +5594,9 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                                     _dp895_pick[5] or 0) + (None,) * 6
                     _dp895_score = top_k[0][0] * 0.2
                     top_k.append((_dp895_score, _dp895_chunk))
+                    # iter1562: pair_inherit_floor_protect
+                    if _dp895_top1_id in _fallback_protected_ids:
+                        _fallback_protected_ids.add(_dp895_pick[0])
                     _deferred.log(DMESG_DEBUG, "retriever_daemon",
                                   f"iter895_db_diversity_pair: paired {_dp895_pick[0][:12]} "
                                   f"type={_dp895_pick[3]} imp={_dp895_pick[4]:.2f} "
@@ -5971,13 +6001,20 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
         _GLOBAL_SAT_FLOOR = 0.25
         # iter1068: local_saturated_floor — 扩展到本地高 ac chunk
         _LOCAL_SAT_AC_THRESH = 7
+        # iter1562: saturated_floor_tuple_safe — .get() → _CI_* 常量，修复 tuple chunk crash
+        def _sat_floor_ac(c):
+            return (c[_CI_AC] or 0) if isinstance(c, (list, tuple)) else (c.get("access_count") or 0)
+        def _sat_floor_proj(c):
+            return (c[_CI_CP] or "") if isinstance(c, (list, tuple)) else (c.get("project") or "")
+        def _sat_floor_ct(c):
+            return (c[_CI_CT] or "") if isinstance(c, (list, tuple)) else (c.get("chunk_type") or "")
         if len(top_k) > 0:
             top_k = [(s, c) if not (
-                (c.get("project") == "global"
-                 and c.get("chunk_type") == "design_constraint"
-                 and (c.get("access_count") or 0) >= 4
+                (_sat_floor_proj(c) == "global"
+                 and _sat_floor_ct(c) == "design_constraint"
+                 and _sat_floor_ac(c) >= 4
                  and s < _GLOBAL_SAT_FLOOR)
-                or ((c.get("access_count") or 0) >= _LOCAL_SAT_AC_THRESH
+                or (_sat_floor_ac(c) >= _LOCAL_SAT_AC_THRESH
                     and s < _GLOBAL_SAT_FLOOR)
             ) else (0.0, c) for s, c in top_k]
         if len(top_k) > 0 and _db_chunk_count > 5:
