@@ -2922,7 +2922,7 @@ def _write_chunk(chunk_type: str, summary: str, project: str, session_id: str,
     # 数据驱动（2026-05-11）：f981f998 "GC 11条echo噪声chunk" + f54e9cb2 "量化：零访问率"
     #   content==summary，记录迭代器 GC/量化结果，ac=0，对用户零价值。
     _ITER_SELF_PATTERNS = re.compile(
-        r'GC\s*\d+\s*条|ACTIVE\s*(?:池|\d+\s*→)|ac=0\s*率|零访问率|tests?\s*pass|净增|net$|迭代器|iter\d{3,4}[:\s]'
+        r'GC\s*\d+\s*条|(?:ACTIVE|global|local)\s*(?:池|\d+\s*→)|\w*池\s*\d+\s*→\s*\d+|ac=0\s*率|零访问率|tests?\s*pass|净增|net$|迭代器|iter\d{3,4}[:\s]'
         r'|retriever\.py|extractor\.py|memory.os不是|vDSO\s*Stage|import\s*链路|冷启动.{0,20}ms'
         r'|compaction的根因|tool\s*output\s*体积|pathlib.{0,20}import'
         r'|hit_rate:\s*[\d.]+%|用.{1,6}定位而非|这边没\s*$|量化改善[：:]|HEALTHY\s*$'
