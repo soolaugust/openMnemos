@@ -3861,7 +3861,11 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 # iter990: small_db_7d_relax_v3 — small_db 4/3→6/4（sync retriever.py）
                 #   根因：85-chunk 库 13/21 活跃 chunk 7d>=3 被 suppress → 40% 空召回
                 if score > 0:  # iter1071: fix syntax — 原 else 与 if 不配对，改为独立 guard
-                    _7d_base = 7 if _s672_tiny else (4 if score >= 0.5 else 3) if _s672_small else (5 if score >= 0.5 else 3)  # iter1497: small_db 6/4→4/3
+                    # iter1513: tiny_db_7d_tighten — 7→4 去垄断
+                    # 根因（数据驱动，2026-05-11）：38-chunk 库 import-90139(ac=3) 7d=5，
+                    #   因 tiny_db _7d_base=7 使低 ac chunk 周注入 6 次才 suppress。
+                    #   用户 3-4 次注入后已内化，继续注入为垄断。收紧到 4。
+                    _7d_base = 4 if _s672_tiny else (4 if score >= 0.5 else 3) if _s672_small else (5 if score >= 0.5 else 3)
                     # iter1194: global_unified_thresh — sync daemon _score_chunk
                     # iter1462: small_db_global_7d_relax — <100 库 global 阈值 2→4
                     #   根因（数据驱动，2026-05-11）：66-chunk 库 5/8 global chunk 被 7d>=2 封杀，
