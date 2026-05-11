@@ -5973,6 +5973,31 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                                   f"id={_sf_best[1][_CI_ID][:12]}, skipping injection",
                                   session_id=session_id, project=project)
                     top_k = []
+                    # iter1525: sparse_local_priority — sparse 项目 floor_gate 全灭时注入本地知识
+                    # 根因（数据驱动，2026-05-11）：git:78dc99a5695f(1 local + 6 global = 7 visible)
+                    #   FTS5 只命中跨项目 chunk → suppress 全灭 → fallback 恢复跨项目 chunk(score=0.084)
+                    #   → floor_gate 清空。本地唯一知识(58c70136,imp=0.85) 从未进入候选池（FTS5 不匹配）。
+                    #   用户在该项目中 9/9 空召回(100%)，但有 1 条高价值本地知识从未被注入。
+                    # 修复：floor_gate 清空后，如果 _local_sparse_d=True，从 DB 选本地最高 imp chunk。
+                    #   仅当本地有 ACTIVE chunk 时触发；global-only 项目不触发（避免噪声）。
+                    if _local_sparse_d:
+                        try:
+                            _slp_rows = conn.execute(
+                                "SELECT id, summary, content, chunk_type, importance, "
+                                "COALESCE(access_count,0), created_at, 0.0, COALESCE(lru_gen,0), project "
+                                "FROM memory_chunks WHERE project=? AND chunk_state='ACTIVE' "
+                                "ORDER BY importance DESC LIMIT 1",
+                                (project,)
+                            ).fetchall()
+                            if _slp_rows:
+                                top_k = [(0.001, _slp_rows[0])]
+                                _fallback_protected_ids.add(_slp_rows[0][_CI_ID])
+                                _deferred.log(DMESG_WARN, "retriever_daemon",
+                                              f"iter1525_sparse_local_priority: "
+                                              f"id={_slp_rows[0][0][:12]} imp={_slp_rows[0][4]:.2f} project={project}",
+                                              session_id=session_id, project=project)
+                        except Exception:
+                            pass
 
         # ── iter975: output_monopoly_filter — 最终输出前去垄断（single control point）──
         # 根因（数据驱动，2026-05-06）：suppress 分散在十余处，垄断 chunk 总能逃逸。

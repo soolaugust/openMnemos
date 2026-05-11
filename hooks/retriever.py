@@ -7736,6 +7736,27 @@ def main():
                                   f"id={_sf_best[1].get('id','')[:12]}, skipping injection",
                                   session_id=session_id, project=project)
                     top_k = []
+                    # iter1525: sparse_local_priority — sparse 项目 floor_gate 全灭时注入本地知识
+                    if _local_sparse:
+                        try:
+                            _slp_rows = conn.execute(
+                                "SELECT id, summary, content, chunk_type, importance "
+                                "FROM memory_chunks WHERE project=? AND chunk_state='ACTIVE' "
+                                "ORDER BY importance DESC LIMIT 1",
+                                (project,)
+                            ).fetchall()
+                            if _slp_rows:
+                                _slp_c = {"id": _slp_rows[0][0], "summary": _slp_rows[0][1],
+                                          "content": _slp_rows[0][2], "chunk_type": _slp_rows[0][3] or "",
+                                          "importance": _slp_rows[0][4] or 0.5,
+                                          "_fallback_protected": True}
+                                top_k = [(0.001, _slp_c)]
+                                _deferred.log(DMESG_WARN, "retriever",
+                                              f"iter1525_sparse_local_priority: "
+                                              f"id={_slp_rows[0][0][:12]} imp={_slp_rows[0][4]:.2f}",
+                                              session_id=session_id, project=project)
+                        except Exception:
+                            pass
 
         # ── 迭代359：Session Injection Deduplication ──────────────────────
         # OS 类比：Linux copy-on-write page dedup（KSM kernel samepage merging）
