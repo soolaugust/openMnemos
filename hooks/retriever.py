@@ -2864,9 +2864,13 @@ def main():
                 if _acc is not None and _acc >= 4:
                     _dp_factor *= 1.0 + 0.15 * (_acc - 3)
                 # iter1551: timeline_cumulative_boost — 全历史累积注入加权
+                # iter1552: cumulative_boost_tighten — 阈值 5→3, 系数 0.2→0.35
+                # 根因（数据驱动，2026-05-12）：98-chunk 库 inj=6 的 chunk 衰减仅 1.4x，
+                #   高 FTS 基分仍胜出垄断 30d。阈值=5 使 inj=3-4 chunk 完全逃逸。
+                # 修复：阈值 3, 系数 0.35 使 inj=6→2.05x 衰减, inj=4→1.35x。
                 _total_inj = len(_injection_timeline.get(chunk.get("id", ""), []))
-                if _total_inj >= 5:
-                    _dp_factor *= 1.0 + 0.2 * (_total_inj - 4)
+                if _total_inj >= 3:
+                    _dp_factor *= 1.0 + 0.35 * (_total_inj - 2)
                 score *= 1.0 / (1.0 + _r7d_dp * _dp_factor)
                 # iter1004: type_concentration_penalty — 群体垄断额外衰减
                 # iter1005: progressive_type_penalty — 按个体 7d 计数累进衰减

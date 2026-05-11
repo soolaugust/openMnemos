@@ -3794,6 +3794,10 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
             if _r7d_sc > 0 and _db_chunk_count > 5:
                 # iter969: diversity_factor_align_small_db — <100 统一 0.55
                 _dp_factor = 0.55 if _db_chunk_count < 100 else 0.35
+                # iter1552: cumulative_boost_tighten — sync retriever.py timeline_cumulative_boost
+                _total_inj_d = _itl_lifetime.get(_cid, (0,))[0] if _itl_lifetime else 0
+                if _total_inj_d >= 3:
+                    _dp_factor *= 1.0 + 0.35 * (_total_inj_d - 2)
                 score *= 1.0 / (1.0 + _r7d_sc * _dp_factor)
                 # iter1029: project_concentration_penalty — 同项目群体垄断衰减
                 # iter1123: proj_conc_threshold_lower — 阈值 0.45→0.38, 衰减 0.75→0.70
@@ -4023,6 +4027,10 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
             if _r7d_sd > 0 and _db_chunk_count > 5:
                 # iter969: diversity_factor_align_small_db
                 _dp_factor_d = 0.55 if _db_chunk_count < 100 else 0.35
+                # iter1552: cumulative_boost_tighten — sync retriever.py timeline_cumulative_boost
+                _total_inj_d2 = _itl_lifetime.get(_cid, (0,))[0] if _itl_lifetime else 0
+                if _total_inj_d2 >= 3:
+                    _dp_factor_d *= 1.0 + 0.35 * (_total_inj_d2 - 2)
                 score *= 1.0 / (1.0 + _r7d_sd * _dp_factor_d)
             # iter618: 24h + 7d burst suppress（daemon 此前完全缺失）
             # iter619: 阈值收紧 24h:3→2, 7d:8→5
