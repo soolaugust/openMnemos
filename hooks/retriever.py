@@ -4494,9 +4494,13 @@ def main():
                 # 修复：构建 relevance map，global chunk relevance<0.20 排除出 fallback 池。
                 _fb_hd_rel_map = {c.get("id", ""): r for r, c in _pre_score_relevance_hd} if _pre_score_relevance_hd else {}
                 def _fb_hd_relevance_ok(c):
-                    if c.get("project", "") != "global" or project == "global":
-                        return True
-                    return _fb_hd_rel_map.get(c.get("id", ""), 1.0) >= 0.20
+                    _cp = c.get("project", "")
+                    if _cp == "global" and project != "global":
+                        return _fb_hd_rel_map.get(c.get("id", ""), 1.0) >= 0.20
+                    # iter1555: fallback_cross_project_gate — non-global 跨项目 chunk 需 relevance >= 0.30
+                    if _cp and _cp != "global" and _cp != project:
+                        return _fb_hd_rel_map.get(c.get("id", ""), 1.0) >= 0.30
+                    return True
                 # iter1027: fallback_24h_align — 对齐 _hd1019_24h_thresh 动态阈值
                 _fb_hd_cap = [(s, c) for s, c in _pre_suppress_top_k_hd
                               if _hd_cooldown_ok(c)
@@ -6905,9 +6909,13 @@ def main():
                 # iter1363: fallback_global_relevance_gate — FULL 路径同步
                 _fb_rel_map = {c.get("id", ""): r for r, c in _pre_score_relevance} if _pre_score_relevance else {}
                 def _fb_relevance_ok(c):
-                    if c.get("project", "") != "global" or project == "global":
-                        return True
-                    return _fb_rel_map.get(c.get("id", ""), 1.0) >= 0.20
+                    _cp = c.get("project", "")
+                    if _cp == "global" and project != "global":
+                        return _fb_rel_map.get(c.get("id", ""), 1.0) >= 0.20
+                    # iter1555: fallback_cross_project_gate — non-global 跨项目 chunk 需 relevance >= 0.30
+                    if _cp and _cp != "global" and _cp != project:
+                        return _fb_rel_map.get(c.get("id", ""), 1.0) >= 0.30
+                    return True
                 _fb_cap = [(s, c) for s, c in _pre_suppress_top_k
                            if _fb_relevance_ok(c)
                            and _fb_7d.get(c.get("id", ""), 0) < _fb_chunk_ceiling(c)
@@ -7533,8 +7541,15 @@ def main():
                     #   iter1092 的 _lt1092_cooldown_ok 只在主过滤(L6112)生效，fallback 从
                     #   _pre_suppress_top_k_lite 重新选择时绕过了 cooldown 检查。
                     # 修复：fallback 候选池加入 _lt1092_cooldown_ok 过滤。
+                    # iter1555: fallback_cross_project_gate — LITE path sync
+                    def _fb_lite_cross_ok(c):
+                        _cp = c.get("project", "")
+                        if _cp and _cp != "global" and _cp != project:
+                            return False
+                        return True
                     _fb_lite_cap = [(s, c) for s, c in _pre_suppress_top_k_lite
                                     if _lt1092_cooldown_ok(c)
+                                    and _fb_lite_cross_ok(c)
                                     and sum(1 for t in _itl758.get(c.get("id", ""), []) if t > _cut758_7d) < _fb_lite_chunk_ceiling(c)
                                     and sum(1 for t in _itl758.get(c.get("id", ""), []) if t > _cut758_24h) < _lt1020_24h_thresh(s, c)]
                     # iter1057: lite_fallback_no_unfiltered_pool — 对齐 FULL iter916 + HD iter921
