@@ -1256,7 +1256,11 @@ def _is_selfref_noise(summary: str, chunk_type: str) -> bool:
         # iter1498: pool_internal_gate — "池"作为 chunk pool 内部概念逃逸
         # 数据驱动（2026-05-11）："global 池 18→10（-44%），高价值 constraint 占比 56%→100%"
         #   hits=1 不够阈值 2。"池"+占比/注入/chunk 是 memory-os 内部概念。
-        r'(?:global|注入|候选|知识)\s*池|池\s*\d+\s*→)',
+        r'(?:global|注入|候选|知识)\s*池|池\s*\d+\s*→|'
+        # iter1526: retriever_diag_term_gate — retriever 内部诊断术语逃逸
+        # 数据驱动（2026-05-11）：540dd383 "FULL 请求全空召回…BM25 阈值" hits=1 逃逸。
+        #   "FULL 请求"≠已有"FULL 路径"；"BM25"/"thresh" 未覆盖。均为 retriever 内部概念。
+        r'FULL\s*请求|BM25\s*阈值|thresh[=\d]|封杀)',
         summary
     ))
     # iter1325: constraint_selfref_gate — design_constraint 用更严格阈值(>=3)防误杀
