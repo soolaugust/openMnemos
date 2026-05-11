@@ -2940,12 +2940,12 @@ def _write_chunk(chunk_type: str, summary: str, project: str, session_id: str,
         re.IGNORECASE)
     if _ITER_SELF_PATTERNS.search(summary):
         return
-    # iter1518→1519: thin_content_write_gate — 写入时拦截过短内容
-    # iter1519 数据驱动（2026-05-11）：60→100。今日 14 条 content==summary 60-100字
-    #   全部被 GC 到 DEAD；ACTIVE 池 0 条 content==summary。
-    #   提升阈值减少无效写入+GC 负担，零误杀风险。
+    # iter1530: echo_content_universal_gate — 无 rich content 一律拒绝（除 dc+约束词）
+    # 数据驱动（2026-05-11）：25 条 ac=0 噪声全部 content==summary，最长 106 字逃逸 <100 阈值。
+    #   所有合法 >=100 字 chunk 都有 rich content（content_len >= 5x summary_len）。
+    # 修复：去掉长度阈值，无 rich content 即拒绝。design_constraint 已由上方约束语义门控保护。
     _has_rich = (content_override and content_override.strip() != summary.strip()) or bool(raw_snippet)
-    if not _has_rich and len(summary) < 100:
+    if not _has_rich and chunk_type != "design_constraint":
         return
     # iter1495: interrogative_causal_gate — 问句形式的因果链/推理链拒绝写入
     # 数据驱动（2026-05-11）：16 条 ac=0 causal_chain 中 5 条是对话追问/讨论：
