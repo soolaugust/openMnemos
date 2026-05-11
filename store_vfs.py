@@ -1834,8 +1834,12 @@ def fts_search(conn: sqlite3.Connection, query: str, project: str,
         rows = _run_fts([project, "global"])
 
     # Step 3: 历史孤儿 fallback：project ID 变化后的旧 chunk 补救
-    # 仅当合并后仍不足 top_k 一半时触发全库搜索
-    if len(rows) < max(1, top_k // 2):
+    # iter1569: orphan_fallback_tighten — top_k//2 → top_k//4
+    # 根因（数据驱动，2026-05-12）：kernel 项目(7 local+6 global=13) FTS5 命中 3-4 条，
+    #   threshold=5(top_k//2) 频繁触发全库 fallback → memory-os 的 design_constraint
+    #   (93cbc985 'memory验证路径') 混入 kernel session 注入。无真正孤儿项目存在。
+    # 修复：threshold 从 top_k//2 收紧到 top_k//4，减少不必要的跨项目候选污染。
+    if len(rows) < max(1, top_k // 4):
         all_rows = _run_fts(None)
         seen_ids = {r[0] for r in rows}
         for r in all_rows:
