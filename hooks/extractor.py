@@ -2178,6 +2178,23 @@ def _is_quality_chunk(summary: str) -> bool:
     if _SELFREF_SIGNALS.search(s):
         if not re.search(r'(?:kernel|sched|Android|feishu|飞书|patch|cgroup|binder|thermal)', s, re.I):
             return False
+    # iter1625: conversational_fragment_gate — 口语化对话碎片/无结论疑问句拦截
+    # 数据驱动（2026-05-12）：39/48 (81%) 7d写入立即DEAD，19条 causal_chain 中 15 条是
+    #   对话碎片（"所以问题是"/"你需要"/"好问题"/"这个是否"）—— 含因果词但无独立知识价值。
+    # 特征：口语化开头 + 无技术结论性动词 + 短于 120 字。
+    # 豁免：含技术结论动词（必须/禁止/选择/采用/修复）或代码标识符（含下划线的token）。
+    if len(s) < 120:
+        _conv_start = re.match(
+            r'^(?:你[需要们的]|好[问的]|这个\s*(?:是否|问题|timing|race|fix)|'
+            r'所以(?:问题|这个)|真实场景|没有残留|已经清楚|市场情绪)',
+            s)
+        _is_question = s.rstrip().endswith('？') or s.rstrip().endswith('?')
+        if _conv_start or _is_question:
+            _has_conclusion = re.search(
+                r'(?:必须|禁止|不[能可得]|选择|采用|决定|结论|方向|核心|根因[：:]|'
+                r'修复[：:]|原因是|关键是|_\w{3,})', s)
+            if not _has_conclusion:
+                return False
     return True
 
 
