@@ -694,22 +694,14 @@ def mark_cold(conn, project: str = None, stale_days: int = 7) -> int:
     """
     Task12：COLD 转换 — ACTIVE → COLD（7天无访问）。
     OS 类比：shrink_active_list() → inactive list（PG_lru inactive）。
+    iter1634: ac>=3 保护 — 经用户多次验证的知识不因 suppress 导致的 last_accessed 过期而降级。
     返回转换的 chunk 数。
     """
-    where = "WHERE chunk_state='ACTIVE'"
+    where_clause = "chunk_state='ACTIVE' AND access_count < 3"
     params = []
     if project:
-        where += " AND project=?"
-        params.append(project)
-    where += f" AND datetime(last_accessed) < datetime('now', '-{stale_days} days')"
-    result = conn.execute(
-        f"UPDATE memory_chunks SET chunk_state='COLD' {where.replace('WHERE', '')}",
-        params,
-    )
-    # 重新构造——SQLite UPDATE syntax
-    where_clause = "chunk_state='ACTIVE'"
-    if project:
         where_clause += " AND project=?"
+        params.append(project)
     where_clause += f" AND datetime(last_accessed) < datetime('now', '-{stale_days} days')"
     conn.execute("UPDATE memory_chunks SET chunk_state='COLD' WHERE " + where_clause, params)
     return conn.execute(
@@ -762,7 +754,8 @@ def fsm_transition(conn, project: str = None,
     返回 {cold: n, dead: n} 转换统计。
     """
     # Step 1: ACTIVE → COLD（cold_days 天无访问）
-    where_cold = "chunk_state='ACTIVE'"
+    # iter1634: ac>=3 保护 — 与 mark_cold 对齐
+    where_cold = "chunk_state='ACTIVE' AND access_count < 3"
     params_cold = []
     if project:
         where_cold += " AND project=?"
