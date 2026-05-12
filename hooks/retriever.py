@@ -4420,6 +4420,13 @@ def main():
                     #   非 tiny_db 阈值=4 已验证安全，global dc 应对齐（不会导致空召回：
                     #   suppress 的是 global chunk，local 候选不受影响）。
                     _lt_dc_thresh = 4 if (not _hd_tiny_db or c.get("project") == "global") else 6
+                    # iter1595: local_dc_saturated_lifetime — tiny_db 本地 dc ac>=5 阈值 6→4
+                    # 根因（数据驱动，2026-05-12）：93cbc985(memory验证,ac=6,lt=4) 和
+                    #   368cb071(Android诊断,ac=5,lt=5) 在 tiny_db(23 visible) 中
+                    #   _lt_dc_thresh=6 逃逸 lifetime suppress，7d_inj=3 持续垄断注入位。
+                    #   ac>=5 表明已充分内化，tiny_db 放宽不应保护高饱和 dc。
+                    if _hd_tiny_db and c.get("chunk_type") == "design_constraint" and (c.get("access_count", 0) or 0) >= 5:
+                        _lt_dc_thresh = 4
                     if _lt >= _lt_thresh:
                         return False
                     if c.get("chunk_type") == "design_constraint" and _lt >= _lt_dc_thresh:
@@ -6752,6 +6759,9 @@ def main():
                         _lt_thresh = 5
                     # iter1372: global_dc_lifetime_tighten — sync FULL path
                     _lt_dc_thresh = 4 if (not _tiny_db or c.get("project") == "global") else 6
+                    # iter1595: local_dc_saturated_lifetime — sync FULL path
+                    if _tiny_db and c.get("chunk_type") == "design_constraint" and (c.get("access_count", 0) or 0) >= 5:
+                        _lt_dc_thresh = 4
                     if _lt >= _lt_thresh:
                         return False
                     if c.get("chunk_type") == "design_constraint" and _lt >= _lt_dc_thresh:
