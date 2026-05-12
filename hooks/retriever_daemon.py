@@ -5093,6 +5093,11 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 # iter1294: small_db_deep_saturated_soften — <100 库不硬杀
                 if (c[_CI_AC] or 0) >= 12 and _db_chunk_count >= 100:
                     return False
+                # iter1638: constraint_ac_hard_cap — sync retriever.py iter641
+                # 根因（数据驱动，2026-05-13）：daemon _ac_gated_d 缺少 ac>=15 硬杀，
+                #   retriever.py 有（line 6125），高 ac chunk 经 daemon constraint 通道逃逸。
+                if (c[_CI_AC] or 0) >= 15:
+                    return False
                 # iter618: 24h + 7d burst suppress 在 constraint 通道生效
                 # iter619: 阈值收紧 24h:3→2, 7d:8→5
                 # iter903: constraint_24h_tighten — tiny_db 场景下 24h/7d 均收紧到 2
@@ -5101,6 +5106,14 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 #   63% 注入为与当前工作无关的知识。收紧到 2 限制每 constraint 24h/7d 仅 1 次。
                 _cst_tiny = _db_chunk_count < 50
                 if _recent_24h_counts.get(_cid, 0) >= 2:
+                    return False
+                # iter1638: constraint_6h_burst_suppress — sync retriever.py iter813/1047
+                # 根因（数据驱动，2026-05-13）：daemon constraint 通道缺少 6h suppress，
+                #   sem_68b3(ac=9) 在 git:a4ee2fcfacc4 中 6h 内注入 2 次（07:12+07:39），
+                #   retriever.py 已有 6h thresh=1（ac>=5），daemon 未同步形成逃逸。
+                _ac_d = c[_CI_AC] or 0
+                _cst_6h_thresh = 1 if (_ac_d >= 5 or (c[_CI_CP] == "global" and _ac_d >= 4)) else 2
+                if _recent_6h_counts.get(_cid, 0) >= _cst_6h_thresh:
                     return False
                 # iter1028: constraint_global_saturated_7d — sync retriever.py
                 # global ac>=4 constraint 7d 阈值 -1，堵 constraint 通道逃逸
