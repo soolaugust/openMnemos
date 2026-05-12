@@ -555,6 +555,10 @@ def _run_extraction_pipeline(payload: dict) -> dict:
                 # iter1577: 加入 reasoning_chain（0% 存活率，6/6 全 DEAD）。
                 if chunk_type in ("conversation_summary", "tool_insight", "prompt_context", "reasoning_chain"):
                     continue
+                # iter1578: causal_chain_rich_content_gate (pool sync)
+                # 数据驱动（2026-05-12）：19/20 causal_chain content==summary 全 DEAD。
+                if chunk_type == "causal_chain" and t.strip() == _summ950.strip():
+                    continue
                 # iter1523: pool_thin_content_gate — 对齐 extractor.py thin_content_write_gate
                 # 根因：content==summary 且 len<100 的 chunk 无信息增量，12/15 ac=0 噪声属此类。
                 if t.strip() == _summ950.strip() and len(_summ950) < 100:

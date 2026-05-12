@@ -2910,6 +2910,14 @@ def _write_chunk(chunk_type: str, summary: str, project: str, session_id: str,
     _EPHEMERAL_TYPES = {"prompt_context", "conversation_summary", "tool_insight"}
     if chunk_type in _EPHEMERAL_TYPES:
         return
+    # iter1578: causal_chain_rich_content_gate — 碎片因果链拒绝写入
+    # 数据驱动（2026-05-12）：19/20 causal_chain 的 content==summary（碎片），全部 DEAD（0%存活）。
+    #   唯一存活的 1 条有 rich content（summary=115字, content=1300字, ac=12）。
+    # 修复：causal_chain 必须有 rich content（content_override != summary 且 >200字）才允许写入。
+    if chunk_type == "causal_chain":
+        _cc_rich = content_override and content_override.strip() != summary.strip() and len(content_override) > 200
+        if not _cc_rich:
+            return
     # iter701: content_echo_gate — summary 无补充内容时拒绝写入
     # 数据驱动：6d4f68bb content=summary="选就会降级注入 1 条最佳结果"（ac=0）。
     # 根因：调用方未传 content_override，_write_chunk 自动生成 "[type] summary"，
