@@ -4546,7 +4546,8 @@ def main():
             #   根因（数据驱动，2026-05-05）：28-chunk 库 top5 chunk 占 38% 注入位，
             #   suppress 全灭后 fallback 按 score 选最佳 → 高频 chunk 反复被选中。
             #   修复：score/(1+0.5*7d_count) 使低频 chunk 优先，促进注入多样性。
-            if not top_k and _pre_suppress_top_k_hd:
+            # iter1609: zero_local_suppress_fallback_skip — HD 路径同步
+            if not top_k and _pre_suppress_top_k_hd and _local_chunk_count > 0:
                 # iter892: fallback_exp_decay — 线性→指数衰减，高频 chunk 衰减更快促进多样性
                 # iter893: fallback_hard_ceiling — 7d>=5 绝对不选，防止垄断 chunk 经 fallback 逃逸
                 # iter894: fallback_realtime_align — ceiling 对齐 suppress_final_gate 阈值
@@ -7092,7 +7093,12 @@ def main():
             # 根因（数据驱动，2026-05-05）：26% 空召回中 suppress_fallback 恢复的 chunk
             #   与上次注入的 hash 相同 → same_hash 跳过 → 用户永远看同一个知识。
             # 修复：排除上次已注入的 chunk 组合，选次优候选。若无次优则仍选最佳。
-            if _pre_suppress_top_k:
+            # iter1609: zero_local_suppress_fallback_skip — local=0 不走 suppress_fallback
+            # 根因（数据驱动，2026-05-12）：local=0 项目(abspath:7e3095aef7a6) 主路径
+            #   floor=0.15 正确清空不相关跨项目候选，但 suppress_fallback 用 _fb_floor=0.01
+            #   （因 _local_sparse=True）将 score=0.05/0.01 的 kernel 知识恢复注入。
+            #   local=0 表明当前项目无本地知识，所有候选均跨项目，不注入优于注入噪声。
+            if _pre_suppress_top_k and _local_chunk_count > 0:
                 _last_hash = _read_hash()
                 # iter892: fallback_exp_decay — 线性→指数衰减（同步 hard_deadline path）
                 # iter893: fallback_hard_ceiling — 7d>=5 绝对不选（同步 hard_deadline path）
@@ -7714,7 +7720,8 @@ def main():
                 #   高频 chunk（如 import-90139 7d=7x）每次被 fallback 选中 → 垄断逃逸。
                 #   FULL 路径 (line 4707) 和 daemon 已有 score/(1+0.5*7d) 衰减。
                 #   修复：用 _itl758 timeline 数据计算 7d count，应用相同衰减公式。
-                if not top_k and _pre_suppress_top_k_lite:
+                # iter1609: zero_local_suppress_fallback_skip — LITE 路径同步
+                if not top_k and _pre_suppress_top_k_lite and _local_chunk_count > 0:
                     # iter892: fallback_exp_decay — LITE 路径同步指数衰减
                     # iter893: fallback_hard_ceiling — 7d>=5 绝对不选（LITE 路径同步）
                     # iter894: fallback_realtime_align — ceiling 对齐 suppress_final_gate_lite 阈值
