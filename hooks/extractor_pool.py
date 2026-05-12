@@ -552,7 +552,8 @@ def _run_extraction_pipeline(payload: dict) -> dict:
                 # iter1523: pool_ephemeral_type_gate — 对齐 extractor.py ephemeral_type_gate
                 # 根因（数据驱动，2026-05-11）：15 条 ac=0 噪声中 3 条 conversation_summary
                 #   + 1 条 tool_insight 经 pool 路径逃逸（extractor.py 已拒绝但 pool 未同步）。
-                if chunk_type in ("conversation_summary", "tool_insight", "prompt_context"):
+                # iter1577: 加入 reasoning_chain（0% 存活率，6/6 全 DEAD）。
+                if chunk_type in ("conversation_summary", "tool_insight", "prompt_context", "reasoning_chain"):
                     continue
                 # iter1523: pool_thin_content_gate — 对齐 extractor.py thin_content_write_gate
                 # 根因：content==summary 且 len<100 的 chunk 无信息增量，12/15 ac=0 噪声属此类。

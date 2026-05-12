@@ -4749,6 +4749,13 @@ def main():
     # 修复：全局禁用该类型写入，节省 ~10% 存储 + 消除垄断竞争。
     conv_summaries = []
 
+    # iter1577: disable_reasoning_chain — 生产数据证明 0% 存活率
+    # 数据驱动（2026-05-12）：6/6 reasoning_chain chunk 全部 DEAD（ac=-1），
+    #   内容为推理过程碎片（"已经清楚：…"、"你需要的数据源…"），无法独立检索。
+    #   唯一存活的因果知识走 causal_chain 类型（sem_c4531bbd, ac=12）。
+    # 修复：全局禁用 reasoning_chain 写入。causal_chain 保留（5% 存活但含高价值）。
+    reasoning = []
+
     if not decisions and not excluded and not reasoning and not conv_summaries and not constraints and not causal_chains:
         # 仍然写缺页日志（即使本轮没有提取物，也可能有知识缺口）
         _write_page_fault_log(page_faults, session_id)
