@@ -3791,11 +3791,21 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
             #   高 FTS 基分仍胜出）。0.35 使 7d=5→36%, 7d=6→32%，有效让位给 7d=0 chunk。
             # iter898: small_db_diversity_boost — <50 库 factor 0.35→0.55
             _r7d_sc = _recent_7d_counts.get(_cid, 0)
+            # iter1639: sync iter1624 zero_7d_historical_penalty — 7d=0 但历史高注入激活 diversity
+            _total_inj_d = _itl_lifetime.get(_cid, (0,))[0] if _itl_lifetime else 0
+            if _r7d_sc == 0 and _total_inj_d >= 5 and _db_chunk_count > 5:
+                _r7d_sc = 1
             if _r7d_sc > 0 and _db_chunk_count > 5:
                 # iter969: diversity_factor_align_small_db — <100 统一 0.55
                 _dp_factor = 0.55 if _db_chunk_count < 100 else 0.35
+                # iter1639: sync iter1003 global_chunk_diversity_boost
+                if (chunk[_CI_CP] or "") == "global" and project != "global":
+                    _dp_factor *= 2.0
+                # iter1639: sync iter1453 ac_weighted_diversity
+                _dp_ac = chunk[_CI_AC] or 0
+                if _dp_ac >= 4:
+                    _dp_factor *= 1.0 + 0.15 * (_dp_ac - 3)
                 # iter1552: cumulative_boost_tighten — sync retriever.py timeline_cumulative_boost
-                _total_inj_d = _itl_lifetime.get(_cid, (0,))[0] if _itl_lifetime else 0
                 if _total_inj_d >= 3:
                     _dp_factor *= 1.0 + 0.35 * (_total_inj_d - 2)
                 score *= 1.0 / (1.0 + _r7d_sc * _dp_factor)
@@ -4046,11 +4056,21 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
             # iter875/876: soft_diversity_penalty — sync with _score_chunk (factor 0.35)
             # iter898: small_db_diversity_boost — <50 库 factor 0.35→0.55
             _r7d_sd = _recent_7d_counts.get(_cid, 0)
+            # iter1639: sync iter1624 zero_7d_historical_penalty
+            _total_inj_d2 = _itl_lifetime.get(_cid, (0,))[0] if _itl_lifetime else 0
+            if _r7d_sd == 0 and _total_inj_d2 >= 5 and _db_chunk_count > 5:
+                _r7d_sd = 1
             if _r7d_sd > 0 and _db_chunk_count > 5:
                 # iter969: diversity_factor_align_small_db
                 _dp_factor_d = 0.55 if _db_chunk_count < 100 else 0.35
+                # iter1639: sync iter1003 global_chunk_diversity_boost
+                if (chunk[_CI_CP] or "") == "global" and project != "global":
+                    _dp_factor_d *= 2.0
+                # iter1639: sync iter1453 ac_weighted_diversity
+                _dp_ac_d = chunk[_CI_AC] or 0
+                if _dp_ac_d >= 4:
+                    _dp_factor_d *= 1.0 + 0.15 * (_dp_ac_d - 3)
                 # iter1552: cumulative_boost_tighten — sync retriever.py timeline_cumulative_boost
-                _total_inj_d2 = _itl_lifetime.get(_cid, (0,))[0] if _itl_lifetime else 0
                 if _total_inj_d2 >= 3:
                     _dp_factor_d *= 1.0 + 0.35 * (_total_inj_d2 - 2)
                 score *= 1.0 / (1.0 + _r7d_sd * _dp_factor_d)
