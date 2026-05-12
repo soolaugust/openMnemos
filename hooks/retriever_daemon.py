@@ -4232,6 +4232,36 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 # iter861: small_db_bw_tighten — <50 收紧 0.25→0.15
                 # 数据驱动（2026-05-05）：38-chunk 库 0.25→rc>7.5 才 suppress，最高 rc=6 全逃逸。
                 _inject_hard_cap = 1.0 if _db_chunk_count <= 5 else (0.15 if _db_chunk_count < 50 else 0.12)
+            # iter1600: sparse_local_candidate_inject — sparse 项目本地 chunk 主动注入候选池
+            # 根因（数据驱动，2026-05-12）：_local_sparse 项目的本地 chunk 因 FTS5 关键词
+            #   不匹配从未进入候选池。正常路径下跨项目 chunk 通过评分→本地 chunk 零机会参与竞争。
+            # 修复：检查 FTS 结果是否含本地 chunk，缺失则从 DB 补入（fts_rank = min * 0.5）。
+            if _local_sparse_d and fts_results:
+                _sli_has_local = any(c[_CI_CP] == project for c in fts_results)
+                if not _sli_has_local:
+                    try:
+                        _sli_r = conn.execute(
+                            "SELECT id, summary, content, importance, last_accessed, "
+                            "chunk_type, COALESCE(access_count,0), created_at, "
+                            "0.0, COALESCE(lru_gen,0), project, "
+                            "verification_status, confidence_score, "
+                            "COALESCE(retrievability,1.0), COALESCE(source_reliability,0.7), "
+                            "COALESCE(emotional_weight,0.0), COALESCE(emotional_valence,0.0) "
+                            "FROM memory_chunks WHERE project=? AND chunk_state='ACTIVE' "
+                            "ORDER BY importance DESC LIMIT 1",
+                            (project,)
+                        ).fetchone()
+                        if _sli_r:
+                            _sli_min_rank = min(c[_CI_FR] for c in fts_results)
+                            _sli_t = list(_sli_r)
+                            _sli_t[_CI_FR] = _sli_min_rank * 0.5
+                            fts_results.append(tuple(_sli_t))
+                            _deferred.log(DMESG_DEBUG, "retriever_daemon",
+                                          f"iter1600_sparse_local_candidate_inject: "
+                                          f"id={_sli_r[0][:12]} imp={_sli_r[3]:.2f}",
+                                          session_id=session_id, project=project)
+                    except Exception:
+                        pass
             fts_ids = {chunk[_CI_ID] for chunk in fts_results}  # iter235: positional tuple
             final = [(_score_chunk(chunk, chunk[_CI_FR] / max_rank), chunk)
                      for chunk in fts_results]

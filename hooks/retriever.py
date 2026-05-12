@@ -2402,6 +2402,41 @@ def main():
         _tiny_db = _db_chunk_count < 50  # iter848: tiny_db boundary 40→50
         _small_db = _db_chunk_count < 100
 
+        # iter1600: sparse_local_candidate_inject — sparse 项目本地 chunk 主动注入候选池
+        # 根因（数据驱动，2026-05-12）：git:78dc99a5695f(1 local, ac=8, imp=0.85) 从未被自动注入。
+        #   FTS5 全库搜索用 prompt 关键词匹配，memory-os Python 开发 prompt 不含 "uclamp"/"P99"，
+        #   本地唯一 chunk 永远无法进入 FTS5 候选池。iter1525/1568 仅在 floor_gate 全灭后兜底，
+        #   正常路径中跨项目 chunk 通过 floor → 本地 chunk 从不参与竞争。
+        # 修复：_local_sparse 时检查 FTS 结果是否包含本地 chunk，缺失则从 DB 补入。
+        #   补入 chunk 以 FTS5 最低分 * 0.5 参与评分竞争，不破坏正常排序。
+        if _local_sparse and use_fts and fts_results:
+            _sli_local_ids = {r.get("id") for r in fts_results if r.get("project") == project}
+            if not _sli_local_ids:
+                try:
+                    _sli_row = conn.execute(
+                        "SELECT id, summary, content, chunk_type, importance, "
+                        "COALESCE(access_count,0), created_at, COALESCE(lru_gen,0), project "
+                        "FROM memory_chunks WHERE project=? AND chunk_state='ACTIVE' "
+                        "ORDER BY importance DESC LIMIT 1",
+                        (project,)
+                    ).fetchone()
+                    if _sli_row:
+                        _sli_min_rank = min(r.get("fts_rank", 1.0) for r in fts_results)
+                        _sli_chunk = {
+                            "id": _sli_row[0], "summary": _sli_row[1], "content": _sli_row[2],
+                            "chunk_type": _sli_row[3] or "", "importance": _sli_row[4] or 0.5,
+                            "access_count": _sli_row[5], "created_at": _sli_row[6],
+                            "lru_gen": _sli_row[7], "project": _sli_row[8] or project,
+                            "fts_rank": _sli_min_rank * 0.5,
+                        }
+                        fts_results.append(_sli_chunk)
+                        _deferred.log(DMESG_DEBUG, "retriever",
+                                      f"iter1600_sparse_local_candidate_inject: "
+                                      f"id={_sli_row[0][:12]} imp={_sli_row[4]:.2f}",
+                                      session_id=session_id, project=project)
+                except Exception:
+                    pass
+
         def _score_chunk(chunk, relevance):
             _hard_suppressed = False  # iter616: final_hard_gate flag
             # ── B13: Lazy Scoring Early Exit — 极低 relevance 跳过全量计算 ────
