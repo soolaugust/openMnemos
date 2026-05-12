@@ -4271,10 +4271,9 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
             #   根因(774)：6 chunk 库中 0.12 → rc≥3 suppress → cands=3 全灭 → 66% 空召回。
             if _db_chunk_count < 100:
                 # iter801: micro_db_suppress_bypass — <=5 chunk 库禁用 bandwidth suppress
-                # 根因：1-chunk 库中唯一 chunk 被自身注入历史 suppress → 15 次连续空召回。
                 # iter861: small_db_bw_tighten — <50 收紧 0.25→0.15
-                # 数据驱动（2026-05-05）：38-chunk 库 0.25→rc>7.5 才 suppress，最高 rc=6 全逃逸。
-                _inject_hard_cap = 1.0 if _db_chunk_count <= 5 else (0.15 if _db_chunk_count < 50 else 0.12)
+                # iter1642: small_db_hardcap_tighten — <50 收紧 0.15→0.10 (rc>3 即 suppress)
+                _inject_hard_cap = 1.0 if _db_chunk_count <= 5 else (0.10 if _db_chunk_count < 50 else 0.12)
             # iter1600: sparse_local_candidate_inject — sparse 项目本地 chunk 主动注入候选池
             # 根因（数据驱动，2026-05-12）：_local_sparse 项目的本地 chunk 因 FTS5 关键词
             #   不匹配从未进入候选池。正常路径下跨项目 chunk 通过评分→本地 chunk 零机会参与竞争。
@@ -4436,8 +4435,8 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
             # iter756: small_db_bw_tighten; iter774: tiny_db_bw_relax (BM25 path)
             if _db_chunk_count < 100:
                 # iter801: micro_db_suppress_bypass (BM25 path)
-                # iter861: small_db_bw_tighten — <50 收紧 0.25→0.15 (sync)
-                _inject_hard_cap = 1.0 if _db_chunk_count <= 5 else (0.15 if _db_chunk_count < 50 else 0.12)
+                # iter861→1642: small_db_hardcap_tighten — <50 收紧 0.15→0.10 (BM25 path sync)
+                _inject_hard_cap = 1.0 if _db_chunk_count <= 5 else (0.10 if _db_chunk_count < 50 else 0.12)
             # iter683: raw_relevance_gate — 绝对相关性门槛
             # 根因（用户可感知）：normalize 是相对排名（max=1.0），当 DB 中无真正相关 chunk 时，
             # 噪声匹配（中文通用 bigram 重叠）被放大到 1.0 超过阈值 → 注入不相关内容。

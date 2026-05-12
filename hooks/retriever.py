@@ -2465,10 +2465,11 @@ def main():
                 _rc_ee = _recall_counts.get(chunk.get("id", ""), 0)
                 _ee_hard_cap = _sysctl("retriever.constraint_inject_hard_cap") or 0.30
                 # iter756: small_db_bw_tighten; iter774: tiny_db_bw_relax
-                if _local_bw_window <= 30 and _ee_hard_cap > 0.12:
+                if _local_bw_window <= 30 and _ee_hard_cap > 0.10:
                     # iter801: micro_db_suppress_bypass (early exit path)
                     # iter861: small_db_bw_tighten — <50 收紧 0.25→0.15
-                    _ee_hard_cap = 1.0 if _db_chunk_count <= 5 else (0.15 if _db_chunk_count < 50 else 0.12)
+                    # iter1642: small_db_hardcap_tighten — <50 收紧 0.15→0.10 (rc>3 即 suppress)
+                    _ee_hard_cap = 1.0 if _db_chunk_count <= 5 else (0.10 if _db_chunk_count < 50 else 0.12)
                 if _rc_ee > 0 and _rc_ee / _local_bw_window > _ee_hard_cap:
                     return 0.0
                 # iter617: early exit 也必须检查 24h_burst_suppression
@@ -2907,13 +2908,12 @@ def main():
             if _rc > 0:
                 _hard_cap_val = _sysctl("retriever.constraint_inject_hard_cap") or 0.30
                 # iter756: small_db_bw_tighten; iter774: tiny_db_bw_relax
-                if _local_bw_window <= 30 and _hard_cap_val > 0.12:
+                if _local_bw_window <= 30 and _hard_cap_val > 0.10:
                     # iter861: small_db_bw_tighten — <50 收紧 0.25→0.15
-                    # 根因（数据驱动，2026-05-05）：38-chunk 库 hard_cap=0.25 → rc>7.5 才 suppress，
-                    #   但最高 rc=6（20%集中度），无任何 chunk 触发 bw suppress。
-                    #   84% 注入为不相关 kernel 知识，因从未被 suppress 持续霸占注入位。
-                    # 修复：<50 库 0.25→0.15，rc>4.5 即 suppress。suppress_fallback 兜底空召回。
-                    _hard_cap_val = 0.15 if _db_chunk_count < 50 else 0.12
+                    # iter1642: small_db_hardcap_tighten — <50 收紧 0.15→0.10 (rc>3 即 suppress)
+                    #   根因（数据驱动，2026-05-13）：37-chunk 库 hard_cap=0.15 → rc>4.5 才 suppress，
+                    #   最垄断 chunk rc=4/30=0.133 刚好逃逸。收紧到 0.10 → rc>3 即 hard suppress。
+                    _hard_cap_val = 0.10 if _db_chunk_count < 50 else 0.12
                 _hard_util = _rc / _local_bw_window
                 if _hard_util > _hard_cap_val:
                     score = 0.0  # iter601: hard gate
@@ -6103,9 +6103,10 @@ def main():
             _inject_hard_cap = _sysctl("retriever.constraint_inject_hard_cap")
             # iter756: small_db_bw_tighten (constraint path); iter774: tiny_db_bw_relax
             # iter801: micro_db_suppress_bypass — <=5 chunk 库禁用 bandwidth suppress
-            if _local_bw_window <= 30 and (not _inject_hard_cap or _inject_hard_cap > 0.12):
+            if _local_bw_window <= 30 and (not _inject_hard_cap or _inject_hard_cap > 0.10):
                 # iter861: small_db_bw_tighten — <50 收紧 0.25→0.15 (constraint path sync)
-                _inject_hard_cap = 1.0 if _db_chunk_count <= 5 else (0.15 if _db_chunk_count < 50 else 0.12)
+                # iter1642: small_db_hardcap_tighten — <50 收紧 0.15→0.10 (constraint path sync)
+                _inject_hard_cap = 1.0 if _db_chunk_count <= 5 else (0.10 if _db_chunk_count < 50 else 0.12)
             # iter608: session_constraint_cap — 同 session 内同一 constraint 注入上限
             # 根因：_ac_gated 的全局 hard_cap 依赖 recall_count 累积到阈值才生效，
             #   但单次长 session（如 memory-os 迭代 agent）可连续触发多次 retrieval，
