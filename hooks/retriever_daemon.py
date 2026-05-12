@@ -5215,14 +5215,15 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 # iter736: use module-level _math instead of per-call import
                 # iter1646: internalized_constraint_penalty — sync retriever.py
                 # ac>=4 开始渐进惩罚，使已内化 constraint 需更高 relevance 通过
+                # iter1652: sync retriever.py iter1648 ac_penalty_steepen
                 if _ac < 4:
                     _ac_penalty = 0.0
                 elif _ac <= 10:
-                    _ac_penalty = (_ac - 4) * 0.015
+                    _ac_penalty = (_ac - 4) * 0.025
                 elif _ac <= 15:
-                    _ac_penalty = 0.09 + min(0.11, _math.log1p(_ac - 10) * 0.04)
+                    _ac_penalty = 0.15 + min(0.10, _math.log1p(_ac - 10) * 0.05)
                 else:
-                    _ac_penalty = 0.20 + min(0.20, _math.log1p(_ac - 15) * 0.06)
+                    _ac_penalty = 0.25 + min(0.20, _math.log1p(_ac - 15) * 0.06)
                 # iter850: 统一 min_rel gate（移除 global_high_imp 豁免）
                 # iter856: global_chunk_relevance_floor — sync retriever.py
                 # iter937: global_relevance_floor_tighten — 0.03→0.05 (sync)
