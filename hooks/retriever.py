@@ -2837,12 +2837,17 @@ def main():
                 #   "memory 验证路径"(inj=4) 占 last-200 traces 注入 11.4%，挤占新鲜知识位。
                 #   约束类知识一旦内化（ac>=4），再注入边际价值≈0，衰减应比 decision 更激进。
                 # 修复：design_constraint + ac>=4 额外 *0.5，使 ac=5 从 0.8→0.4，ac=6 从 0.7→0.35。
-                # iter1620: dc_decay_threshold_raise — ac>=4→7, 防止 ac=5-6 dc 过杀空召回
-                # 根因（数据驱动，2026-05-12）：iter1604 ac>=4 门槛过低，ac=5 dc(feishu CLI等)
-                #   sat_mult=0.8*0.5=0.4 → FTS=0.5 时 score=0.2 < min_thresh，空召回。
-                #   7d_tighten(iter1538) + 6h_suppress 已控制频率，衰减门槛无需如此激进。
-                if chunk.get("chunk_type") == "design_constraint" and _acc >= 7:
-                    _sat_mult *= 0.5
+                # iter1622: dc_graduated_decay — ac>=5 *0.7, ac>=7 *0.5（替代 iter1620 二元门控）
+                # 根因（数据驱动，2026-05-12）：iter1620 ac>=7 门槛过高，ac=5-6 dc 完全逃逸衰减。
+                #   30d 数据：dc 占注入 41.9%，39% trace 为 dc-only（size=1-2）。
+                #   ac=5 dc sat_mult=0.8 与 decision 相同 → dc 凭 BM25 keyword 精确匹配胜出。
+                #   iter1604 *0.5 过杀(score=0.2<min_thresh)，需温和梯度。
+                # 修复：ac>=5 *0.7（0.8→0.56，高于 min_thresh 0.18 安全），ac>=7 保持 *0.5。
+                if chunk.get("chunk_type") == "design_constraint":
+                    if _acc >= 7:
+                        _sat_mult *= 0.5
+                    elif _acc >= 5:
+                        _sat_mult *= 0.7
                 score *= _sat_mult
             # ── 迭代333：TMV Multiplicative Saturation Discount ──────────────
             # 信息论基础：高 access_count chunk 已被 agent "内化"，边际信息趋零。
