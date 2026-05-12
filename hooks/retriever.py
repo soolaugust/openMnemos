@@ -4293,7 +4293,8 @@ def main():
                     #   iter776 只覆盖 ==0。score 在 (0, 0.05) 的"死区"两边都不触发。
                     #   用户 project abspath:51963532bc1b 9 次空召回（cands=10~14）均因此。
                     # 修复：条件从 ==0 放宽为 < DEAD_ZONE_MIN，与 iter775 无缝衔接。
-                    elif _sef_hd_imp and _sef_hd_max < _DEAD_ZONE_MIN and candidates_count > 0:
+                    # iter1623: zero_local_dead_zone_skip (HD) — sync FULL path
+                    elif _sef_hd_imp and _sef_hd_max < _DEAD_ZONE_MIN and candidates_count > 0 and _local_chunk_count > 0:
                         _sef_hd_best = max(_sef_hd_imp, key=lambda x: x[0])
                         _sef_hd_best[1]["_fallback_protected"] = True
                         # iter1570: fallback_floor_safe
@@ -5886,7 +5887,8 @@ def main():
                                   f"max_s={_sef_full_max:.4f} id={_sef_best[1].get('id','')[:12]}",
                                   session_id=session_id, project=project)
                 # iter776→782: dead_zone_unified_fallback — 统一 [0, DEAD_ZONE_MIN) 兜底
-                elif _sef_by_imp and _sef_full_max < _DEAD_ZONE_MIN_FULL and candidates_count > 0:
+                # iter1623: zero_local_dead_zone_skip — local=0 跳过（全跨项目=噪声）
+                elif _sef_by_imp and _sef_full_max < _DEAD_ZONE_MIN_FULL and candidates_count > 0 and _local_chunk_count > 0:
                     _sef_best = max(_sef_by_imp, key=lambda x: x[0])
                     _sef_best[1]["_fallback_protected"] = True
                     # iter1570: fallback_floor_safe
@@ -8201,11 +8203,16 @@ def main():
                         #   被 sat_floor 设为 score=0.0，但 pair_preserve ac>=7 门槛未拦截(ac=5)。
                         #   sat_floor 已判定信息增量=0 的 chunk 不应被 pair_preserve 复活。
                         # 修复：排除 score==0.0（sat_floor 清零标记）+ 原跨项目高 ac 排除。
-                        _sf_below = [(s, c) for s, c in top_k if s < _score_floor
-                                     and s > 0.0
-                                     and not (c.get("access_count", 0) >= 7
-                                              and (c.get("project", "") == "global"
-                                                   or c.get("project", "") != project))]
+                        # iter1623: pair_preserve_zero_local_block — local=0 禁止 pair_preserve
+                        # 根因（数据驱动，2026-05-12）：abspath:7e3095aef7a6(local=0)
+                        #   0aff0d67/c9accb7b(global,dc,score=0.01) 经 pair_preserve 注入。
+                        #   local=0 时所有候选都是跨项目，pair 同样是噪声。
+                        _sf_below = [] if _local_chunk_count == 0 else [
+                            (s, c) for s, c in top_k if s < _score_floor
+                            and s > 0.0
+                            and not (c.get("access_count", 0) >= 7
+                                     and (c.get("project", "") == "global"
+                                          or c.get("project", "") != project))]
                         if _sf_below:
                             _sf_kept_pair = max(_sf_below, key=lambda x: x[0])
                             _sf_above.append(_sf_kept_pair)
