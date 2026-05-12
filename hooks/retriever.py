@@ -2930,6 +2930,15 @@ def main():
             #   0.35 factor 仅衰减到 42-32%，高 FTS base(0.5+) 仍垄断。
             #   0.55 使 7d=4→31%, 7d=5→27%, 7d=6→23%，有效让位给低频 chunk。
             _r7d_dp = _recent_7d_counts.get(chunk.get("id", ""), 0)
+            # iter1624: zero_7d_historical_penalty — 7d=0 但全历史高注入仍施加衰减
+            # 根因（数据驱动，2026-05-12）：feishu CLI(inj=5,7d=1→0重置后),git commit(inj=6,7d=0)
+            #   每次 7d 窗口清零后获得"新鲜感假象"，diversity block 完全跳过，
+            #   以高 FTS base 重新垄断注入位。ac=5 表明已充分内化，再注入零信息增量。
+            # 修复：7d=0 + total_inj>=5 时，用 synthetic_7d=1 触发 diversity penalty，
+            #   让 cumulative_boost 中的 total_inj 加权生效。衰减温和（等效 7d=1）。
+            _total_inj_pre = len(_injection_timeline.get(chunk.get("id", ""), []))
+            if _r7d_dp == 0 and _total_inj_pre >= 5 and _db_chunk_count > 5:
+                _r7d_dp = 1  # synthetic: 激活 diversity block
             if _r7d_dp > 0 and _db_chunk_count > 5:
                 # iter969: diversity_factor_align_small_db — <100 统一 0.55
                 # 根因（数据驱动，2026-05-06）：51-chunk 库（刚越过 50 边界）
