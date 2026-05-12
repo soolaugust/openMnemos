@@ -3968,6 +3968,9 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                     _sat_mult = max(0.2, 0.8 - 0.1 * ((chunk[_CI_AC] or 0) - 5))
                     if (chunk[_CI_AC] or 0) >= 10:
                         _sat_mult *= 0.5
+                    # iter1619: dc_saturation_daemon_sync — 同步 iter1604 design_constraint 加速衰减
+                    if chunk[_CI_CT] == "design_constraint" and (chunk[_CI_AC] or 0) >= 4:
+                        _sat_mult *= 0.5
                     score *= _sat_mult
             return score
 
@@ -4171,6 +4174,9 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 elif (chunk.get("access_count", 0) or 0) >= 5:
                     _sat_mult = max(0.2, 0.8 - 0.1 * ((chunk.get("access_count", 0) or 0) - 5))
                     if (chunk.get("access_count", 0) or 0) >= 10:
+                        _sat_mult *= 0.5
+                    # iter1619: dc_saturation_daemon_sync — 同步 iter1604 design_constraint 加速衰减
+                    if chunk.get("chunk_type") == "design_constraint" and (chunk.get("access_count", 0) or 0) >= 4:
                         _sat_mult *= 0.5
                     score *= _sat_mult
             return score
