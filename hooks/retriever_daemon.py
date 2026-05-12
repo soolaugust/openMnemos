@@ -4690,6 +4690,12 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                             top_k = _sf_hd_above
                     else:
                         top_k = [max(top_k, key=lambda x: x[0])]
+                # iter1659: cross_project_noise_gate (HD path sync)
+                if len(top_k) > 1:
+                    _cpng_hd_d = [(s, c) for s, c in top_k
+                                  if s >= 0.03 or (c[_CI_CP] if len(c) > _CI_CP else "") == project]
+                    if _cpng_hd_d:
+                        top_k = _cpng_hd_d
                 top_k_ids = sorted([c[_CI_ID] for _, c in top_k])  # iter235: positional
                 # iter217: crc32 faster than md5 (~0.712us vs ~1.107us, same 8-char hex format)
                 current_hash = '%08x' % zlib.crc32("|".join(top_k_ids).encode())
@@ -6373,6 +6379,16 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                                       f"iter1599_floor_gate_pre_suppress_rescue: "
                                       f"id={_fgr_id[:12]} project={project}",
                                       session_id=session_id, project=project)
+
+        # ── iter1659: cross_project_noise_gate (daemon sync) ──────────────────
+        # 根因（数据驱动，2026-05-13）：retriever.py iter1658 在 FULL/LITE/HD 路径加了
+        #   跨项目 score<0.03 噪声过滤，daemon 路径缺失 → feishu CLI(0.01) 等仍可逃逸。
+        # 修复：同步过滤——跨项目 chunk score<0.03 剔除，保留至少 1 条避免空注入。
+        if top_k and len(top_k) > 1:
+            _cpng_d = [(s, c) for s, c in top_k
+                       if s >= 0.03 or (c[_CI_CP] if len(c) > _CI_CP else "") == project]
+            if _cpng_d:
+                top_k = _cpng_d
 
         # ── iter975: output_monopoly_filter — 最终输出前去垄断（single control point）──
         # 根因（数据驱动，2026-05-06）：suppress 分散在十余处，垄断 chunk 总能逃逸。
