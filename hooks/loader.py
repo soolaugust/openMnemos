@@ -186,7 +186,25 @@ def _load_working_set_from_checkpoint(project: str) -> tuple:
                 base_score = _unified_ws_score(c["importance"], c["last_accessed"])
                 score = base_score + restore_boost  # checkpoint 命中加权
                 prefix = _TYPE_PREFIX.get(c["chunk_type"], "")
-                scored.append((score, c["chunk_type"], c["summary"], c.get("id", "")))
+                scored.append((score, c["chunk_type"], c["summary"], c.get("id", ""), c.get("access_count", 0) or 0))
+            # iter1670: ws_saturation_decay — CRIU 路径同步（使用与 _load_working_set 相同的 shadow_trace 频率衰减）
+            if STORE_DB.exists() and len(scored) > 3:
+                try:
+                    _criu_sat_conn = sqlite3.connect(str(STORE_DB))
+                    _criu_sat_rows = _criu_sat_conn.execute(
+                        "SELECT top_k_ids FROM shadow_traces WHERE project=? ORDER BY updated_at DESC LIMIT 50",
+                        (project,)).fetchall()
+                    _criu_sat_conn.close()
+                    if len(_criu_sat_rows) >= 5:
+                        _criu_freq = {}
+                        for (_tk_json,) in _criu_sat_rows:
+                            for _sid in json.loads(_tk_json or "[]"):
+                                _criu_freq[_sid] = _criu_freq.get(_sid, 0) + 1
+                        _criu_window = len(_criu_sat_rows)
+                        scored = [(s * (0.4 if _criu_freq.get(cid, 0) / _criu_window > 0.6 else 1.0), ct, sm, cid, ac)
+                                  for s, ct, sm, cid, ac in scored]
+                except Exception:
+                    pass
             scored.sort(key=lambda x: x[0], reverse=True)
             top_k = _sysctl("loader.working_set_top_k")
 
@@ -242,7 +260,29 @@ def _load_working_set(project: str) -> list:
     scored = []
     for c in chunks:
         score = _unified_ws_score(c["importance"], c["last_accessed"])
-        scored.append((score, c["chunk_type"], c["summary"], c.get("id", "")))
+        scored.append((score, c["chunk_type"], c["summary"], c.get("id", ""), c.get("access_count", 0) or 0))
+
+    # iter1670: ws_saturation_decay — shadow_trace 高频 chunk 评分衰减，打破正反馈环
+    # 根因（数据驱动，2026-05-13）：importance+recency 静态排序 → 同一批 chunk
+    #   每次 SessionStart 必选中 → shadow_traces 977/923/828 次 → 挤占其他知识。
+    # 修复：从最近 50 条 shadow_traces 统计频率，频率 > 60% 的 chunk 得分衰减。
+    _sat_freq = {}
+    if STORE_DB.exists() and len(scored) > 3:
+        try:
+            _sat_conn = sqlite3.connect(str(STORE_DB))
+            _sat_rows = _sat_conn.execute(
+                "SELECT top_k_ids FROM shadow_traces WHERE project=? ORDER BY updated_at DESC LIMIT 50",
+                (project,)).fetchall()
+            _sat_conn.close()
+            if len(_sat_rows) >= 5:
+                for (_tk_json,) in _sat_rows:
+                    for _sid in json.loads(_tk_json or "[]"):
+                        _sat_freq[_sid] = _sat_freq.get(_sid, 0) + 1
+                _sat_window = len(_sat_rows)
+                scored = [(s * (0.4 if _sat_freq.get(cid, 0) / _sat_window > 0.6 else 1.0), ct, sm, cid, ac)
+                          for s, ct, sm, cid, ac in scored]
+        except Exception:
+            pass
 
     scored.sort(key=lambda x: x[0], reverse=True)
 
@@ -688,19 +728,9 @@ def main():
     #   写入 shadow_trace.json，使新 session 第一次 swap_out 就能恢复工作集。
     if working_set and STORE_DB.exists():
         try:
-            _st_conn = open_db()
-            ensure_schema(_st_conn)
-            _top_k = _sysctl("loader.working_set_top_k")
-            _ws_rows = _st_conn.execute(
-                """SELECT id FROM memory_chunks
-                   WHERE project = ?
-                     AND chunk_type IN ({})
-                   ORDER BY importance DESC, access_count DESC
-                   LIMIT ?""".format(",".join("?" * len(WORKING_SET_TYPES))),
-                [project, *WORKING_SET_TYPES, _top_k]
-            ).fetchall()
-            _st_conn.close()
-            _ws_ids = [r[0] for r in _ws_rows]
+            # iter1670: 直接使用 working_set（已含 saturation_decay）的 IDs，
+            # 而非独立查询 ORDER BY access_count DESC（会重新引入垄断排序）。
+            _ws_ids = [item[3] for item in working_set if len(item) > 3 and item[3]]
             if _ws_ids:
                 import time as _time
                 _shadow_data = {
