@@ -388,6 +388,18 @@ def _gc_merged_victims(db_path: Path):
             WHERE importance = 0 AND oom_adj >= 500 AND access_count = 0
         """)
         deleted = cur.rowcount
+
+        # iter1601: dead_chunk_physical_reclaim — DEAD chunk 超过 24h 物理删除
+        # 根因（数据驱动，2026-05-12）：39/75(52%) chunk 为 DEAD，不参与 FTS 检索
+        #   但占表行数，增加 COUNT(*)/chunk_state 过滤开销。
+        #   DEAD 由 DAMON/gc_orphan 标记，含义为"确认无价值"，24h 后可安全回收。
+        cur2 = conn.execute("""
+            DELETE FROM memory_chunks
+            WHERE chunk_state = 'DEAD'
+              AND updated_at < datetime('now', '-1 day')
+        """)
+        _dead_reclaimed = cur2.rowcount
+        deleted += _dead_reclaimed
         if deleted > 0:
             # 重建 FTS5（孤立行清理）
             try:
@@ -408,7 +420,7 @@ def _gc_merged_victims(db_path: Path):
         gc_flag.write_text(json.dumps(_existing))
         if deleted > 0:
             import sys as _sys
-            _sys.stderr.write(f"[gc_merged_victims] deleted {deleted} merged victim chunks\n")
+            _sys.stderr.write(f"[gc_merged_victims] deleted {deleted} chunks (dead_reclaim={_dead_reclaimed})\n")
     except Exception:
         pass
 
