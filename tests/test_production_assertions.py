@@ -82,14 +82,14 @@ def _setup_db() -> sqlite3.Connection:
 
 
 def _insert_chunk(conn, chunk_id, summary="test", chunk_type="decision",
-                  project="test_proj", access_count=1):
+                  project="test_proj", access_count=1, content=""):
     conn.execute(
-        "INSERT INTO memory_chunks (id, summary, chunk_type, project, access_count) VALUES (?,?,?,?,?)",
-        (chunk_id, summary, chunk_type, project, access_count)
+        "INSERT INTO memory_chunks (id, summary, content, chunk_type, project, access_count) VALUES (?,?,?,?,?,?)",
+        (chunk_id, summary, content, chunk_type, project, access_count)
     )
     conn.execute(
-        "INSERT INTO memory_chunks_fts (rowid, summary, content) VALUES ((SELECT rowid FROM memory_chunks WHERE id=?), ?, '')",
-        (chunk_id, summary)
+        "INSERT INTO memory_chunks_fts (rowid, summary, content) VALUES ((SELECT rowid FROM memory_chunks WHERE id=?), ?, ?)",
+        (chunk_id, summary, content)
     )
     conn.commit()
 
@@ -253,7 +253,7 @@ def test_T11_run_all_returns_report():
     assert "summary" in report
     assert "status" in report
     assert "results" in report
-    assert report["summary"]["total"] == 12
+    assert report["summary"]["total"] == 13
     assert report["summary"]["passed"] + report["summary"]["failed"] == report["summary"]["total"]
 
 
@@ -304,6 +304,56 @@ def test_T14_swap_state_valid():
 
     r = pa.assert_swap_out_produces_output(conn)
     assert r.passed, f"Valid swap_state should pass: {r.message}"
+    conn.close()
+
+
+def test_T15_subsection_dedup_detect():
+    """子 chunk 内容完全被父 chunk 包含 → 检测为冗余"""
+    conn = _setup_db()
+    parent_content = "sched_ext 框架概述。开发分支在 work/v27-tip。详细说明见文档。"
+    child_content = "开发分支在 work/v27-tip。"
+    _insert_chunk(conn, "parent-1", summary="框架概述", access_count=5,
+                  content=parent_content)
+    _insert_chunk(conn, "child-1", summary="框架概述 > 开发分支", access_count=0,
+                  content=child_content)
+
+    r = pa.check_subsection_dedup(conn)
+    assert not r.passed, f"Should detect 1 redundant chunk: {r.message}"
+    assert r.actual["dupe_count"] == 1
+    conn.close()
+
+
+def test_T16_subsection_dedup_fix():
+    """fix=True 归档冗余子 chunk 并清理 FTS5"""
+    conn = _setup_db()
+    parent_content = "完整内容包含子节点的所有信息，包括详细的配置和路径说明。"
+    child_content = "子节点的所有信息，包括详细的配置和路径说明。"
+    _insert_chunk(conn, "parent-2", summary="完整文档", access_count=3,
+                  content=parent_content)
+    _insert_chunk(conn, "child-2", summary="完整文档 > 子节", access_count=0,
+                  content=child_content)
+
+    r = pa.check_subsection_dedup(conn, fix=True)
+    assert r.passed, f"Fix should succeed: {r.message}"
+
+    state = conn.execute(
+        "SELECT chunk_state FROM memory_chunks WHERE id='child-2'"
+    ).fetchone()[0]
+    assert state == "DEDUP_ARCHIVED"
+
+    conn.close()
+
+
+def test_T17_subsection_dedup_no_false_positive():
+    """不同内容的 ac=0 chunk 不应被误判为冗余"""
+    conn = _setup_db()
+    _insert_chunk(conn, "a-1", summary="A 知识", access_count=5,
+                  content="这是关于 A 的完整知识。")
+    _insert_chunk(conn, "b-1", summary="B 知识", access_count=0,
+                  content="这是关于 B 的独立知识，与 A 无关。")
+
+    r = pa.check_subsection_dedup(conn)
+    assert r.passed, f"Should not detect false positives: {r.message}"
     conn.close()
 
 

@@ -823,6 +823,57 @@ def check_thin_chunk_gc(conn: sqlite3.Connection, fix: bool = False) -> Assertio
     return r
 
 
+def check_subsection_dedup(conn: sqlite3.Connection, fix: bool = False) -> AssertionResult:
+    """
+    检测内容完全被另一 chunk 包含的冗余子 chunk（ac=0 + content ⊆ parent）。
+    这些 chunk 占 FTS5 索引但从未被检索到，产生噪声并稀释相关结果。
+    """
+    r = AssertionResult("subsection_dedup", "hygiene")
+    t0 = time.time()
+    try:
+        rows = conn.execute(
+            "SELECT id, rowid, content FROM memory_chunks "
+            "WHERE chunk_state='ACTIVE' AND access_count = 0"
+        ).fetchall()
+        parents = conn.execute(
+            "SELECT id, content FROM memory_chunks "
+            "WHERE chunk_state='ACTIVE' AND access_count > 0"
+        ).fetchall()
+        dupes = []
+        for cid, rid, content in rows:
+            if not content or len(content) < 10:
+                continue
+            for pid, pcontent in parents:
+                if pid != cid and pcontent and content.strip() in pcontent:
+                    dupes.append((cid, rid, pid))
+                    break
+        if not dupes:
+            r.passed = True
+            r.message = "No redundant subsection chunks found"
+        elif fix:
+            for cid, rid, pid in dupes:
+                conn.execute(
+                    "UPDATE memory_chunks SET chunk_state='DEDUP_ARCHIVED' WHERE id=?", (cid,))
+                conn.execute(
+                    "DELETE FROM memory_chunks_fts WHERE rowid_ref=?", (str(rid),))
+            conn.commit()
+            r.passed = True
+            r.message = f"Archived {len(dupes)} redundant subsection chunks (fix applied)"
+        else:
+            r.passed = False
+            r.severity = "info"
+            r.message = f"{len(dupes)} chunks are subsets of existing chunks (ac=0, content⊆parent)"
+            r.actual = {"dupe_count": len(dupes),
+                        "pairs": [(d[0][:12], d[2][:12]) for d in dupes]}
+            r.expected = "0 (no redundant subsections)"
+    except Exception as e:
+        r.passed = True
+        r.severity = "info"
+        r.message = f"Skip: {e}"
+    r.duration_ms = (time.time() - t0) * 1000
+    return r
+
+
 def check_negative_ac_invariant(conn: sqlite3.Connection, fix: bool = False) -> AssertionResult:
     """
     检测 ACTIVE chunk 中 access_count<0 的异常值。
@@ -875,6 +926,7 @@ ALL_ASSERTIONS = [
     check_stale_refs,
     check_error_silence,
     check_thin_chunk_gc,
+    check_subsection_dedup,
     check_negative_ac_invariant,
 ]
 

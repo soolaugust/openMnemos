@@ -1,54 +1,126 @@
 {
-  "timestamp": "2026-05-12T19:33:23.003215",
-  "iteration": 71,
-  "project_id": "test:e2e_baseline",
-  "swap_out": {
-    "hit_ids_count": 0,
-    "decisions_count": 3,
-    "excluded_paths_count": 1,
-    "elapsed_ms": 0.07033348083496094,
-    "hit_ids": [],
-    "decisions": [
-      {
-        "id": "test_chunk_0",
-        "summary": "Swap_out 100% \u6062\u590d\u7387\u9700\u8981 queries_global_top_k",
-        "importance": 0.9
-      },
-      {
-        "id": "test_chunk_1",
-        "summary": "PreCompact hook \u9700\u8981 immutable DB \u907f\u514d\u9501\u7ade\u4e89",
-        "importance": 0.85
-      },
-      {
-        "id": "test_chunk_2",
-        "summary": "TLB \u591a\u69fd\u7f13\u5b58\u89e3\u51b3 DB mtime \u9891\u7e41\u5931\u6548",
-        "importance": 0.8
+  "timestamp": "2026-05-12T20:36:24.530338+00:00",
+  "summary": {
+    "total": 13,
+    "passed": 13,
+    "failed": 0,
+    "warnings": 0,
+    "duration_ms": 4.0
+  },
+  "status": "HEALTHY",
+  "results": [
+    {
+      "name": "swap_out_produces_output",
+      "category": "pipeline",
+      "passed": true,
+      "severity": "info",
+      "message": "swap_state: 0 hit_ids, 309 decisions",
+      "duration_ms": 0.54,
+      "actual": {
+        "hit_ids": 0,
+        "decisions": 309
       }
-    ],
-    "excluded_paths": [
-      "/test/*, *.bak, __pycache__"
-    ]
-  },
-  "swap_in": {
-    "restored_chunks_count": 0,
-    "actual_chars": 305,
-    "max_chars": 1500,
-    "coverage": 0.0,
-    "space_efficiency": 0.20333333333333334,
-    "quality_score": 0.0,
-    "elapsed_ms": 0.005245208740234375,
-    "sample_context": "\u3010\u4e0a\u6b21\u4f1a\u8bdd\u72b6\u6001 \u00b7 \u81ea\u52a8\u6062\u590d\u3011\n\u5173\u952e\u77e5\u8bc6\uff080 items\uff09:\n\n\u6838\u5fc3\u51b3\u7b56\uff083 items\uff09:\n  \u2022 Swap_out 100% \u6062\u590d\u7387\u9700\u8981 queries_global_top_k\n  \u2022 PreCompact hook \u9700\u8981 immutable DB \u907f\u514d\u9501\u7ade\u4e89\n  \u2022 TLB \u591a\u69fd\u7f13\u5b58\u89e3\u51b3 DB mtime \u9891\u7e41\u5931\u6548\n\n\u6392\u9664\u8def\u5f84: /test/*, *.bak, __pycache__\n..."
-  },
-  "db_health": {
-    "status": "HEALTHY",
-    "chunk_count": 8,
-    "stale_refs": 0,
-    "orphan_chunks": 0,
-    "issues": []
-  },
-  "metrics": {
-    "total_time_ms": 0.07557868957519531,
-    "hit_rate": 0.0,
-    "quality_score": 0.0
-  }
+    },
+    {
+      "name": "retriever_injects_knowledge",
+      "category": "pipeline",
+      "passed": true,
+      "severity": "info",
+      "message": "Injected 4/6 (67%) in last 24h",
+      "duration_ms": 0.07,
+      "actual": {
+        "injected": 4,
+        "total": 6
+      }
+    },
+    {
+      "name": "extractor_writes_chunks",
+      "category": "pipeline",
+      "passed": true,
+      "severity": "info",
+      "message": "11 chunks written in last 7d",
+      "duration_ms": 0.05,
+      "actual": 11
+    },
+    {
+      "name": "fts5_covers_all_chunks",
+      "category": "pipeline",
+      "passed": true,
+      "severity": "info",
+      "message": "FTS5=30, chunks=30, join=30 (consistent)",
+      "duration_ms": 0.28
+    },
+    {
+      "name": "latency_baseline_vs_actual",
+      "category": "assumption",
+      "passed": true,
+      "severity": "info",
+      "message": "baseline=30.0ms, actual_P50=35.5ms, ratio=0.84",
+      "duration_ms": 0.22
+    },
+    {
+      "name": "retrieval_diversity",
+      "category": "assumption",
+      "passed": true,
+      "severity": "info",
+      "message": "Diverse: max type 'decision' = 31% of 54 chunks",
+      "duration_ms": 0.19
+    },
+    {
+      "name": "zero_access_rate",
+      "category": "assumption",
+      "passed": true,
+      "severity": "info",
+      "message": "Zero-access rate: 0.0% (0/25)",
+      "duration_ms": 0.07
+    },
+    {
+      "name": "no_test_pollution",
+      "category": "hygiene",
+      "passed": true,
+      "severity": "info",
+      "message": "No test data pollution detected",
+      "duration_ms": 0.08
+    },
+    {
+      "name": "no_stale_refs",
+      "category": "hygiene",
+      "passed": true,
+      "severity": "info",
+      "message": "No stale refs in 77 checked references",
+      "duration_ms": 0.48
+    },
+    {
+      "name": "errors_not_silenced",
+      "category": "hygiene",
+      "passed": true,
+      "severity": "info",
+      "message": "No ERR-level events in last 24h",
+      "duration_ms": 0.07
+    },
+    {
+      "name": "thin_chunk_gc",
+      "category": "hygiene",
+      "passed": true,
+      "severity": "info",
+      "message": "No permanently-suppressed thin chunks in ACTIVE pool",
+      "duration_ms": 0.08
+    },
+    {
+      "name": "subsection_dedup",
+      "category": "hygiene",
+      "passed": true,
+      "severity": "info",
+      "message": "No redundant subsection chunks found",
+      "duration_ms": 0.14
+    },
+    {
+      "name": "negative_ac_invariant",
+      "category": "hygiene",
+      "passed": true,
+      "severity": "info",
+      "message": "No ACTIVE chunks with negative access_count",
+      "duration_ms": 0.03
+    }
+  ]
 }
