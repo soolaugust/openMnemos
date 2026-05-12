@@ -3918,18 +3918,49 @@ def main():
             #   LITE 路径 FTS5 miss 等价于"此 query 在 DB 中无相关知识"，
             #   BM25 全扫只会放大 importance 排序的噪音，不会找到真正相关内容。
             if priority == "LITE":
-                # LITE + FTS5 miss: 无相关知识，直接退出（不注入噪音）
-                conn.close()
-                if len(_deferred) > 0:
+                # iter1643: lite_sparse_local_rescue — LITE FTS5 miss 时 sparse 项目补入本地 chunk
+                # 根因（数据驱动，2026-05-13）：git:78dc99a5695f(2 local) LITE 路径 10/12 trace 空召回。
+                #   prompt 关键词不含本地 chunk 术语("uclamp"/"P99") → FTS5 miss → sys.exit(0)。
+                #   iter1600 的 sparse_local_candidate_inject 仅在 use_fts=True 时触发，此处漏覆盖。
+                # 修复：_local_sparse 项目 LITE FTS5 miss 时，从 DB 取 top-1 local chunk 直接注入。
+                #   不走 BM25 全扫（仍避免噪音），仅注入该项目自己的知识（数量 ≤5，必定高相关）。
+                if _local_sparse and _local_chunk_count > 0:
                     try:
-                        wconn = open_db()
-                        ensure_schema(wconn)
-                        _deferred.flush(wconn)
-                        wconn.commit()
-                        wconn.close()
+                        _lsr_row = conn.execute(
+                            "SELECT id, summary, content, chunk_type, importance "
+                            "FROM memory_chunks WHERE project=? AND chunk_state='ACTIVE' "
+                            "ORDER BY importance DESC, access_count DESC LIMIT 1",
+                            (project,)
+                        ).fetchone()
+                        if _lsr_row:
+                            _lsr_chunk = {
+                                "id": _lsr_row[0], "summary": _lsr_row[1], "content": _lsr_row[2],
+                                "chunk_type": _lsr_row[3] or "", "importance": _lsr_row[4] or 0.5,
+                            }
+                            # 6h dedup: 同一 chunk 6h 内已注入则跳过
+                            _lsr_skip = _recent_6h_counts.get(_lsr_row[0], 0) >= 2
+                            if not _lsr_skip:
+                                fts_results = [_lsr_chunk]
+                                use_fts = True
+                                _deferred.log(DMESG_DEBUG, "retriever",
+                                              f"iter1643_lite_sparse_local_rescue: "
+                                              f"id={_lsr_row[0][:12]} imp={_lsr_row[4]:.2f}",
+                                              session_id=session_id, project=project)
                     except Exception:
                         pass
-                sys.exit(0)
+                if not use_fts:
+                    # LITE + FTS5 miss: 无相关知识，直接退出（不注入噪音）
+                    conn.close()
+                    if len(_deferred) > 0:
+                        try:
+                            wconn = open_db()
+                            ensure_schema(wconn)
+                            _deferred.flush(wconn)
+                            wconn.commit()
+                            wconn.close()
+                        except Exception:
+                            pass
+                    sys.exit(0)
 
             # ── iter425: Tip-of-the-Tongue (TOT) — FTS5 零命中边缘激活补救 ────────
             # OS 类比：Linux mincore(2) fallback to swap — page cache miss 后从 swap 恢复：
