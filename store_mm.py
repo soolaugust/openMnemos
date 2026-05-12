@@ -11960,13 +11960,20 @@ def scan_unevictable(conn: sqlite3.Connection, project: str,
     except Exception:
         cursor_offset = 0
 
-    # Phase 2: 查询所有 eligible dark pages（zero-access, imp >= threshold, alive）
-    params = [imp_threshold, project]
+    # Phase 2: 查询所有 eligible dark pages
+    # iter1661: fts_blind_spot — 扩展候选池覆盖 FTS 检索盲区的高价值 chunk
+    # 根因（数据驱动，2026-05-13）：sem_c4531(ac=12,imp=0.85) 和 58c70136(ac=8,imp=0.85)
+    #   从未被自动注入（134 次检索 0 命中），因 FTS5 关键词不匹配 prompt。
+    #   access_count=0 条件排除了用户频繁手动查询但 FTS 盲区的核心知识。
+    # 修复：候选条件 = ac=0（经典 dark page）OR ac>=8（高频手动查询，FTS 可能盲区）。
+    #   ac>=8 chunk 若被 FTS 命中则已在 top_k_ids 中被排除，不会重复注入。
+    _fts_blind_ac_thresh = 8
+    params = [_fts_blind_ac_thresh, imp_threshold, project]
     sql = (
         "SELECT id, summary, chunk_type, importance, content, project, "
         "access_count, last_accessed, created_at, oom_adj "
         "FROM memory_chunks "
-        "WHERE access_count = 0 "
+        "WHERE (access_count = 0 OR access_count >= ?) "
         "AND importance >= ? "
         "AND importance > 0 "
         "AND (project = ? OR project = 'global') "
