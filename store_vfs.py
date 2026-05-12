@@ -1890,7 +1890,7 @@ def get_chunks(conn: sqlite3.Connection, project: str,
                            verification_status, confidence_score, COALESCE(lru_gen, 0)
                     FROM memory_chunks
                     WHERE project IN ({proj_ph}) AND chunk_type IN ({placeholders})
-                    AND summary != ''"""
+                    AND chunk_state='ACTIVE' AND summary != ''"""
         rows = conn.execute(query, (*projects, *chunk_types)).fetchall()
     else:
         rows = conn.execute(
@@ -1898,7 +1898,7 @@ def get_chunks(conn: sqlite3.Connection, project: str,
                       chunk_type, COALESCE(access_count, 0), created_at, project,
                       verification_status, confidence_score, COALESCE(lru_gen, 0)
                FROM memory_chunks
-               WHERE project IN ({proj_ph}) AND summary != ''""",
+               WHERE project IN ({proj_ph}) AND chunk_state='ACTIVE' AND summary != ''""",
             tuple(projects),
         ).fetchall()
     result = []
