@@ -4642,6 +4642,14 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
             # iter771: tiny_db_fallback_relax — 小库降至 0.15
             # iter852: sync tiny_db boundary 30→50 (同 iter848/iter819)
             _FALLBACK_NOISE_FLOOR = 0.15 if _db_chunk_count < 50 else 0.25
+            # iter1667: scoring_wipeout_ftrace — hard_deadline 路径同步
+            if not top_k and final:
+                _sw_top3_hd = [(s, c[_CI_ID][:10]) for s, c in final[:3]]
+                _sw_zero_hd = sum(1 for s, _ in final if s == 0)
+                _deferred.log(DMESG_DEBUG, "retriever_daemon",
+                              f"iter1667_scoring_wipeout_hd: {len(final)} cands, {_sw_zero_hd} suppressed, "
+                              f"top3={_sw_top3_hd} thresh={_min_thresh:.3f}",
+                              session_id=session_id, project=project)
             if not top_k and final:
                 _sef_hd = max(final, key=_SORT_KEY)
                 if _sef_hd[0] >= _FALLBACK_NOISE_FLOOR:
@@ -5028,6 +5036,14 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
         # iter852: sync tiny_db boundary 30→50 (同 iter848/iter819)
         _fallback_protected_ids = set()
         _FALLBACK_NOISE_FLOOR_FULL = 0.15 if _db_chunk_count < 50 else 0.25
+        # iter1667: scoring_wipeout_ftrace — 全灭时记录候选分布，使 ftrace 非空
+        if not top_k and final:
+            _sw_top3 = [(s, c[_CI_ID][:10]) for s, c in final[:3]]
+            _sw_zero = sum(1 for s, _ in final if s == 0)
+            _deferred.log(DMESG_DEBUG, "retriever_daemon",
+                          f"iter1667_scoring_wipeout: {len(final)} cands, {_sw_zero} suppressed, "
+                          f"top3={_sw_top3} thresh={_min_thresh:.3f}",
+                          session_id=session_id, project=project)
         if not top_k and final:
             _sef_full = max(final, key=_SORT_KEY)
             if _sef_full[0] >= _FALLBACK_NOISE_FLOOR_FULL:
@@ -5314,6 +5330,14 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 except Exception:
                     pass
 
+            # iter1667: scoring_wipeout_ftrace — LITE 路径同步
+            if not top_k and final:
+                _sw_top3_lt = [(s, c[_CI_ID][:10]) for s, c in final[:3]]
+                _sw_zero_lt = sum(1 for s, _ in final if s == 0)
+                _deferred.log(DMESG_DEBUG, "retriever_daemon",
+                              f"iter1667_scoring_wipeout_lite: {len(final)} cands, {_sw_zero_lt} suppressed, "
+                              f"top3={_sw_top3_lt} thresh={_min_thresh:.3f}",
+                              session_id=session_id, project=project)
             if not top_k:
                 # ── iter689: score_empty_fallback — scoring 全灭降级注入最佳 1 条 ──
                 # 根因（数据驱动，2026-05-04）：80% 的非 skip trace 空召回，
