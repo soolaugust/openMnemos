@@ -7052,10 +7052,14 @@ def main():
                 # iter1398: pair_7d_tinydb_relax — 小库 7d=3 不构成垄断(10% util)，允许进入 pair
                 _dp895_lim = 4 if _dp895_tiny else (4 if _dp895_small else 5)
                 # iter1371: global pair 候选排除高内化 design_constraint（同步 iter868）
+                # iter1608: pair_global_dc_gate_tighten — ac>=4 对齐 iter1023/1067
+                # 数据驱动（2026-05-12）：c9accb7b(feishu CLI,ac=4) 和 0aff0d67(git commit,ac=4)
+                #   经 pair 注入到 kernel session 7 次/7d。ac>=5 门槛使 ac=4 逃逸。
+                #   iter1067(global_saturated_floor) 已用 ac>=4，pair 应对齐。
                 _dp895_ok = [r for r in _dp895_rows
                              if _dp895_7d.get(r[0], 0) < _dp895_lim
                              and _session_injection_counts.get(r[0], 0) < _pair_dedup_thresh
-                             and not (r[3] == "design_constraint" and r[5] >= 5)]
+                             and not (r[3] == "design_constraint" and r[5] >= 4)]
                 # iter1086: pair_relaxed_fallback — 全被 7d 过滤时选 7d 最低的一条
                 # 根因（数据驱动，2026-05-07）：22-chunk 库 64% chunk 7d>=3 → pair 候选全灭
                 #   → 44% 单条注入。pair 是辅助上下文，不应被 suppress 完全阻断。
@@ -7999,7 +8003,7 @@ def main():
                 # iter1371: global pair 候选排除高内化 chunk（ac>=6 已见 6+ 次，零增量）
                 _f868_cands = [r for r in _f868_rows
                                if _session_injection_counts.get(r[0], 0) < (_sysctl("retriever.session_dedup_threshold") or 2)
-                               and not (r[3] == "design_constraint" and r[5] >= 5)]
+                               and not (r[3] == "design_constraint" and r[5] >= 4)]
                 if _f868_cands:
                     # 轮转选择：用分钟数 % len 避免总选同一条
                     _f868_idx = int(_now_ts[14:16]) % len(_f868_cands) if len(_now_ts) > 16 else 0
