@@ -4270,7 +4270,10 @@ def main():
                         _sef_hd_best = max(_sef_hd_imp, key=lambda x: x[0])
                         _sef_hd_best[1]["_fallback_protected"] = True
                         # iter1570: fallback_floor_safe
+                        # iter1618: floor_safe_inline — 内联 floor 计算含 local=0 提升
                         _fb_floor_hd = 0.05 if _db_chunk_count < 20 else (0.08 if _db_chunk_count < 50 else 0.12)
+                        if _local_chunk_count == 0 and _fb_floor_hd < 0.15:
+                            _fb_floor_hd = 0.15
                         positive = [(max(_sef_hd_best[0] * 0.1, _fb_floor_hd), _sef_hd_best[1])]
                         _deferred.log(DMESG_WARN, "retriever",
                                       f"iter775_dead_zone_fallback_hd: imp={_sef_hd_best[0]:.2f} "
@@ -4285,7 +4288,10 @@ def main():
                         _sef_hd_best = max(_sef_hd_imp, key=lambda x: x[0])
                         _sef_hd_best[1]["_fallback_protected"] = True
                         # iter1570: fallback_floor_safe
+                        # iter1618: floor_safe_inline — 同上
                         _fb_floor_hd = 0.05 if _db_chunk_count < 20 else (0.08 if _db_chunk_count < 50 else 0.12)
+                        if _local_chunk_count == 0 and _fb_floor_hd < 0.15:
+                            _fb_floor_hd = 0.15
                         positive = [(max(_sef_hd_best[0] * 0.01, _fb_floor_hd), _sef_hd_best[1])]
                         _deferred.log(DMESG_WARN, "retriever",
                                       f"iter776_suppress_zero_fallback_hd: imp={_sef_hd_best[0]:.2f} "
@@ -5857,7 +5863,10 @@ def main():
                     _sef_best = max(_sef_by_imp, key=lambda x: x[0])
                     _sef_best[1]["_fallback_protected"] = True
                     # iter1570: fallback_floor_safe — score 不低于 floor，防止 floor_gate 二杀
+                    # iter1618: floor_safe_inline — 内联 floor 计算含 local=0 提升
                     _fb_floor = 0.05 if _db_chunk_count < 20 else (0.08 if _db_chunk_count < 50 else 0.12)
+                    if _local_chunk_count == 0 and _fb_floor < 0.15:
+                        _fb_floor = 0.15
                     positive = [(max(_sef_best[0] * 0.1, _fb_floor), _sef_best[1])]
                     _deferred.log(DMESG_WARN, "retriever",
                                   f"iter775_dead_zone_fallback_full: imp={_sef_best[0]:.2f} "
@@ -5868,7 +5877,10 @@ def main():
                     _sef_best = max(_sef_by_imp, key=lambda x: x[0])
                     _sef_best[1]["_fallback_protected"] = True
                     # iter1570: fallback_floor_safe
+                    # iter1618: floor_safe_inline — 同上
                     _fb_floor = 0.05 if _db_chunk_count < 20 else (0.08 if _db_chunk_count < 50 else 0.12)
+                    if _local_chunk_count == 0 and _fb_floor < 0.15:
+                        _fb_floor = 0.15
                     positive = [(max(_sef_best[0] * 0.01, _fb_floor), _sef_best[1])]
                     _deferred.log(DMESG_WARN, "retriever",
                                   f"iter776_suppress_zero_fallback_full: imp={_sef_best[0]:.2f} "

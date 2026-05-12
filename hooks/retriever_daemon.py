@@ -4976,7 +4976,15 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                     _sef_best = max(_sef_by_imp, key=_SORT_KEY)
                     _fallback_protected_ids.add(_sef_best[1][_CI_ID])
                     # iter1570: fallback_floor_safe — score 不低于 _score_floor，防止 floor_gate 二杀
-                    top_k = [(max(_sef_best[0] * 0.1, _score_floor), _sef_best[1])]
+                    # iter1618: floor_safe_inline — 内联 floor 计算，消除对可能未定义的 _score_floor 的依赖
+                    # 根因（数据驱动，2026-05-11）：git:78dc99a5695f 连续 2 次空召回。
+                    #   dead_zone_fallback 用旧 _score_floor=0.05 算 score=0.084，
+                    #   floor_gate(L6093) 重算 _score_floor=0.12 → 0.084<0.12 被二杀。
+                    #   _fallback_protected_ids bypass(L6139) 失效原因待查，但 score>=floor 可彻底消除。
+                    _dz_floor = 0.05 if _db_chunk_count < 20 else (0.08 if _db_chunk_count < 50 else 0.12)
+                    if _local_chunk_count_d == 0 and _dz_floor < 0.15:
+                        _dz_floor = 0.15
+                    top_k = [(max(_sef_best[0] * 0.1, _dz_floor), _sef_best[1])]
                     _deferred.log(DMESG_WARN, "retriever_daemon",
                                   f"iter775_dead_zone_fallback_full: imp={_sef_best[0]:.2f} "
                                   f"max_s={_sef_full_max:.4f} id={_sef_best[1][_CI_ID][:12]}",
@@ -4986,7 +4994,11 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                     _sef_best = max(_sef_by_imp, key=_SORT_KEY)
                     _fallback_protected_ids.add(_sef_best[1][_CI_ID])
                     # iter1570: fallback_floor_safe — score 不低于 _score_floor，防止 floor_gate 二杀
-                    top_k = [(max(_sef_best[0] * 0.01, _score_floor), _sef_best[1])]
+                    # iter1618: floor_safe_inline — 同上，内联 floor 计算
+                    _dz_floor2 = 0.05 if _db_chunk_count < 20 else (0.08 if _db_chunk_count < 50 else 0.12)
+                    if _local_chunk_count_d == 0 and _dz_floor2 < 0.15:
+                        _dz_floor2 = 0.15
+                    top_k = [(max(_sef_best[0] * 0.01, _dz_floor2), _sef_best[1])]
                     _deferred.log(DMESG_WARN, "retriever_daemon",
                                   f"iter776_suppress_zero_fallback: imp={_sef_best[0]:.2f} "
                                   f"id={_sef_best[1][_CI_ID][:12]}",
