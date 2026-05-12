@@ -2399,7 +2399,19 @@ def main():
                 "SELECT COUNT(*) FROM memory_chunks WHERE project=? AND chunk_state='ACTIVE'", (project,)
             ).fetchone()[0] or 0
         except Exception:
-            pass
+            # iter1649: local_count_conn_independence — _rc_conn 失败时用独立连接
+            # 根因（数据驱动，2026-05-13）：LITE 路径 _rc_conn 状态异常 → fallback=_db_chunk_count(30)
+            #   → _local_sparse=False(30>5) → 全部 sparse 保护链条失效 → 100% 空召回。
+            #   git:78dc99a5695f(1 local) 5/11 两次空召回 ftrace 无 iter1568 日志即此根因。
+            try:
+                import sqlite3 as _lcc1649
+                _lcc_conn = _lcc1649.connect(str(STORE_DB))
+                _local_chunk_count = _lcc_conn.execute(
+                    "SELECT COUNT(*) FROM memory_chunks WHERE project=? AND chunk_state='ACTIVE'", (project,)
+                ).fetchone()[0] or 0
+                _lcc_conn.close()
+            except Exception:
+                pass
         _local_sparse = _local_chunk_count <= 5
         _tiny_db = _db_chunk_count < 50  # iter848: tiny_db boundary 40→50
         _small_db = _db_chunk_count < 100
