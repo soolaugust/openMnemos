@@ -85,7 +85,7 @@ class TestConstraintExtraction(unittest.TestCase):
     def test_prerequisite_pattern(self):
         """匹配 '前提条件' 模式。"""
         from hooks.extractor import _extract_constraints
-        text = "前提条件：FTS5 表必须始终与主表同步，否则查询结果不一致"
+        text = "前提条件：rq lock 必须在 task migration 前持有，否则会 race condition"
         constraints = _extract_constraints(text)
         self.assertTrue(len(constraints) > 0,
                        f"Should extract prerequisite pattern, got {constraints}")

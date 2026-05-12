@@ -337,7 +337,15 @@ def _extract_constraints(text: str) -> list:
     results = []
     for pattern in CONSTRAINT_SIGNALS:
         for m in re.finditer(pattern, text):
-            full_match = m.group(0)  # 完整匹配（含触发词）
+            # iter1616: extend full_match to sentence end — dangling_tail_gate 误杀修复
+            # 根因：pattern 如 "never...because" 的 m.group(0) 止于 "because"，
+            #   _is_quality_chunk 的 dangling_tail_gate 判定其为截断碎片(trailing conjunction)。
+            #   实际句子 "never X because Y" 是完整约束知识。
+            # 修复：从 match end 向后取到句末（句号/换行/EOF），拼成完整上下文传给质量检验。
+            _end = m.end()
+            _tail = text[_end:_end+120]
+            _tail_end = re.search(r'[.。！？\n]', _tail)
+            full_match = m.group(0) + (_tail[:_tail_end.start()+1] if _tail_end else _tail).rstrip()
             captured = m.group(1).strip() if m.groups() else full_match.strip()
             # 截断到句号/换行
             captured = re.split(r'[\n。！？]', captured)[0].strip()
