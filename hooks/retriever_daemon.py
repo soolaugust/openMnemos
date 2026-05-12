@@ -6091,6 +6091,12 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
         # iter1517: daemon_small_db_floor_sync — 同步 retriever.py iter1507
         # iter1541: tiny_db_score_floor_relax — sync retriever.py
         _score_floor = 0.05 if _db_chunk_count < 20 else (0.08 if _db_chunk_count < 50 else 0.12)
+        # iter1602: zero_local_cross_project_floor — local=0 项目提高 floor
+        # 数据驱动（2026-05-12）：abspath:7e3095aef7a6(local=0) 注入 mtk ALB(score=0.05)
+        #   与 memory-os 工作完全无关。local=0 时所有候选都是跨项目，信息增量低，
+        #   0.05 floor 放行了语义不相关的噪声。提升到 0.15 确保只注入真正相关的跨项目知识。
+        if _local_chunk_count_d == 0 and _score_floor < 0.15:
+            _score_floor = 0.15
         # iter1067: global_saturated_floor — 已内化 global constraint 提高 floor
         # 数据驱动（2026-05-07）：feishu CLI(ac=4,score=0.19)、memory验证(ac=6,score=0.15)
         #   在 kernel session 中过 0.12 floor 被注入，与当前工作完全无关。
