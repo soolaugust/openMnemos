@@ -4782,6 +4782,9 @@ def main():
                 # iter1512: sync iter1507 small_db_score_floor_relax — <50 库 0.12→0.08
                 # iter1541: sync tiny_db_score_floor_relax — <20 库 0.08→0.05
                 _sf_hd = 0.05 if _db_chunk_count < 20 else (0.08 if _db_chunk_count < 50 else 0.12)
+                # iter1607: sync iter1602 — HD 路径 local=0 floor 对齐
+                if _local_chunk_count == 0 and _sf_hd < 0.15:
+                    _sf_hd = 0.15
                 if _db_chunk_count > 5:
                     _sf_hd_above = [(s, c) for s, c in top_k if s >= _sf_hd]
                     if _sf_hd_above:
@@ -4812,10 +4815,14 @@ def main():
                                                   f"iter1529_hd_sparse_local_priority: "
                                                   f"id={_hslp_row[0][:12]} imp={_hslp_row[4]:.2f}",
                                                   session_id=session_id, project=project)
+                                elif _local_chunk_count == 0:
+                                    top_k = []  # iter1607: local=0 不注入跨项目噪声
                                 else:
                                     top_k = [max(top_k, key=lambda x: x[0])]
                             except Exception:
                                 top_k = [max(top_k, key=lambda x: x[0])]
+                        elif _local_chunk_count == 0:
+                            top_k = []  # iter1607: local=0 不注入跨项目噪声
                         else:
                             top_k = [max(top_k, key=lambda x: x[0])]
                 # 快速路径：直接组装输出
@@ -8187,6 +8194,9 @@ def main():
                                               f"iter1564_sparse_local_over_cross: replaced {len(_sf_protected)} "
                                               f"cross-proj with local id={_slof_rows[0][0][:12]} imp={_slof_rows[0][4]:.2f}",
                                               session_id=session_id, project=project)
+                            elif _local_chunk_count == 0:
+                                # iter1607: local=0 不注入跨项目噪声
+                                top_k = []
                             else:
                                 top_k = _sf_protected
                         except Exception:
@@ -8238,7 +8248,12 @@ def main():
                     # iter1605: elif→if — sparse 项目 iter1525 失败后也应走此兜底
                     # 根因（数据驱动，2026-05-12）：原 elif 结构导致 _local_sparse=True 时
                     #   iter1525 静默失败后直接跳过 iter1599 → 空召回无兜底。
-                    if not top_k and _pre_suppress_top_k:
+                    # iter1607: zero_local_fallback_skip — local=0 项目不注入跨项目噪声
+                    # 根因（数据驱动，2026-05-12）：abspath:7e3095aef7a6(local=0) 经此路径
+                    #   注入 mtk ALB(imp=0.90) 和 migration 统计(imp=0.92)，与 memory-os 开发无关。
+                    #   local=0 表明该项目从未产生本地知识，所有候选均为跨项目，信息增量=0。
+                    # 修复：local=0 跳过此兜底，保持空召回（不注入噪声 > 注入无关知识）。
+                    if not top_k and _pre_suppress_top_k and _local_chunk_count > 0:
                         _fgr_local = [(s, c) for s, c in _pre_suppress_top_k
                                       if c.get("project") == project]
                         if not _fgr_local:
