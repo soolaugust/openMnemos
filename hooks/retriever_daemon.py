@@ -3907,10 +3907,13 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                         # iter1562: global_dc_monopoly_cap — dc ac>=4 thresh 4→3
                         _g_ac_d = chunk[_CI_AC] or 0
                         if _s672_tiny:
+                            # iter1640: global_dc_tinydb_7d_tighten — ac>=4 dc thresh 3→2
+                            # 根因（数据驱动，2026-05-13）：feishu CLI(ac=5,dc) 7d=3 才 suppress，
+                            #   35-chunk 库每周注入 2 次仍过高（用户已内化 ac>=4 知识）。
                             if _g_ac_d >= 4 and chunk[_CI_CT] == "design_constraint":
-                                _7d_base = 3
+                                _7d_base = 2
                             elif _g_ac_d >= 4:
-                                _7d_base = 4
+                                _7d_base = 3
                             else:
                                 _7d_base = 5
                         elif _s672_small:
@@ -4128,11 +4131,11 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                     if (chunk.get("project", "") or "") == "global":
                         _g_ac_d2 = chunk.get("access_count", 0) or 0
                         if _s672d_tiny:
-                            # iter1562: global_dc_monopoly_cap — sync dict path
+                            # iter1640: global_dc_tinydb_7d_tighten — sync dict path
                             if _g_ac_d2 >= 4 and chunk.get("chunk_type") == "design_constraint":
-                                _7d_base_d2 = 3
+                                _7d_base_d2 = 2
                             elif _g_ac_d2 >= 4:
-                                _7d_base_d2 = 4
+                                _7d_base_d2 = 3
                             else:
                                 _7d_base_d2 = 5
                         elif _s672d_small:
@@ -5458,10 +5461,10 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                         if _local_sparse_d:
                             return 3 if _g_ac_fg >= 4 else 5
                         if _s672_tiny:
-                            # iter1562: global_dc_monopoly_cap — sync suppress_final_gate
+                            # iter1640: global_dc_tinydb_7d_tighten — sync suppress_final_gate
                             if _g_ac_fg >= 4 and c[_CI_CT] == "design_constraint":
-                                return 3
-                            return 4 if _g_ac_fg >= 4 else 5
+                                return 2
+                            return 3 if _g_ac_fg >= 4 else 5
                         if _s672_small:
                             return 2 if _g_ac_fg >= 4 else 4
                         return 2
@@ -5598,10 +5601,10 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                     if _local_sparse_d:
                         return 3 if _g_ac_cf >= 4 else 5
                     if _fg887d_tiny:
-                        # iter1562: global_dc_monopoly_cap — sync closure fallback
+                        # iter1640: global_dc_tinydb_7d_tighten — sync closure fallback
                         if _g_ac_cf >= 4 and c[_CI_CT] == "design_constraint":
-                            return 3
-                        return 4 if _g_ac_cf >= 4 else 5
+                            return 2
+                        return 3 if _g_ac_cf >= 4 else 5
                     if _fg887d_small:
                         return 2 if _g_ac_cf >= 4 else 4
                     return 2

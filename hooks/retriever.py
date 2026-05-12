@@ -3290,10 +3290,15 @@ def main():
                     #   thresh=3 限制为 2 次/7d（TOCTOU 最差+1=3），释放注入位给领域知识。
                     #   空召回保护：suppress_fallback 兜底（iter670/776），且仅针对 dc 子类型。
                     if _tiny_db:
+                        # iter1640: global_dc_tinydb_7d_tighten — dc thresh 3→2, non-dc 4→3
+                        # 根因（数据驱动，2026-05-13）：feishu CLI(ac=5,dc) lifetime=5, 7d=3,
+                        #   git commit(ac=5,dc) lifetime=7, 7d=2。35-chunk 库 dc 约束已内化，
+                        #   thresh=3 允许周注入 2 次仍过高。收紧到 2 限制为 1 次/7d。
+                        #   non-dc global(如 PE/sched_ext 知识)从 4→3，用户周内 3 次内化足够。
                         if _g_ac_full >= 4 and chunk.get("chunk_type") == "design_constraint":
-                            _suppress_7d_thresh = 3
+                            _suppress_7d_thresh = 2
                         elif _g_ac_full >= 4:
-                            _suppress_7d_thresh = 4
+                            _suppress_7d_thresh = 3
                         else:
                             _suppress_7d_thresh = 5
                     elif _small_db:
@@ -4425,12 +4430,11 @@ def main():
                         # iter1478: global_deep_saturated_7d_tighten — sync hard_deadline
                         if _local_sparse and _cp == "global":
                             return 2 if _g_ac >= 4 else 5
-                        # iter1524: tiny_db_global_7d_relax — sync hard_deadline
-                        # iter1562: global_dc_monopoly_cap — sync hard_deadline
+                        # iter1640: global_dc_tinydb_7d_tighten — sync hard_deadline
                         if _hd_tiny_db:
                             if _g_ac >= 4 and c.get("chunk_type") == "design_constraint":
-                                return 3
-                            return 4 if _g_ac >= 4 else 5
+                                return 2
+                            return 3 if _g_ac >= 4 else 5
                         if _hd_small_db:
                             return 2 if _g_ac >= 4 else 4
                         return 2
