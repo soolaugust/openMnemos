@@ -1309,7 +1309,7 @@ def _read_chunk_version() -> int:
 def _write_trace(session_id: str, project: str, prompt_hash: str,
                  candidates_count: int, top_k_data: list,
                  injected: int, reason: str, duration_ms: float = 0.0,
-                 conn=None) -> None:
+                 conn=None, ftrace_json: str = None) -> None:
     """
     写 recall_traces 记录。
     v8 迭代21：委托 store.py（VFS 统一数据访问层）。
@@ -1324,7 +1324,7 @@ def _write_trace(session_id: str, project: str, prompt_hash: str,
         if conn is None:
             conn = open_db()
             ensure_schema(conn)
-        store_insert_trace(conn, {
+        _trace_data = {
             "id": str(uuid.uuid4()),
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "session_id": session_id,
@@ -1335,7 +1335,10 @@ def _write_trace(session_id: str, project: str, prompt_hash: str,
             "injected": injected,
             "reason": reason,
             "duration_ms": duration_ms,
-        })
+        }
+        if ftrace_json:
+            _trace_data["ftrace_json"] = ftrace_json
+        store_insert_trace(conn, _trace_data)
         if should_close:
             conn.commit()
             conn.close()
@@ -9149,6 +9152,17 @@ def main():
             # 根因（数据驱动，2026-05-05）：26% injected traces 的 top_k_json=[]，
             #   膨胀 bw_window 分母 → suppress 比例失真 → 垄断检测失效。
             if not _effective_top_k:
+                # iter1594: empty_recall_ftrace — 空召回写 trace(injected=0) + ftrace 诊断
+                # 根因（数据驱动，2026-05-12）：30 条 hash_changed|full 空召回的 ftrace_json=NULL，
+                #   因 iter825 直接 exit 不写 trace → 空召回完全无法诊断（不知为何全灭）。
+                # 修复：写 injected=0 trace 并附 deferred log 尾部作为 ftrace，保留诊断上下文。
+                _er_ftrace = None
+                if _deferred._buf and candidates_count > 0:
+                    _er_msgs = [msg for _, _, msg, _, _, _ in _deferred._buf[-5:]]
+                    if _er_msgs:
+                        _er_ftrace = json.dumps(_er_msgs, ensure_ascii=False)
+                _write_trace(session_id, project, prompt_hash, candidates_count,
+                             [], 0, reason, duration_ms, conn=wconn, ftrace_json=_er_ftrace)
                 _deferred.flush(wconn)
                 dmesg_log(wconn, DMESG_WARN, "retriever",
                           f"iter825_skip_empty_trace: accessed_ids_empty={not accessed_ids}",
