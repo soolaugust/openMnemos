@@ -8114,7 +8114,13 @@ def main():
                         #   经 pair_preserve 注入到无关项目 session，信息增量=0。
                         #   pair preserve 目的是补充本项目相关上下文，跨项目 ac>=7 已深度内化不适用。
                         # 修复：排除跨项目/global 且 ac>=7 的 chunk。
+                        # iter1610: pair_preserve_sat_floor_gate — sat_floor 清零的 chunk 不参与 pair_preserve
+                        # 根因（数据驱动，2026-05-12）：c9accb7b(feishu CLI, global+dc+ac=5)
+                        #   被 sat_floor 设为 score=0.0，但 pair_preserve ac>=7 门槛未拦截(ac=5)。
+                        #   sat_floor 已判定信息增量=0 的 chunk 不应被 pair_preserve 复活。
+                        # 修复：排除 score==0.0（sat_floor 清零标记）+ 原跨项目高 ac 排除。
                         _sf_below = [(s, c) for s, c in top_k if s < _score_floor
+                                     and s > 0.0
                                      and not (c.get("access_count", 0) >= 7
                                               and (c.get("project", "") == "global"
                                                    or c.get("project", "") != project))]
