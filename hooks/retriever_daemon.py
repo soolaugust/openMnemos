@@ -4357,24 +4357,46 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                     pass
         else:
             if priority == "LITE":
-                # iter713: 小库时 LITE 不再直接 return — FTS miss 常见（40 chunk），
-                #   改为降级走 BM25 fallback（同 FULL 路径）
-                #   根因：LITE+FTS_miss 是注入率低的第二大原因（仅次于 suppress）
-                #   DB<100 chunk 时全部走 BM25 fallback，否则保持原逻辑
-                _total_mc_lite = conn.execute("SELECT COUNT(*) FROM memory_chunks").fetchone()[0]
-                if _total_mc_lite >= 100:
-                    # iter173: persistent conn — do NOT close
-                    if _deferred._buf:  # iter222: direct slot access (~0.145us vs len() ~0.310us)
-                        try:
-                            wconn = open_db()
-                            ensure_schema(wconn)
-                            _deferred.flush(wconn)
-                            wconn.commit()
-                            wconn.close()
-                        except Exception:
-                            pass
-                    return
-                # else: fall through to BM25 fallback below
+                # iter1645: daemon sync iter1643 lite_sparse_local_rescue
+                if _local_sparse_d and _local_chunk_count_d > 0:
+                    try:
+                        _lsr_d = conn.execute(
+                            "SELECT id, summary, content, chunk_type, importance "
+                            "FROM memory_chunks WHERE project=? AND chunk_state='ACTIVE' "
+                            "ORDER BY importance DESC, access_count DESC LIMIT 1",
+                            (project,)
+                        ).fetchone()
+                        if _lsr_d and _recent_6h_counts.get(_lsr_d[0], 0) < 2:
+                            fts_results = [{"id": _lsr_d[0], "summary": _lsr_d[1],
+                                            "content": _lsr_d[2], "chunk_type": _lsr_d[3] or "",
+                                            "importance": _lsr_d[4] or 0.5}]
+                            use_fts = True
+                            _deferred.log(DMESG_DEBUG, "retriever",
+                                          f"iter1645_daemon_lite_sparse_rescue: "
+                                          f"id={_lsr_d[0][:12]} imp={_lsr_d[4]:.2f}",
+                                          session_id=session_id, project=project)
+                    except Exception:
+                        pass
+                if use_fts:
+                    pass  # rescued — skip LITE exit, proceed to scoring
+                else:
+                    # iter713: 小库时 LITE 不再直接 return — FTS miss 常见（40 chunk），
+                    #   改为降级走 BM25 fallback（同 FULL 路径）
+                    #   根因：LITE+FTS_miss 是注入率低的第二大原因（仅次于 suppress）
+                    #   DB<100 chunk 时全部走 BM25 fallback，否则保持原逻辑
+                    _total_mc_lite = conn.execute("SELECT COUNT(*) FROM memory_chunks").fetchone()[0]
+                    if _total_mc_lite >= 100:
+                        if _deferred._buf:
+                            try:
+                                wconn = open_db()
+                                ensure_schema(wconn)
+                                _deferred.flush(wconn)
+                                wconn.commit()
+                                wconn.close()
+                            except Exception:
+                                pass
+                        return
+                    # else: fall through to BM25 fallback below
 
             if _check_deadline("pre_bm25_fallback", is_hard=True):
                 # iter173: persistent conn — do NOT close
