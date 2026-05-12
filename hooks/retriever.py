@@ -3050,7 +3050,13 @@ def main():
                     if len(w) >= 2
                 )
                 if _tm_words and len(_query_content_words & _tm_words) == 0:
-                    score *= 0.3
+                    # iter1614: dc_topic_mismatch_soften — design_constraint 降权放宽
+                    # 数据驱动（2026-05-12）："memory 引用前验证路径"(dc,ac=6) 与
+                    #   "suppress 注入 fallback" query 词级零交集但语义高度相关。
+                    #   dc 是持续有效的约束，topic mismatch 降权不应过强。
+                    # 修复：dc *0.6（轻降权），其他类型保持 *0.3（强降权）。
+                    _tm_discount = 0.6 if chunk.get("chunk_type") == "design_constraint" else 0.3
+                    score *= _tm_discount
             # ── iter614: temporal_burst_suppression — 24h 注入频率 cap ─────────
             # 同一 chunk 在 24h 内注入 >=2 次 → suppress（score=0）
             # iter619: 阈值 3→2，同日看 2 次已足够，第 3 次起 suppress
