@@ -5048,8 +5048,16 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                     if _ct == "design_constraint":
                         return _a < 4
                     return _a < 7
+                # iter1653: fallback_7d_suppress_align — 排除 7d 已达 suppress 阈值的 chunk
+                def _fb_7d_ok_d(c):
+                    _cid = c[_CI_ID]
+                    _7d = _recent_7d_counts.get(_cid, 0)
+                    _t = 5 if _db_chunk_count < 50 else 3
+                    if (c[_CI_CP] if len(c) > _CI_CP else "") == "global" and (c[_CI_AC] or 0) >= 4:
+                        _t = max(2, _t - 1)
+                    return _7d < _t
                 _sef_by_imp = [(float(c[_CI_IMP] or 0), c) for _, c in final
-                               if _fb_ac_ok(c)]
+                               if _fb_ac_ok(c) and _fb_7d_ok_d(c)]
                 if _sef_by_imp and _sef_full_max >= _DEAD_ZONE_MIN_FULL:
                     _sef_best = max(_sef_by_imp, key=_SORT_KEY)
                     _fallback_protected_ids.add(_sef_best[1][_CI_ID])

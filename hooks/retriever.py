@@ -5935,10 +5935,21 @@ def main():
                     if c.get("chunk_type") == "design_constraint":
                         return 4
                     return 7
+                # iter1653: fallback_7d_suppress_align — 排除 7d 已达 suppress 阈值的 chunk
+                # 根因（数据驱动，2026-05-13）：ac=7~9 垄断 chunk 被 suppress 全灭后
+                #   经 dead_zone_fallback(importance 排序) 恢复注入，绕过 suppress。
+                def _fb_7d_ok_full(c):
+                    _cid = c.get("id", "")
+                    _7d = _recent_7d_counts.get(_cid, 0)
+                    _t = 5 if _db_chunk_count < 50 else 3
+                    if c.get("project", "") == "global" and (c.get("access_count", 0) or 0) >= 4:
+                        _t = max(2, _t - 1)
+                    return _7d < _t
                 _sef_by_imp = [(float(c.get("importance", 0) or 0), c) for _, c in final
                                if (c.get("access_count", 0) or 0) < 30
                                and not ((c.get("project", "") != project or c.get("project", "") == "global")
-                                        and (c.get("access_count", 0) or 0) >= _fb_ac_thresh_full(c))]
+                                        and (c.get("access_count", 0) or 0) >= _fb_ac_thresh_full(c))
+                               and _fb_7d_ok_full(c)]
                 if _sef_by_imp and _sef_full_max >= _DEAD_ZONE_MIN_FULL:
                     _sef_best = max(_sef_by_imp, key=lambda x: x[0])
                     _sef_best[1]["_fallback_protected"] = True
