@@ -800,10 +800,12 @@ def _drr_select(candidates: list, top_k: int) -> list:
     """
     max_same = _sysctl("retriever.drr_max_same_type")
     # ── 迭代337：Normative Pool 联合配额 ──
-    # decision 和 design_constraint 合并为 "normative" pool，总量 ≤ max_same * 2
-    # 避免两类型各自允许 max_same 导致联合占满 top_k（实测 76% 注入率）
+    # decision 和 design_constraint 合并为 "normative" pool
+    # iter1641: normative_pool_tighten — max_same*2→max_same+1（4→3 slots/6）
+    # 根因（数据驱动，2026-05-13）：normative 占注入 66%（dc=35%+decision=31%），
+    #   挤压 quantitative_evidence/procedure 类高信息增量知识。收紧到 50%。
     _NORMATIVE_TYPES = frozenset({"decision", "design_constraint"})
-    normative_pool_cap = max_same * 2  # 联合配额
+    normative_pool_cap = max_same + 1  # 联合配额: 2+1=3 slots (50% of top_k=6)
     normative_count = 0               # 已选 normative 数量
 
     selected = []

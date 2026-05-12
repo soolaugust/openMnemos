@@ -3412,6 +3412,10 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
         # ── DRR selector ──
         def _drr_select(candidates, top_k):
             max_same = _drr_max_same  # iter193: pre-read local var (was sysctl() call)
+            # iter1641: sync normative pool from retriever.py iter337+1641
+            _NORM = frozenset(("decision", "design_constraint"))
+            _norm_cap = max_same + 1  # 联合配额: 3 slots (50% of top_k=6)
+            _norm_n = 0
             selected = []
             type_counts = {}
             overflow = []
@@ -3420,20 +3424,30 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                     break
                 ctype = (chunk[_CI_CT] or "task_state") if chunk is not None else "task_state"
                 count = type_counts.get(ctype, 0)
+                if ctype in _NORM and _norm_n >= _norm_cap:
+                    overflow.append((score, chunk))
+                    continue
                 if count < max_same:
                     selected.append((score, chunk))
                     type_counts[ctype] = count + 1
+                    if ctype in _NORM:
+                        _norm_n += 1
                 else:
                     overflow.append((score, chunk))
             overflow_type_counts = {}
+            _of_norm = 0
             for score, chunk in overflow:
                 if len(selected) >= top_k:
                     break
                 ctype = (chunk[_CI_CT] or "task_state") if chunk is not None else "task_state"
                 already = type_counts.get(ctype, 0) + overflow_type_counts.get(ctype, 0)
+                if ctype in _NORM and _norm_n + _of_norm >= _norm_cap * 2:
+                    continue
                 if already < max_same * 2:
                     selected.append((score, chunk))
                     overflow_type_counts[ctype] = overflow_type_counts.get(ctype, 0) + 1
+                    if ctype in _NORM:
+                        _of_norm += 1
             return selected
 
         # ── Score function (iter191: inline retrieval_score, single _age_days, cached sysctl params) ──
