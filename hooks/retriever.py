@@ -8403,11 +8403,14 @@ def main():
         if _sysctl("retriever.inject_sort_enabled") and len(top_k) >= 2:
             try:
                 import math as _math
-                # iter644: constraint_inject_floor — design_constraint 也必须过绝对 score 门槛
-                # 根因（数据驱动，2026-05-03）：b50e0b54 被各种 suppress 压到 score=0.0003，
-                #   但 _inj_constraints 无条件收录 → 仍被注入。score<0.001 的 constraint
-                #   已被 suppress 判定为当前无价值，不应占用 token 预算。
-                _constraint_floor = 0.001
+                # iter644→1606: constraint_inject_floor — 对齐主路径 score_floor
+                # 根因（数据驱动，2026-05-12）：abspath:7e3095aef7a6(交易项目) 注入
+                #   feishu CLI(score=0.010) 和 git commit author(score=0.010)，
+                #   constraint 通道 Jaccard gate 通过但 score 远低于 score_floor=0.05。
+                #   constraint 合并到 top_k 后绕过了 score_floor_gate，造成噪声注入。
+                # 修复：constraint_floor 对齐 _score_floor（0.05/0.08/0.12 按库大小）。
+                #   影响：30 次历史 constraint 注入中仅 2 次被阻断（均为噪声）。
+                _constraint_floor = _score_floor
                 _inj_constraints = [(s, c) for s, c in top_k
                                     if c.get("chunk_type") == "design_constraint"
                                     and s >= _constraint_floor]
