@@ -2767,14 +2767,17 @@ def main():
                     #   Top15 chunk 占 7d 注入 62%，全是 ac>=7 的"已内化"知识。
                     # 修复：GC 扩展到 14d，cooldown 升级：ac>=10→14d, ac>=7→10d, global→10d。
                     #   用户体验：高饱和知识从每周重复→每两周最多 1 次，垄断频率降 50%+。
+                    # iter1617: constraint_cooldown_escalate — design_constraint cooldown 对齐 global 级别
+                    # 根因（数据驱动，2026-05-12）：git_commit_author(dc,ac=5) 占 last-200 注入 12.1%，
+                    #   feishu_CLI(dc,ac=5) 8.6%，memory验证(dc,ac=6) 6.9% — 3 条 dc 占 27.6%。
+                    #   non-global dc cooldown=72h(ac=4-6) 太短，约束是静态规则，内化后再注入=零价值。
+                    # 修复：design_constraint + ac>=4 → cooldown=10d（对齐 global），其余不变。
+                    _cd_is_constraint = chunk.get("chunk_type") == "design_constraint"
                     if _cd_is_global:
                         _cd_cutoff = _cutoff_14d if _acc >= 10 else _cutoff_10d
+                    elif _cd_is_constraint and _acc >= 4:
+                        _cd_cutoff = _cutoff_10d
                     else:
-                        # iter1111: local_cooldown_5d — ac=4-6 non-global cooldown 48h→5d
-                        # iter1252: cooldown_5d_to_3d — ac=4-6 cooldown 5d→3d
-                        #   根因（数据驱动，2026-05-09）：git:a0ab16e8cafc 27 chunk 中 12 个被
-                        #   cooldown+7d suppress 双杀，5/6 后 top_k 全空→用户零记忆注入 3 天。
-                        #   ac=4-6 chunk 是核心知识，5d cooldown 对日活项目过长。
                         _cd_cutoff = _cutoff_14d if _acc >= 10 else (_cutoff_10d if _acc >= 7 else (_cutoff_72h if _acc >= 4 else _cutoff_72h))
                     # iter1145: staggered_cooldown_jitter — 错峰解禁防止批量到期垄断
                     # 根因（数据驱动，2026-05-08）：5/6 密集 session 写入 40+ chunk，
