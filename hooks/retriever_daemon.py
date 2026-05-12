@@ -6344,23 +6344,31 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                     #   仅当本地有 ACTIVE chunk 时触发；global-only 项目不触发（避免噪声）。
                     if _local_sparse_d:
                         try:
-                            # iter1632: immutable_conn_stale_fix — 同上
+                            # iter1665: sparse_local_least_seen — 优先注入 ac 最低的本地 chunk
                             import sqlite3 as _slp_sql
                             _slp_conn = _slp_sql.connect(str(STORE_DB), timeout=2)
                             _slp_rows = _slp_conn.execute(
                                 "SELECT id, summary, content, chunk_type, importance, "
                                 "COALESCE(access_count,0), created_at, 0.0, COALESCE(lru_gen,0), project "
                                 "FROM memory_chunks WHERE project=? AND chunk_state='ACTIVE' "
-                                "ORDER BY importance DESC LIMIT 1",
+                                "ORDER BY access_count ASC, importance DESC LIMIT 5",
                                 (project,)
                             ).fetchall()
                             _slp_conn.close()
-                            if _slp_rows:
-                                top_k = [(0.001, _slp_rows[0])]
-                                _fallback_protected_ids.add(_slp_rows[0][_CI_ID])
+                            _slp_pick = None
+                            _slp_exclude = {cid for cid, _ in _daemon_inject_log} if _daemon_inject_log else set()
+                            for _slp_r in _slp_rows:
+                                if _slp_r[_CI_ID] not in _slp_exclude:
+                                    _slp_pick = _slp_r
+                                    break
+                            if not _slp_pick and _slp_rows:
+                                _slp_pick = _slp_rows[0]
+                            if _slp_pick:
+                                top_k = [(0.001, _slp_pick)]
+                                _fallback_protected_ids.add(_slp_pick[_CI_ID])
                                 _deferred.log(DMESG_WARN, "retriever_daemon",
-                                              f"iter1525_sparse_local_priority: "
-                                              f"id={_slp_rows[0][0][:12]} imp={_slp_rows[0][4]:.2f} project={project}",
+                                              f"iter1665_sparse_local_least_seen: "
+                                              f"id={_slp_pick[0][:12]} ac={_slp_pick[5]} imp={_slp_pick[4]:.2f} project={project}",
                                               session_id=session_id, project=project)
                         except Exception:
                             pass

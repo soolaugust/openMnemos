@@ -8489,22 +8489,35 @@ def main():
                         try:
                             import sqlite3 as _slp1605
                             _slp_conn = _slp1605.connect(str(STORE_DB))
+                            # iter1665: sparse_local_least_seen — 优先注入 ac 最低的本地 chunk
+                            # 根因（数据驱动，2026-05-13）：git:a4ee2fcfacc4(6 local) 密集 session
+                            #   floor_gate 全灭时总取 importance DESC 同一 chunk → session dedup 拦截
+                            #   → 后续全空召回。ac=1-2 的低访问 chunk 用户尚未内化，边际价值最高。
+                            # 修复：排除 session 已注入 chunk，按 ac ASC + importance DESC 选择。
+                            _slp_exclude = set(_session_injection_counts.keys()) if _session_injection_counts else set()
                             _slp_rows = _slp_conn.execute(
-                                "SELECT id, summary, content, chunk_type, importance "
+                                "SELECT id, summary, content, chunk_type, importance, access_count "
                                 "FROM memory_chunks WHERE project=? AND chunk_state='ACTIVE' "
-                                "ORDER BY importance DESC LIMIT 1",
+                                "ORDER BY access_count ASC, importance DESC LIMIT 5",
                                 (project,)
                             ).fetchall()
                             _slp_conn.close()
-                            if _slp_rows:
-                                _slp_c = {"id": _slp_rows[0][0], "summary": _slp_rows[0][1],
-                                          "content": _slp_rows[0][2], "chunk_type": _slp_rows[0][3] or "",
-                                          "importance": _slp_rows[0][4] or 0.5,
+                            _slp_pick = None
+                            for _slp_r in _slp_rows:
+                                if _slp_r[0] not in _slp_exclude:
+                                    _slp_pick = _slp_r
+                                    break
+                            if not _slp_pick and _slp_rows:
+                                _slp_pick = _slp_rows[0]
+                            if _slp_pick:
+                                _slp_c = {"id": _slp_pick[0], "summary": _slp_pick[1],
+                                          "content": _slp_pick[2], "chunk_type": _slp_pick[3] or "",
+                                          "importance": _slp_pick[4] or 0.5,
                                           "_fallback_protected": True}
                                 top_k = [(0.001, _slp_c)]
                                 _deferred.log(DMESG_WARN, "retriever",
-                                              f"iter1525_sparse_local_priority: "
-                                              f"id={_slp_rows[0][0][:12]} imp={_slp_rows[0][4]:.2f}",
+                                              f"iter1665_sparse_local_least_seen: "
+                                              f"id={_slp_pick[0][:12]} ac={_slp_pick[5]} imp={_slp_pick[4]:.2f}",
                                               session_id=session_id, project=project)
                         except Exception:
                             pass
