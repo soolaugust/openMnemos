@@ -5720,7 +5720,8 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
             #   根因（数据驱动，2026-05-05）：28-chunk 库 top5 占 38% 注入位，
             #   suppress 全灭后 fallback 按 score 选最佳 → 高频 chunk 反复被选中。
             #   修复：score/(1+0.5*7d_count) 使低频 chunk 优先，促进注入多样性。
-            if _pre_suppress_top_k:
+            # iter1631: sync iter1609 — local=0 不走 suppress_fallback
+            if _pre_suppress_top_k and _local_chunk_count_d > 0:
                 # iter892: fallback_exp_decay — 线性→指数衰减，高频 chunk 更快衰减
                 # iter893: fallback_hard_ceiling — 7d>=5 绝对不选，杜绝垄断 chunk 经 fallback 逃逸
                 # iter894: fallback_realtime_align — 优先用实时 DB 计数（与 suppress_final_gate 对齐）
@@ -5870,7 +5871,8 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                                   f"suppressed, fallback to best={_fb[1][_CI_ID][:12]}",
                                   session_id=session_id, project=project)
             # iter916: fallback_no_unfiltered_pool 后 _fb_pool=None 也会落到这里
-            if not top_k:
+            # iter1631: sync iter1607 — local=0 不走 db_ultimate_fallback
+            if not top_k and _local_chunk_count_d > 0:
                 # iter902+916: db_ultimate_fallback — 排除 7d 垄断 chunk
                 # 根因（2026-05-06）：原 iter902 无 7d 限制，最高 imp chunk 被反复选中(6次/7d)。
                 # 修复：排除 7d >= ceiling 的 chunk，选低频+高 importance 的。
@@ -6178,10 +6180,16 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                                  if (c[_CI_ID] if isinstance(c, (list, tuple)) else c.get("id", "")) in _fallback_protected_ids]
                 if _sf_protected:
                     # iter1564: sparse_local_over_cross_fallback — sync daemon
-                    _slof_all_cross_d = _local_sparse_d and all(
-                        (c[_CI_CP] if isinstance(c, (list, tuple)) and len(c) > _CI_CP else "") != project
-                        and (c[_CI_CP] if isinstance(c, (list, tuple)) and len(c) > _CI_CP else "") != "global"
-                        for _, c in _sf_protected)
+                    # iter1631: sync iter1611 — local=0 时 global 视为跨项目
+                    if _local_chunk_count_d == 0:
+                        _slof_all_cross_d = _local_sparse_d and all(
+                            (c[_CI_CP] if isinstance(c, (list, tuple)) and len(c) > _CI_CP else "") != project
+                            for _, c in _sf_protected)
+                    else:
+                        _slof_all_cross_d = _local_sparse_d and all(
+                            (c[_CI_CP] if isinstance(c, (list, tuple)) and len(c) > _CI_CP else "") != project
+                            and (c[_CI_CP] if isinstance(c, (list, tuple)) and len(c) > _CI_CP else "") != "global"
+                            for _, c in _sf_protected)
                     if _slof_all_cross_d:
                         try:
                             _slof_rows = conn.execute(
@@ -6198,6 +6206,8 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                                               f"iter1564_sparse_local_over_cross: replaced {len(_sf_protected)} "
                                               f"cross-proj with local id={_slof_rows[0][_CI_ID][:12]}",
                                               session_id=session_id, project=project)
+                            elif _local_chunk_count_d == 0:
+                                top_k = []
                             else:
                                 top_k = _sf_protected
                         except Exception:
