@@ -8228,9 +8228,14 @@ def main():
                 # 修复：_local_sparse + 本地 chunk → 跳过 sat_floor（对齐 cooldown/suppress shield）。
                 if _local_sparse and c.get("project") == project:
                     return (s, c)
+                # iter1644: dc_sat_floor_unify — non-global design_constraint 对齐 global ac>=4 门槛
+                # 根因（数据驱动，2026-05-13）：feishu CLI(ac=5,dc,non-global) 14d注入5次，
+                #   memory验证(ac=6,dc,non-global) 14d注入4次。_LOCAL_SAT_AC_THRESH=7 使其逃逸。
+                #   design_constraint 是静态规则，内化后边际信息=0，与 global dc 性质相同。
+                # 修复：dc + ac>=4 统一走 sat_floor，无论 global/non-global。
+                _is_dc = c.get("chunk_type") == "design_constraint"
                 _sat_hit = (
-                    (c.get("project") == "global"
-                     and c.get("chunk_type") == "design_constraint"
+                    (_is_dc
                      and (c.get("access_count") or 0) >= 4
                      and s < _GLOBAL_SAT_FLOOR)
                     or ((c.get("access_count") or 0) >= _LOCAL_SAT_AC_THRESH
