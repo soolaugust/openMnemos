@@ -462,8 +462,8 @@ def incremental_import():
         _gc_ph = ",".join("?" * len(_gc_ids))
         _gc_conn.execute(f"DELETE FROM memory_chunks WHERE id IN ({_gc_ph})", _gc_ids)
         _gc_conn.execute(
-            "DELETE FROM memory_chunks_fts WHERE rowid NOT IN "
-            "(SELECT rowid FROM memory_chunks)")
+            "DELETE FROM memory_chunks_fts WHERE rowid_ref NOT IN "
+            "(SELECT CAST(rowid AS TEXT) FROM memory_chunks)")
         _gc_tombstones = _load_tombstones()
         _gc_tombstones.update(_gc_ids)
         _save_tombstones(_gc_tombstones)
@@ -555,8 +555,8 @@ def incremental_import():
         _cap_conn.execute(f"DELETE FROM memory_chunks WHERE id IN ({_cap_ph})", _cap_del_ids)
         # FTS5 orphan cleanup: keep only ACTIVE chunks indexed
         _cap_conn.execute(
-            "DELETE FROM memory_chunks_fts WHERE rowid NOT IN "
-            "(SELECT rowid FROM memory_chunks WHERE chunk_state='ACTIVE')")
+            "DELETE FROM memory_chunks_fts WHERE rowid_ref NOT IN "
+            "(SELECT CAST(rowid AS TEXT) FROM memory_chunks WHERE chunk_state='ACTIVE')")
         _cap_ts = _load_tombstones()
         _cap_ts.update(_cap_del_ids)
         _save_tombstones(_cap_ts)
