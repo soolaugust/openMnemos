@@ -2952,7 +2952,10 @@ def main():
             #   让 cumulative_boost 中的 total_inj 加权生效。衰减温和（等效 7d=1）。
             _total_inj_pre = len(_injection_timeline.get(chunk.get("id", ""), []))
             if _r7d_dp == 0 and _total_inj_pre >= 5 and _db_chunk_count > 5:
-                _r7d_dp = 1  # synthetic: 激活 diversity block
+                # iter1651: graduated_synthetic_7d — 累计注入越多 synthetic 越高
+                # 根因（数据驱动，2026-05-13）：inj=7 chunk synthetic=1 衰减仅 35%，
+                #   高 FTS base 仍胜出重新垄断。按 total_inj 分级使高频 chunk 衰减更强。
+                _r7d_dp = min(3, 1 + (_total_inj_pre - 5) // 2)
             if _r7d_dp > 0 and _db_chunk_count > 5:
                 # iter969: diversity_factor_align_small_db — <100 统一 0.55
                 # 根因（数据驱动，2026-05-06）：51-chunk 库（刚越过 50 边界）
