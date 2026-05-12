@@ -2700,7 +2700,14 @@ def main():
             # 根因（数据驱动，2026-05-09）：import-90139(ac=3,procedure) 7d注入6次，
             #   无 cooldown 保护。ac=3 表明用户已见过 3 次，边际信息已低，需要间隔保护。
             # 修复：floor 4→3，ac=3 non-global 获得 72h cooldown（7d 最多 2-3 次）。
-            _cd_acc_floor = 3
+            # iter1615: tiny_db_cooldown_relax — tiny_db non-global cooldown floor 3→5
+            # 根因（数据驱动，2026-05-12）：git:a0ab16e8cafc(23 ACTIVE, tiny_db) 48% 空召回，
+            #   23 chunk 中 7 个被 cooldown 锁定(ac=3~9)，加上 6h/24h/7d suppress 后
+            #   ELIGIBLE 候选不足覆盖多样查询。ac=3-4 chunk 边际信息未耗尽（仅见 3-4 次），
+            #   72h cooldown 对日活 tiny_db 项目过长，用户换话题后回来需要同一知识时被挡。
+            # 修复：tiny_db(<50) 项目中 non-global chunk cooldown floor 3→5，
+            #   ac=3-4 不受 cooldown 限制（仍有 6h/24h/7d burst suppress 兜底）。
+            _cd_acc_floor = 5 if _tiny_db and not _cd_is_global else 3
             # iter1075: cooldown_cross_project_sync — micro_db bypass 不保护跨项目 chunk
             # 根因（数据驱动，2026-05-07）：9a2692fd(ac=10,proj=git:a0ab16e8cafc) 在
             #   abspath:7e3095aef7a6(cands=5,micro_db) 被注入，cooldown 被 micro_db bypass 跳过。
@@ -2799,7 +2806,8 @@ def main():
             # 根因（数据驱动，2026-05-09）：import-90139(ac=3) 5/4 同 session 30min 内注入 3 次，
             #   因 session suppress floor=5 > ac=3，跨 session cooldown(iter1251)无法阻止同 session 密集注入。
             # 修复：floor 5→3 对齐 cooldown floor(iter1251)，ac>=3 同 session 内仅注入 1 次。
-            if not _hard_suppressed and (not _micro_db or _cd_is_cross_project) and not _sparse_shield_cd and _acc >= 3:
+            _sess_sup_floor = 5 if _tiny_db and not _cd_is_global else 3
+            if not _hard_suppressed and (not _micro_db or _cd_is_cross_project) and not _sparse_shield_cd and _acc >= _sess_sup_floor:
                 if _session_injection_counts.get(chunk.get("id", ""), 0) >= 1:
                     score = 0.0
                     _hard_suppressed = True
