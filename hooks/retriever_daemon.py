@@ -5726,10 +5726,18 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                         _fcut = _cutoff_14d if _fac >= 10 else (_cutoff_10d if _fac >= 7 else _cutoff_72h)
                     return _fts <= _fcut
                 # iter1446: daemon_fallback_relevance_gate — sync retriever.py iter1363
+                # iter1597: daemon_fallback_cross_project_gate — sync retriever.py iter1555
+                # 根因（数据驱动，2026-05-12）：daemon suppress_fallback 仅检查 global chunk relevance>=0.20，
+                #   non-global 跨项目 chunk 无 relevance 检查。suppress 全灭后跨项目 chunk 可无条件恢复注入。
+                #   retriever.py hard_deadline 路径已有 iter1555（non-global cross >= 0.30），daemon 缺失。
+                # 修复：non-global 跨项目 chunk 需 relevance >= 0.30，与 retriever.py iter1555 对齐。
                 def _fb_rel_ok_d(c):
-                    if c.get("project", "") != "global" or project == "global":
-                        return True
-                    return _iter1446_rel_map.get(c[_CI_ID], 1.0) >= 0.20
+                    _cp = c.get("project", "")
+                    if _cp == "global" and project != "global":
+                        return _iter1446_rel_map.get(c[_CI_ID], 1.0) >= 0.20
+                    if _cp and _cp != "global" and _cp != project:
+                        return _iter1446_rel_map.get(c[_CI_ID], 1.0) >= 0.30
+                    return True
                 _fb_cap = [(s, c) for s, c in _pre_suppress_top_k
                            if _fb_cooldown_ok_d(c)
                            and _fb_rel_ok_d(c)
