@@ -1212,7 +1212,7 @@ def _is_selfref_noise(summary: str, chunk_type: str) -> bool:
         # 根因（数据驱动，2026-05-09）：2 条 causal_chain 描述跨项目聚合逻辑（"不走跨项目聚合"
         #   "管道符号过滤"）hits=1 逃逸。含 project=git:/abspath: + 聚合/注入动词是迭代器分析特征。
         r'跨项目聚合|project[=:].{0,5}(?:git|abspath)|管道符号过滤|'
-        r'burst.suppress|daemon.*(?:注入|进程内)|retriever_daemon|'
+        r'burst.suppress|daemon.{0,15}(?:注入|进程内)|retriever_daemon|'
         r'recall_trace|shadow_trace|注入质量|可观测性退化|'
         r'MEMORY\.md|悬挂链接|FTS5|memory.chunks|store\.db|'
         # iter1261: direct_cap_final_gate — retriever 内部路径对齐术语
@@ -1266,9 +1266,20 @@ def _is_selfref_noise(summary: str, chunk_type: str) -> bool:
         #   hits=1(ACTIVE chunks) 不够 decision 阈值 2。"DEAD"/"SWAPPED" 是 memory-os 内部状态。
         # "W18 空召回率 46%，W17 69%" — weekly 注入统计是 retriever 内部指标。
         r'(?:DEAD|SWAPPED)\b|W\d+\s*空召回|chunk_state|ACTIVE\s*(?:池|chunk|数)|'
-        r'存活率|写入存活)',
+        r'存活率|写入存活|'
+        # iter1584: retriever_scoring_var_gate — 评分/相似度内部变量 + 碎片注入描述逃逸
+        # 数据驱动（2026-05-12）：3 条 DEAD chunk 逃逸 selfref gate：
+        #   "sim_threshold 触发 diversity penalty" hits=1(diversity)
+        #   "反复注入" hits=1(注入率?)  "hook_input…FTS5 完全不执行" hits=1(FTS5)
+        r'sim_threshold|diversity.penalty|反复注入|hook_input|零记忆|'
+        r'prompt\s*提取|query\s*始终空)',
         summary
     ))
+    # iter1584: truncated_fragment_gate — 以右括号开头的碎片 + 任何 selfref 命中即拒绝
+    # 数据驱动（2026-05-12）："降权），导致通用规则在不相关项目反复注入" hits=1 逃逸。
+    #   以 ）/） 开头表明从更长文本中截断，与 selfref hit 共现即判定为迭代器碎片。
+    if hits >= 1 and not _is_constraint and re.match(r'.{0,3}[）)\]】]', summary):
+        return True
     # iter1325: constraint_selfref_gate — design_constraint 用更严格阈值(>=3)防误杀
     # iter1373: conversation_summary 阈值降为 1 — 对话摘要 + 任何内部术语即拒绝
     _min_hits = 3 if _is_constraint else (1 if chunk_type == "conversation_summary" else 2)
