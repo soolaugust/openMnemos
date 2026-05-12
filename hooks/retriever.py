@@ -3106,8 +3106,9 @@ def main():
                 elif _sat_ac >= 7:
                     _24h_base = max(1, _24h_base - 1)
                 # iter1023: global_24h_saturated_cap — global ac>=4 已内化，24h cap=1
+                # iter1579: sparse_global_24h_relax — sparse 项目放宽到 2
                 elif chunk.get("project") == "global" and _sat_ac >= 4:
-                    _24h_base = 1
+                    _24h_base = 2 if _local_sparse else 1
                 if _r24_cnt >= _24h_base:
                     score = 0.0
                     _hard_suppressed = True  # iter616
@@ -4340,8 +4341,9 @@ def main():
                     elif _a >= 7:
                         return max(1, _b - 1)
                     # iter1027: fallback_24h_align — sync iter1023 global_24h_saturated_cap
+                    # iter1579: sparse_global_24h_relax — sync
                     if c.get("project") == "global" and _a >= 4:
-                        return 1
+                        return 2 if _local_sparse else 1
                     return _b
                 # iter1042+1047: saturated_6h_cap — hard_deadline 路径同步
                 def _hd1042_6h_thresh(c):
@@ -6668,8 +6670,9 @@ def main():
                     # 根因（数据驱动，2026-05-07）：memory验证路径(ac=6,global) 24h 内同 session 注入 2 次。
                     #   24h 阈值=2（max(1,3-1)）允许 1 次后第 2 次仍通过。ac>=4 的 global 约束用户已熟知。
                     # 修复：global ac>=4 → 阈值=1（24h 内注入过 1 次即 suppress 后续）。
+                    # iter1579: sparse_global_24h_relax — sparse 项目放宽到 2（sync LITE/daemon）
                     if c.get("project") == "global" and _a >= 4:
-                        return 1
+                        return 2 if _local_sparse else 1
                     return _b
                 # iter1139: realtime_6h_suppress — suppress_final_gate 补充实时 6h burst 拦截
                 # 根因（数据驱动，2026-05-08）：import-90139(ac=7) 在同一 6h 窗口内

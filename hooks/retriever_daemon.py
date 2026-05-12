@@ -5393,8 +5393,12 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                     elif _a >= 7:
                         return max(1, _b - 1)
                     # iter1023: global_24h_saturated_cap — sync retriever.py
+                    # iter1579: sparse_global_24h_relax — sync LITE path iter1472
+                    #   根因（数据驱动，2026-05-12）：git:a4ee2fcfacc4(4 local,sparse) 56% 空召回。
+                    #   global ac>=4 thresh=1 意味着 24h 内 0 次注入即 suppress（首次后即封锁）。
+                    #   sparse 项目依赖 global 作为补充知识源，阈值=2 允许每 24h 注入 1 次。
                     if (c[_CI_CP] or "") == "global" and _a >= 4:
-                        return 1
+                        return 2 if _local_sparse_d else 1
                     return _b
                 # iter1049: micro_db_cross_project_suppress — micro_db 跨项目 chunk 仍需 suppress
                 # iter1142: micro_db_cross_saturated — ac>=7 阈值 3→1（sync retriever.py）
