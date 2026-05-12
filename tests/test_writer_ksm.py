@@ -56,13 +56,13 @@ def test_already_exists_prompt_context():
     conn = open_db()
     ensure_schema(conn)
 
-    chunk = _make_chunk("BM25 检索功能优化")
+    chunk = _make_chunk("BM25 检索功能优化方案与实施路径")
     insert_chunk(conn, chunk)
     conn.commit()
 
-    assert already_exists(conn, "BM25 检索功能优化", chunk_type="prompt_context"), \
+    assert already_exists(conn, "BM25 检索功能优化方案与实施路径", chunk_type="prompt_context"), \
         "Should detect existing prompt_context"
-    assert not already_exists(conn, "完全不同的主题", chunk_type="prompt_context"), \
+    assert not already_exists(conn, "完全不同的主题内容测试用例验证", chunk_type="prompt_context"), \
         "Should not match different summary"
 
     conn.close()
@@ -74,16 +74,16 @@ def test_already_exists_backward_compat():
     conn = open_db()
     ensure_schema(conn)
 
-    chunk = _make_chunk("使用 FTS5 替代全表扫描", chunk_type="decision", importance=0.8)
+    chunk = _make_chunk("使用 FTS5 替代全表扫描以提升检索性能", chunk_type="decision", importance=0.8)
     insert_chunk(conn, chunk)
 
-    chunk2 = _make_chunk("FTS5 查询优化")
+    chunk2 = _make_chunk("FTS5 查询优化策略与索引配置方案")
     insert_chunk(conn, chunk2)
     conn.commit()
 
-    assert already_exists(conn, "使用 FTS5 替代全表扫描"), \
+    assert already_exists(conn, "使用 FTS5 替代全表扫描以提升检索性能"), \
         "Should find decision without chunk_type param"
-    assert already_exists(conn, "FTS5 查询优化"), \
+    assert already_exists(conn, "FTS5 查询优化策略与索引配置方案"), \
         "Should find prompt_context without chunk_type param"
     assert not already_exists(conn, "不存在的摘要"), \
         "Should not find nonexistent summary"
@@ -120,11 +120,11 @@ def test_writer_exact_dup_skipped():
     conn = open_db()
     ensure_schema(conn)
 
-    chunk = _make_chunk("实现 TLB 缓存快速路径")
+    chunk = _make_chunk("实现 TLB 缓存快速路径优化内存访问延迟")
     insert_chunk(conn, chunk)
     conn.commit()
 
-    topic = "实现 TLB 缓存快速路径"
+    topic = "实现 TLB 缓存快速路径优化内存访问延迟"
     skipped = already_exists(conn, topic, chunk_type="prompt_context")
     assert skipped, "Should skip exact duplicate"
 
@@ -175,7 +175,7 @@ def test_writer_new_topic_inserted():
     ensure_schema(conn)
 
     proj = f"test_new_{uuid.uuid4().hex[:6]}"
-    chunk = _make_chunk("Python 异步编程模式", project=proj)
+    chunk = _make_chunk("Python 异步编程模式与协程调度实践", project=proj)
     insert_chunk(conn, chunk)
     conn.commit()
 
@@ -205,17 +205,17 @@ def test_no_cross_type_collision():
     conn = open_db()
     ensure_schema(conn)
 
-    decision = _make_chunk("优化 BM25 检索延迟", chunk_type="decision", importance=0.8)
-    prompt_ctx = _make_chunk("优化 BM25 检索延迟", chunk_type="prompt_context")
+    decision = _make_chunk("优化 BM25 检索延迟以降低 P99 响应时间", chunk_type="decision", importance=0.8)
+    prompt_ctx = _make_chunk("优化 BM25 检索延迟以降低 P99 响应时间", chunk_type="prompt_context")
     insert_chunk(conn, decision)
     insert_chunk(conn, prompt_ctx)
     conn.commit()
 
-    assert already_exists(conn, "优化 BM25 检索延迟", chunk_type="prompt_context"), \
+    assert already_exists(conn, "优化 BM25 检索延迟以降低 P99 响应时间", chunk_type="prompt_context"), \
         "Should find prompt_context with chunk_type filter"
-    assert already_exists(conn, "优化 BM25 检索延迟", chunk_type="decision"), \
+    assert already_exists(conn, "优化 BM25 检索延迟以降低 P99 响应时间", chunk_type="decision"), \
         "Should find decision with chunk_type filter"
-    assert already_exists(conn, "优化 BM25 检索延迟"), \
+    assert already_exists(conn, "优化 BM25 检索延迟以降低 P99 响应时间"), \
         "Should find via default (no chunk_type)"
 
     conn.close()
