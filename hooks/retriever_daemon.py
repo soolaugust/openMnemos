@@ -4581,6 +4581,11 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
             final.sort(key=_SORT_KEY, reverse=True)  # iter218: C-level itemgetter vs lambda
             # iter193: use pre-read locals; iter194: reuse _is_generic_q (computed once above)
             _min_thresh = (_gen_query_thr if _is_generic_q else _min_score_thr)
+            # iter1726: tiny_generic_thresh_lower (daemon sync) — 0.30→0.20
+            if _db_chunk_count < 50 and _is_generic_q:
+                _min_thresh = min(_min_thresh, 0.20)
+            elif _db_chunk_count < 50 and not _is_generic_q:
+                _min_thresh = min(_min_thresh, 0.18)
             # iter820: daemon_adaptive_floor — 同步 retriever.py iter578 adaptive_floor
             # 根因（数据驱动，2026-05-05）：daemon 缺 adaptive_floor，大库(30+ cands)
             #   top1=0.5~0.9 时 top2+ 在 0.18-0.29 全被 0.30 阈值过滤 → 68% 注入仅 1 条。
@@ -5032,6 +5037,11 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
         final.sort(key=_SORT_KEY, reverse=True)  # iter218: C-level itemgetter vs lambda
         # iter193: use pre-read locals; iter194: reuse _is_generic_q (computed once in classify)
         _min_thresh = (_gen_query_thr if _is_generic_q else _min_score_thr)
+        # iter1726: tiny_generic_thresh_lower (daemon FULL sync) — 0.30→0.20
+        if _db_chunk_count < 50 and _is_generic_q:
+            _min_thresh = min(_min_thresh, 0.20)
+        elif _db_chunk_count < 50 and not _is_generic_q:
+            _min_thresh = min(_min_thresh, 0.18)
         # iter820: daemon_adaptive_floor (FULL path) — 同 hard_deadline 路径
         # iter822: af_min_top1 0.5→0.30 (FULL path sync)
         if final and not _is_generic_q:

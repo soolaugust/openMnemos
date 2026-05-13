@@ -4253,8 +4253,13 @@ def main():
             # 根因（数据驱动，2026-05-10）：32 次空召回 100% 有候选(10-59)但被 scorer 全灭。
             #   小库(<50 chunk) generic_query_min_threshold=0.5 过高：BM25 归一化后
             #   top2+ 分数难超 0.5 → generic 判定即全灭。误注入风险低（库小=知识稀疏）。
+            # iter1726: tiny_generic_thresh_lower — 0.30→0.20 对齐 non-generic
+            # 根因（数据驱动，2026-05-13）：30 chunk 库 76 次空召回中 100% 有候选但全灭。
+            #   generic 判定时 threshold=0.30，但 BM25 top-2+ 典型 0.15-0.25。
+            #   加上 saturation 衰减(ac>=5 占 53%)，score=base*sat<0.30 全灭。
+            #   non-generic 已放宽到 0.18，generic 0.30 与之差距过大无意义。
             if _db_chunk_count < 50 and _is_generic_knowledge_query(query):
-                _min_thresh = min(_min_thresh, 0.30)
+                _min_thresh = min(_min_thresh, 0.20)
             # iter578: mremap — hard deadline 路径也应用自适应地板
             if (final and _sysctl("retriever.adaptive_floor_enabled")
                     and not _is_generic_knowledge_query(query)):
@@ -5795,8 +5800,9 @@ def main():
         if _db_chunk_count <= 5 and not _is_generic_knowledge_query(query):
             _min_thresh = min(_min_thresh, 0.10)
         # iter1403: generic_tinydb_relax (FULL path) — sync hard_deadline
+        # iter1726: tiny_generic_thresh_lower — 0.30→0.20 sync hard_deadline path
         if _db_chunk_count < 50 and _is_generic_knowledge_query(query):
-            _min_thresh = min(_min_thresh, 0.30)
+            _min_thresh = min(_min_thresh, 0.20)
         # ── iter578: mremap — Adaptive Score Floor ────────────────────────
         # OS 类比：Linux mremap() (Linus Torvalds, 1995, mm/mremap.c)
         #   固定 VMA 大小浪费虚拟地址空间或导致 OOM，mremap 动态调整映射大小。
