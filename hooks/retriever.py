@@ -3155,7 +3155,12 @@ def main():
                     #   suppress_fallback 恢复注入，最近 50 次注入中各占 4-6 次。
                     #   ac>=5 已内化 5+ 次 + topic 完全不匹配 = 信息增量为零。
                     # 修复：ac>=5 非 dc → hard suppress；dc/*0.6 + 其他 ac<5/*0.3 保持。
-                    if chunk.get("chunk_type") != "design_constraint" and _acc >= 5:
+                    # iter1727: topic_mismatch_thresh_lower — ac>=4 或 (ac>=3+历史注入>=5) 也 hard suppress
+                    # 根因（数据驱动，2026-05-13）：import-90139(PE barrier,ac=3,timeline=7)
+                    #   topic 完全不匹配但 ac=3 逃逸 iter1679(>=5)，5/5 注入 3 次 score=0.071。
+                    #   ac=3 但历史注入 >=5 说明已被充分内化，topic 零交集时零信息增量。
+                    _tm_timeline_cnt = len(_injection_timeline.get(chunk.get("id", ""), []))
+                    if chunk.get("chunk_type") != "design_constraint" and (_acc >= 4 or (_acc >= 3 and _tm_timeline_cnt >= 5)):
                         score = 0.0
                         _hard_suppressed = True
                     else:
