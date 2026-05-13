@@ -76,10 +76,10 @@ def _setup_benchmark_data(conn):
         "SQLite FTS5 索引延迟", "memory_chunks_fts 查询 < 5ms，配合 BM25 评分",
         chunk_type="quantitative_evidence", importance=0.7)
     q1_irr1 = _chunk(PROJECT,
-        "用户界面设计原则", "按钮颜色应与品牌色一致",
+        "用户界面设计原则与品牌视觉规范说明", "按钮颜色应与品牌色一致",
         chunk_type="conversation_summary", importance=0.5)
     q1_irr2 = _chunk(PROJECT,
-        "会议纪要 2024-01", "讨论了团队协作工具选型",
+        "会议纪要 2024-01 团队协作工具选型讨论", "讨论了团队协作工具选型",
         chunk_type="conversation_summary", importance=0.3)
     ground_truth["SQLite 性能 WAL FTS5"] = {q1_rel1["id"], q1_rel2["id"]}
 
@@ -88,13 +88,13 @@ def _setup_benchmark_data(conn):
         "Python 垃圾回收器引用计数", "CPython 使用引用计数 + 循环 GC",
         chunk_type="decision", importance=0.75)
     q2_rel2 = _chunk(PROJECT,
-        "内存泄漏排查方案", "tracemalloc 记录分配栈，定位最大分配对象",
+        "Python 内存泄漏排查方案与工具链", "tracemalloc 记录分配栈，定位最大分配对象",
         chunk_type="reasoning_chain", importance=0.8)
     q2_irr1 = _chunk(PROJECT,
-        "CSS Grid 布局教程", "使用 grid-template-areas 定义区域",
+        "CSS Grid 布局教程与 grid-template 使用", "使用 grid-template-areas 定义区域",
         chunk_type="conversation_summary", importance=0.4)
     q2_irr2 = _chunk(PROJECT,
-        "咖啡冲泡比例", "15g 咖啡粉 + 200ml 水",
+        "咖啡冲泡比例与水温控制参数说明", "15g 咖啡粉 + 200ml 水",
         chunk_type="conversation_summary", importance=0.2)
     ground_truth["Python 内存 垃圾回收 引用计数"] = {q2_rel1["id"], q2_rel2["id"]}
 
@@ -103,13 +103,13 @@ def _setup_benchmark_data(conn):
         "不可在持锁状态下调用外部 API", "避免死锁：持有 db_lock 时禁止网络请求",
         chunk_type="design_constraint", importance=0.95)
     q3_rel2 = _chunk(PROJECT,
-        "SQLite 单写多读约束", "同一进程内多连接写入会产生 SQLITE_BUSY",
+        "SQLite 单写多读约束：同一进程内并发写入限制", "同一进程内多连接写入会产生 SQLITE_BUSY",
         chunk_type="design_constraint", importance=0.9)
     q3_irr1 = _chunk(PROJECT,
-        "前端按钮动画效果", "hover 时使用 transform: scale(1.05)",
+        "前端按钮动画效果的 CSS 配置规范", "hover 时使用 transform: scale(1.05)",
         chunk_type="conversation_summary", importance=0.3)
     q3_irr2 = _chunk(PROJECT,
-        "午餐选择", "今天吃意大利面",
+        "午餐选择推荐和团队聚餐方案记录", "今天吃意大利面",
         chunk_type="conversation_summary", importance=0.1)
     ground_truth["锁 约束 并发 SQLite 写入"] = {q3_rel1["id"], q3_rel2["id"]}
 
@@ -118,10 +118,10 @@ def _setup_benchmark_data(conn):
         "KSM kernel samepage merging 原理", "相同内容的物理页合并为一个只读页",
         chunk_type="decision", importance=0.7)
     q4_irr1 = _chunk(PROJECT,
-        "团队建设活动安排", "下周五下午进行 Team Building",
+        "团队建设活动安排与 Team Building 方案", "下周五下午进行 Team Building",
         chunk_type="conversation_summary", importance=0.3)
     q4_irr2 = _chunk(PROJECT,
-        "餐厅推荐", "附近有一家不错的日料",
+        "附近餐厅推荐列表与团队聚餐选项", "附近有一家不错的日料",
         chunk_type="conversation_summary", importance=0.2)
     ground_truth["KSM kernel samepage merging"] = {q4_rel1["id"]}
 
@@ -244,9 +244,9 @@ def test_04_importance_bias():
     _cleanup(conn)
 
     # 相同关键词，不同 importance
-    high = _chunk(PROJECT, "Python 内存分配器优化", "tcmalloc 替代 glibc malloc",
+    high = _chunk(PROJECT, "Python 内存分配器优化：tcmalloc 替代方案", "tcmalloc 替代 glibc malloc",
                   importance=0.9)
-    low = _chunk(PROJECT, "Python 内存分配器基础", "malloc/free 基本原理",
+    low = _chunk(PROJECT, "Python 内存分配器基础：malloc 和 free 原理", "malloc/free 基本原理",
                  importance=0.3)
     for c in (high, low):
         insert_chunk(conn, c)
