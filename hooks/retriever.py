@@ -4489,7 +4489,8 @@ def main():
                     #   用户 project abspath:51963532bc1b 9 次空召回（cands=10~14）均因此。
                     # 修复：条件从 ==0 放宽为 < DEAD_ZONE_MIN，与 iter775 无缝衔接。
                     # iter1623: zero_local_dead_zone_skip (HD) — sync FULL path
-                    elif _sef_hd_imp and _sef_hd_max < _DEAD_ZONE_MIN and candidates_count > 0 and _local_chunk_count > 0:
+                    # iter1734: suppress_wipeout_no_fallback — 全零分(纯suppress)不 fallback
+                    elif _sef_hd_imp and 0 < _sef_hd_max < _DEAD_ZONE_MIN and candidates_count > 0 and _local_chunk_count > 0:
                         _sef_hd_best = max(_sef_hd_imp, key=lambda x: x[0])
                         _sef_hd_best[1]["_fallback_protected"] = True
                         # iter1570: fallback_floor_safe
@@ -6198,7 +6199,8 @@ def main():
                                   session_id=session_id, project=project)
                 # iter776→782: dead_zone_unified_fallback — 统一 [0, DEAD_ZONE_MIN) 兜底
                 # iter1623: zero_local_dead_zone_skip — local=0 跳过（全跨项目=噪声）
-                elif _sef_by_imp and _sef_full_max < _DEAD_ZONE_MIN_FULL and candidates_count > 0 and _local_chunk_count > 0:
+                # iter1734: suppress_wipeout_no_fallback — 全零分(纯suppress)不 fallback
+                elif _sef_by_imp and 0 < _sef_full_max < _DEAD_ZONE_MIN_FULL and candidates_count > 0 and _local_chunk_count > 0:
                     _sef_best = max(_sef_by_imp, key=lambda x: x[0])
                     _sef_best[1]["_fallback_protected"] = True
                     # iter1570: fallback_floor_safe
