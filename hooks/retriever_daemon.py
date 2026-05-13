@@ -6488,12 +6488,11 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
             _score_floor = 0.05
         # iter1602: zero_local_cross_project_floor — local=0 项目提高 floor
         # iter1637: zero_local_floor_raise — 0.15→0.25
-        # 数据驱动（2026-05-13）：abspath:7e3095aef7a6(local=0) 5/12 注入 4 条跨项目噪声
-        #   (migration +125%, feishu CLI, mtk ALB, git Signed-off-by)。
-        #   score 在 0.15-0.25 区间的跨项目 chunk 与 local=0 项目语义不相关，
-        #   0.25 确保只有高语义相关（score>0.25）的跨项目知识才注入。
-        if _local_chunk_count_d == 0 and _score_floor < 0.25:
-            _score_floor = 0.25
+        # iter1758: zero_local_floor_feedback_driven — 0.25→0.10
+        # 数据驱动（2026-05-14）：user feedback 显示 local=0 项目的低分跨项目注入
+        #   被标记 useful（score=0.01-0.05）。0.25 误杀有价值跨项目知识。
+        if _local_chunk_count_d == 0 and _score_floor < 0.10:
+            _score_floor = 0.10
         # iter1067: global_saturated_floor — 已内化 global constraint 提高 floor
         # 数据驱动（2026-05-07）：feishu CLI(ac=4,score=0.19)、memory验证(ac=6,score=0.15)
         #   在 kernel session 中过 0.12 floor 被注入，与当前工作完全无关。
