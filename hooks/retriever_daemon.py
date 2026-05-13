@@ -4957,7 +4957,7 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                         wconn = open_db()
                         ensure_schema(wconn)
                         _seen_before_d = {cid for cid, _ in _daemon_inject_log[:-len(accessed_ids)]} & set(accessed_ids)
-                        update_accessed(wconn, accessed_ids, session_seen_ids=_seen_before_d)
+                        update_accessed(wconn, accessed_ids, session_seen_ids=_seen_before_d, skip_ac_increment=True)
                         mglru_promote(wconn, accessed_ids)
                         # iter668+1229: top_k_data rebuild from actual top_k
                         # iter1229: trace_topk_sync — top_k_data 在 4451 构建后，top_k 被
@@ -7007,7 +7007,7 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 _wconn = open_db()
                 ensure_schema(_wconn)
                 _seen_before_d2 = {cid for cid, _ in _daemon_inject_log[:-len(_accessed_ids)]} & set(_accessed_ids) if _accessed_ids else set()
-                update_accessed(_wconn, _accessed_ids, session_seen_ids=_seen_before_d2)
+                update_accessed(_wconn, _accessed_ids, session_seen_ids=_seen_before_d2, skip_ac_increment=True)
                 mglru_promote(_wconn, _accessed_ids)
                 # iter668+678: top_k_data fallback — 闭包捕获的 _top_k_data 可能为空
                 # 数据驱动（2026-05-04）：59% 的 injected=1 trace 的 top_k_json='[]'，

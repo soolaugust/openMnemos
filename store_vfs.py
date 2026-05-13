@@ -5832,6 +5832,7 @@ def read_chunk_version() -> int:
 def update_accessed(conn: sqlite3.Connection, chunk_ids: list,
                     now_iso: str = None, recall_quality: int = None,
                     _sm2_only: bool = False, session_seen_ids: set = None,
+                    skip_ac_increment: bool = False,
                     **kwargs) -> None:
     """
     批量更新 last_accessed + access_count 自增。
@@ -5875,11 +5876,18 @@ def update_accessed(conn: sqlite3.Connection, chunk_ids: list,
     _repeat_ids = [cid for cid in chunk_ids if session_seen_ids and cid in session_seen_ids]
     if _new_ids:
         _ph_new = ",".join("?" * len(_new_ids))
-        conn.execute(
-            f"UPDATE memory_chunks SET last_accessed=?, access_count=COALESCE(access_count,0)+1 "
-            f"WHERE id IN ({_ph_new})",
-            [now_iso] + _new_ids,
-        )
+        # iter1733: daemon_ac_inflate_fix — daemon 调用 skip_ac_increment=True 时只更新 last_accessed
+        if skip_ac_increment:
+            conn.execute(
+                f"UPDATE memory_chunks SET last_accessed=? WHERE id IN ({_ph_new})",
+                [now_iso] + _new_ids,
+            )
+        else:
+            conn.execute(
+                f"UPDATE memory_chunks SET last_accessed=?, access_count=COALESCE(access_count,0)+1 "
+                f"WHERE id IN ({_ph_new})",
+                [now_iso] + _new_ids,
+            )
     if _repeat_ids:
         _ph_rep = ",".join("?" * len(_repeat_ids))
         conn.execute(
