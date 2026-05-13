@@ -3110,8 +3110,18 @@ def main():
                     #   "suppress 注入 fallback" query 词级零交集但语义高度相关。
                     #   dc 是持续有效的约束，topic mismatch 降权不应过强。
                     # 修复：dc *0.6（轻降权），其他类型保持 *0.3（强降权）。
-                    _tm_discount = 0.6 if chunk.get("chunk_type") == "design_constraint" else 0.3
-                    score *= _tm_discount
+                    # iter1679: topic_mismatch_hard_suppress — ac>=5 非 dc 升级 hard suppress
+                    # 根因（数据驱动，2026-05-13）：31-chunk 库中 PE/kernel chunk(ac=5-9)
+                    #   与 memory-os query overlap=0，*0.3 降权后 score=0.03-0.07 经
+                    #   suppress_fallback 恢复注入，最近 50 次注入中各占 4-6 次。
+                    #   ac>=5 已内化 5+ 次 + topic 完全不匹配 = 信息增量为零。
+                    # 修复：ac>=5 非 dc → hard suppress；dc/*0.6 + 其他 ac<5/*0.3 保持。
+                    if chunk.get("chunk_type") != "design_constraint" and _acc >= 5:
+                        score = 0.0
+                        _hard_suppressed = True
+                    else:
+                        _tm_discount = 0.6 if chunk.get("chunk_type") == "design_constraint" else 0.3
+                        score *= _tm_discount
             # ── iter614: temporal_burst_suppression — 24h 注入频率 cap ─────────
             # 同一 chunk 在 24h 内注入 >=2 次 → suppress（score=0）
             # iter619: 阈值 3→2，同日看 2 次已足够，第 3 次起 suppress
