@@ -4212,6 +4212,17 @@ def main():
                             ]
             except Exception:
                 pass
+            # iter1715: Cross-Session Recall Fatigue (hard_deadline path sync)
+            try:
+                if _sysctl("retriever.recall_fatigue_enabled"):
+                    _rf_thresh = _sysctl("retriever.recall_fatigue_ac_threshold")
+                    _rf_rate = _sysctl("retriever.recall_fatigue_rate")
+                    final = [
+                        (s / (1.0 + _rf_rate * max(0, int(c.get("access_count", 0)) - _rf_thresh)), c)
+                        for s, c in final
+                    ]
+            except Exception:
+                pass
             # 迭代50：hard deadline 路径也使用 DRR 选择
             final.sort(key=lambda x: x[0], reverse=True)
             # 迭代86：最低相关性门槛 — A/B评测发现无关query注入噪音
@@ -5737,6 +5748,18 @@ def main():
                         ]
         except Exception:
             pass  # IOR 失败不影响主流程
+        # ── iter1715: Cross-Session Recall Fatigue ────────────────────────────
+        # 高 access_count chunk 跨 session 垄断注入位；按 ac 超额程度衰减 score。
+        try:
+            if _sysctl("retriever.recall_fatigue_enabled"):
+                _rf_thresh = _sysctl("retriever.recall_fatigue_ac_threshold")
+                _rf_rate = _sysctl("retriever.recall_fatigue_rate")
+                final = [
+                    (s / (1.0 + _rf_rate * max(0, int(c.get("access_count", 0)) - _rf_thresh)), c)
+                    for s, c in final
+                ]
+        except Exception:
+            pass
         final.sort(key=lambda x: x[0], reverse=True)
         # 迭代86：最低相关性门槛 — A/B评测发现无关query注入噪音
         # 迭代88：自适应门槛 — 通用知识 query 用更高阈值防止误注入

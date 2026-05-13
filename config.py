@@ -2690,6 +2690,17 @@ _REGISTRY: dict = {
         "IOR 豁免的 chunk_type（逗号分隔；iter1451: 移除 design_constraint 豁免——"
         "豁免导致高 ac constraint 垄断注入位，6h/24h/7d suppress 已够保护 constraint 不被遗忘）"),
 
+    # ── iter1715: Cross-Session Recall Fatigue — 跨 session 去垄断 ──
+    # 认知科学：Karpicke & Roediger (2008) 间隔效应 — 高频重复检索的边际收益递减；
+    #   已高度内化的知识重复注入挤占新知识的注入槽位。
+    # 实现：score *= 1 / (1 + fatigue_rate × max(0, ac - ac_threshold))
+    "retriever.recall_fatigue_enabled": (True, bool, None, None, None,
+        "iter1715: 是否启用跨 session 召回疲劳（access_count 高的 chunk 分数衰减）"),
+    "retriever.recall_fatigue_ac_threshold": (6, int, 2, 20, None,
+        "iter1715: 触发疲劳的 access_count 阈值（低于此值不衰减）"),
+    "retriever.recall_fatigue_rate": (0.08, float, 0.01, 0.3, None,
+        "iter1715: 每超出 1 次 ac 的衰减速率（ac=12,threshold=6 → factor=0.67）"),
+
     # ── iter393：Semantic Distance Decay in Spreading Activation ──
     # 认知科学：Collins & Loftus (1975) Spreading Activation Theory —
     #   激活从锚点节点沿语义图扩散，激活量随语义距离（路径长度）衰减。
