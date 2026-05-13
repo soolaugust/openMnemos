@@ -2696,10 +2696,10 @@ _REGISTRY: dict = {
     # 实现：score *= 1 / (1 + fatigue_rate × max(0, ac - ac_threshold))
     "retriever.recall_fatigue_enabled": (True, bool, None, None, None,
         "iter1715: 是否启用跨 session 召回疲劳（access_count 高的 chunk 分数衰减）"),
-    "retriever.recall_fatigue_ac_threshold": (6, int, 2, 20, None,
-        "iter1715: 触发疲劳的 access_count 阈值（低于此值不衰减）"),
-    "retriever.recall_fatigue_rate": (0.08, float, 0.01, 0.3, None,
-        "iter1715: 每超出 1 次 ac 的衰减速率（ac=12,threshold=6 → factor=0.67）"),
+    "retriever.recall_fatigue_ac_threshold": (4, int, 2, 20, None,
+        "iter1720: 触发疲劳的 ac 阈值 6→4（更早衰减高频 chunk，为低频让路）"),
+    "retriever.recall_fatigue_rate": (0.15, float, 0.01, 0.5, None,
+        "iter1720: 衰减速率 0.08→0.15（ac=9→0.57x, ac=12→0.45x，打破垄断）"),
 
     # ── iter393：Semantic Distance Decay in Spreading Activation ──
     # 认知科学：Collins & Loftus (1975) Spreading Activation Theory —
