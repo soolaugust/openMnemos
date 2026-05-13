@@ -4847,6 +4847,13 @@ def main():
                 # iter996: micro_db_floor_relax — sync hard_deadline path
                 # iter1116: fallback_floor_relax_large_db — sync hard_deadline path
                 _fb_hd_floor = 0.01 if _db_chunk_count <= 5 else (0.05 if _db_chunk_count >= 50 else 0.10)
+                # iter1691: zero_local_fallback_floor_raise — local=0 项目 fallback floor 0.10→0.18
+                # 根因（数据驱动，2026-05-13）：abspath:7e3095aef7a6(local=0) HD fallback
+                #   pool 中 max=0.05(kernel QE) < floor=0.10 本应被拦截，但 sparse_fallback_uncap
+                #   (line 4831) 在 pool 全灭后重建候选池绕过 floor → score=0.05/0.01 注入。
+                #   local=0 项目所有候选均跨项目，低分注入=纯噪声，floor 应 >= cross_floor(0.18)。
+                if _local_chunk_count == 0:
+                    _fb_hd_floor = max(_fb_hd_floor, 0.18)
                 if _fb_hd_pool and max(s for s, _ in _fb_hd_pool) < _fb_hd_floor:
                     _fb_hd_pool = None
                 if _fb_hd_pool:
@@ -7486,6 +7493,9 @@ def main():
                 #   _fb_floor=0.10 全灭 → _fb_pool=None → ultimate_fallback 盲选。
                 #   大库 suppress 后候选多，0.05-0.10 弱相关知识好过空召回或盲选。
                 _fb_floor = 0.01 if (_db_chunk_count <= 5 or _local_sparse) else (0.05 if _db_chunk_count >= 50 else 0.10)
+                # iter1691: zero_local_fallback_floor_raise — FULL 路径同步
+                if _local_chunk_count == 0:
+                    _fb_floor = max(_fb_floor, 0.18)
                 if _fb_pool and max(s for s, _ in _fb_pool) < _fb_floor:
                     _fb_pool = None  # 全部候选相关性极低，不强制注入
                 if _fb_pool:
@@ -8001,7 +8011,13 @@ def main():
                 #   FULL 路径 (line 4707) 和 daemon 已有 score/(1+0.5*7d) 衰减。
                 #   修复：用 _itl758 timeline 数据计算 7d count，应用相同衰减公式。
                 # iter1609: zero_local_suppress_fallback_skip — LITE 路径同步
-                if not top_k and _pre_suppress_top_k_lite and _local_chunk_count > 0:
+                # iter1692: lite_suppress_fallback_quality_gate — 同步 iter1689 quality_gate
+                # 根因（数据驱动，2026-05-13）：LITE 路径仍用 _local_chunk_count>0 旧条件，
+                #   local=0 项目 fallback 被完全禁用。iter1689 改为 quality_gate：
+                #   local>0 OR pre_suppress 有 score>=0.15 候选时才 fallback。
+                #   LITE 遗漏导致：local=0 但有高分跨项目候选时空召回→downstream 低分注入。
+                _has_quality_fallback_lite = _local_chunk_count > 0 or any(s >= 0.15 for s, c in _pre_suppress_top_k_lite)
+                if not top_k and _pre_suppress_top_k_lite and _has_quality_fallback_lite:
                     # iter892: fallback_exp_decay — LITE 路径同步指数衰减
                     # iter893: fallback_hard_ceiling — 7d>=5 绝对不选（LITE 路径同步）
                     # iter894: fallback_realtime_align — ceiling 对齐 suppress_final_gate_lite 阈值
@@ -8072,6 +8088,9 @@ def main():
                     # iter996: micro_db_floor_relax — sync LITE path
                     # iter1116: fallback_floor_relax_large_db — sync LITE path
                     _fb_lite_floor = 0.01 if (_db_chunk_count <= 5 or _local_sparse) else (0.05 if _db_chunk_count >= 50 else 0.10)
+                    # iter1692: zero_local_fallback_floor_raise — LITE 路径同步 iter1691
+                    if _local_chunk_count == 0:
+                        _fb_lite_floor = max(_fb_lite_floor, 0.18)
                     if _fb_lite_pool and max(s for s, _ in _fb_lite_pool) < _fb_lite_floor:
                         _fb_lite_pool = None
                     if _fb_lite_pool:
