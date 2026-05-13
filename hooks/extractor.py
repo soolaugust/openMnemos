@@ -3024,6 +3024,15 @@ def _write_chunk(chunk_type: str, summary: str, project: str, session_id: str,
         re.IGNORECASE)
     if _ITER_SELF_PATTERNS.search(summary):
         return
+    # iter1750: persona_meta_gate — persona/role 元数据拒绝写入
+    # 数据驱动（2026-05-14）：import-f3af1 "角色：PE Contributor → Reviewer"(ac=0)
+    #   是迭代器批量导入的 persona 定义，不是用户可复用的技术知识。
+    #   FTS5 匹配 "PE"/"reviewer" 时作为候选占位，挤占真正的 PE 技术 chunk。
+    # 修复：summary 以"角色："/"role:"开头或匹配 persona 模式的 decision 类 chunk 拒绝写入。
+    if chunk_type == "decision" and re.search(
+            r'^(?:\[persona\]|角色[：:]|role\s*[：:])|(?:→|->)\s*(?:Reviewer|Contributor|Maintainer|Developer)',
+            summary, re.IGNORECASE):
+        return
     # iter1530: echo_content_universal_gate — 无 rich content 一律拒绝（除 dc+约束词）
     # 数据驱动（2026-05-11）：25 条 ac=0 噪声全部 content==summary，最长 106 字逃逸 <100 阈值。
     #   所有合法 >=100 字 chunk 都有 rich content（content_len >= 5x summary_len）。
