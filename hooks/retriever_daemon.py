@@ -3957,18 +3957,27 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                         _g_ac_d = chunk[_CI_AC] or 0
                         if _s672_tiny:
                             # iter1640: global_dc_tinydb_7d_tighten — ac>=4 dc thresh 3→2
-                            # 根因（数据驱动，2026-05-13）：feishu CLI(ac=5,dc) 7d=3 才 suppress，
-                            #   35-chunk 库每周注入 2 次仍过高（用户已内化 ac>=4 知识）。
-                            if _g_ac_d >= 4 and chunk[_CI_CT] == "design_constraint":
+                            # iter1745: global_dc_deep_saturated_7d_one — ac>=5 dc thresh 2→1
+                            if _g_ac_d >= 5 and chunk[_CI_CT] == "design_constraint":
+                                _7d_base = 1
+                            elif _g_ac_d >= 4 and chunk[_CI_CT] == "design_constraint":
                                 _7d_base = 2
                             elif _g_ac_d >= 4:
                                 _7d_base = 3
                             else:
                                 _7d_base = 5
                         elif _s672_small:
-                            _7d_base = 2 if _g_ac_d >= 4 else 4
+                            # iter1745: global_dc_deep_saturated — ac>=5 dc thresh 1
+                            if _g_ac_d >= 5 and chunk[_CI_CT] == "design_constraint":
+                                _7d_base = 1
+                            else:
+                                _7d_base = 2 if _g_ac_d >= 4 else 4
                         else:
-                            _7d_base = 2
+                            # iter1745: global_dc_deep_saturated — ac>=5 dc thresh 1
+                            if _g_ac_d >= 5 and chunk[_CI_CT] == "design_constraint":
+                                _7d_base = 1
+                            else:
+                                _7d_base = 2
                         # iter1227: sparse_global_shield — local_sparse 时 global 7d 阈值 +1
                         if _local_sparse_d:
                             _7d_base += 1
@@ -4207,17 +4216,27 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                     if (chunk.get("project", "") or "") == "global":
                         _g_ac_d2 = chunk.get("access_count", 0) or 0
                         if _s672d_tiny:
-                            # iter1640: global_dc_tinydb_7d_tighten — sync dict path
-                            if _g_ac_d2 >= 4 and chunk.get("chunk_type") == "design_constraint":
+                            # iter1745: global_dc_deep_saturated_7d_one — sync dict path
+                            if _g_ac_d2 >= 5 and chunk.get("chunk_type") == "design_constraint":
+                                _7d_base_d2 = 1
+                            elif _g_ac_d2 >= 4 and chunk.get("chunk_type") == "design_constraint":
                                 _7d_base_d2 = 2
                             elif _g_ac_d2 >= 4:
                                 _7d_base_d2 = 3
                             else:
                                 _7d_base_d2 = 5
                         elif _s672d_small:
-                            _7d_base_d2 = 2 if _g_ac_d2 >= 4 else 4
+                            # iter1745: global_dc_deep_saturated — sync dict path
+                            if _g_ac_d2 >= 5 and chunk.get("chunk_type") == "design_constraint":
+                                _7d_base_d2 = 1
+                            else:
+                                _7d_base_d2 = 2 if _g_ac_d2 >= 4 else 4
                         else:
-                            _7d_base_d2 = 2
+                            # iter1745: global_dc_deep_saturated — sync dict path
+                            if _g_ac_d2 >= 5 and chunk.get("chunk_type") == "design_constraint":
+                                _7d_base_d2 = 1
+                            else:
+                                _7d_base_d2 = 2
                         # iter1227: sparse_global_shield — dict path sync
                         if _local_sparse_d:
                             _7d_base_d2 += 1
@@ -5699,16 +5718,24 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                     elif _is_global:
                         # iter1478: global_deep_saturated_7d_tighten — sync daemon suppress_final_gate
                         # iter1524: tiny_db_global_7d_relax — sync daemon suppress_final_gate
+                        # iter1745: global_dc_deep_saturated_7d_one — sync suppress_final_gate
                         _g_ac_fg = c[_CI_AC] or 0
                         if _local_sparse_d:
                             return 3 if _g_ac_fg >= 4 else 5
                         if _s672_tiny:
-                            # iter1640: global_dc_tinydb_7d_tighten — sync suppress_final_gate
-                            if _g_ac_fg >= 4 and c[_CI_CT] == "design_constraint":
+                            if _g_ac_fg >= 5 and c[_CI_CT] == "design_constraint":
+                                return 1
+                            elif _g_ac_fg >= 4 and c[_CI_CT] == "design_constraint":
                                 return 2
                             return 3 if _g_ac_fg >= 4 else 5
                         if _s672_small:
+                            # iter1745: global_dc_deep_saturated — sync suppress_final_gate
+                            if _g_ac_fg >= 5 and c[_CI_CT] == "design_constraint":
+                                return 1
                             return 2 if _g_ac_fg >= 4 else 4
+                        # iter1745: global_dc_deep_saturated — sync suppress_final_gate
+                        if _g_ac_fg >= 5 and c[_CI_CT] == "design_constraint":
+                            return 1
                         return 2
                     # iter1017: daemon_local_saturated_suppress — sync retriever.py iter1009
                     # iter1053: fallback_ceiling_align_local_deep — ac>=7 直接=2 对齐 suppress thresh
@@ -5851,12 +5878,18 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                     if _local_sparse_d:
                         return 3 if _g_ac_cf >= 4 else 5
                     if _fg887d_tiny:
-                        # iter1640: global_dc_tinydb_7d_tighten — sync closure fallback
-                        if _g_ac_cf >= 4 and c[_CI_CT] == "design_constraint":
+                        # iter1745: global_dc_deep_saturated_7d_one — sync closure fallback
+                        if _g_ac_cf >= 5 and c[_CI_CT] == "design_constraint":
+                            return 1
+                        elif _g_ac_cf >= 4 and c[_CI_CT] == "design_constraint":
                             return 2
                         return 3 if _g_ac_cf >= 4 else 5
                     if _fg887d_small:
+                        if _g_ac_cf >= 5 and c[_CI_CT] == "design_constraint":
+                            return 1
                         return 2 if _g_ac_cf >= 4 else 4
+                    if _g_ac_cf >= 5 and c[_CI_CT] == "design_constraint":
+                        return 1
                     return 2
                 # iter1017: daemon_local_saturated_suppress — sync retriever.py iter1009
                 # iter1053: fallback_ceiling_align_local_deep — ac>=7 直接=2 对齐 suppress thresh

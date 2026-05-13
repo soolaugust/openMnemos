@@ -3389,16 +3389,30 @@ def main():
                         #   git commit(ac=5,dc) lifetime=7, 7d=2。35-chunk 库 dc 约束已内化，
                         #   thresh=3 允许周注入 2 次仍过高。收紧到 2 限制为 1 次/7d。
                         #   non-dc global(如 PE/sched_ext 知识)从 4→3，用户周内 3 次内化足够。
-                        if _g_ac_full >= 4 and chunk.get("chunk_type") == "design_constraint":
+                        # iter1745: global_dc_deep_saturated_7d_one — ac>=5 dc thresh 2→1
+                        # 根因（数据驱动，2026-05-14）：git commit(ac=5,lifetime=7x)、feishu CLI(ac=5,lifetime=5x)
+                        #   占全局注入 top2。ac>=5 dc 约束用户已完全内化，thresh=2 仍允许每周 1 次注入=零信息增量。
+                        #   收紧到 1：7d 有任何注入记录即 suppress。suppress_fallback 兜底空召回。
+                        if _g_ac_full >= 5 and chunk.get("chunk_type") == "design_constraint":
+                            _suppress_7d_thresh = 1
+                        elif _g_ac_full >= 4 and chunk.get("chunk_type") == "design_constraint":
                             _suppress_7d_thresh = 2
                         elif _g_ac_full >= 4:
                             _suppress_7d_thresh = 3
                         else:
                             _suppress_7d_thresh = 5
                     elif _small_db:
-                        _suppress_7d_thresh = 2 if _g_ac_full >= 4 else 4
+                        # iter1745: global_dc_deep_saturated — ac>=5 dc thresh 1
+                        if _g_ac_full >= 5 and chunk.get("chunk_type") == "design_constraint":
+                            _suppress_7d_thresh = 1
+                        else:
+                            _suppress_7d_thresh = 2 if _g_ac_full >= 4 else 4
                     else:
-                        _suppress_7d_thresh = 2
+                        # iter1745: global_dc_deep_saturated — ac>=5 dc thresh 1
+                        if _g_ac_full >= 5 and chunk.get("chunk_type") == "design_constraint":
+                            _suppress_7d_thresh = 1
+                        else:
+                            _suppress_7d_thresh = 2
                     # iter1227: sparse_global_shield — local_sparse 时 +1
                     # iter1476: sparse_saturated_no_relax — ac>=4 已内化 global chunk 不再放宽
                     #   根因（数据驱动，2026-05-11）：93cbc985(ac=6,7d=4)、c9accb7b(ac=4,7d=4)
