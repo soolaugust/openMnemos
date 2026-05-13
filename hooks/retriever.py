@@ -6390,6 +6390,36 @@ def main():
                     and float(c.get("importance", 0) or 0) >= _cs_imp_threshold
                     for imp_val in [float(c.get("importance", 0) or 0)]
                 ]
+                # iter1768: cold_start_db_probe — 候选池无 ac=0 时直接从 DB 探针
+                # 根因（数据驱动，2026-05-14）：sem_c4531bbda935(imp=0.854,local,ac=0)
+                #   创建 14 天从未被注入。cold_start 仅从 final(语义候选)选取，
+                #   但该 chunk 从未匹配过任何 prompt → 永远无法曝光。
+                # 修复：_cold_candidates 为空时，从 DB 直接查本项目 ac=0 + imp>=thresh
+                #   + 不在 injection_timeline 中的 chunk，探针注入 1 条。
+                if not _cold_candidates and _local_chunk_count > 0:
+                    try:
+                        import sqlite3 as _cs_sql
+                        _cs_conn = _cs_sql.connect(str(STORE_DB))
+                        _cs_rows = _cs_conn.execute(
+                            "SELECT id, summary, chunk_type, importance, tags, content "
+                            "FROM memory_chunks WHERE project=? AND chunk_state='ACTIVE' "
+                            "AND access_count=0 AND importance>=? ORDER BY importance DESC LIMIT 3",
+                            (project, _cs_imp_threshold)).fetchall()
+                        _cs_conn.close()
+                        for _cs_r in _cs_rows:
+                            _cs_id = _cs_r[0]
+                            if _cs_id in _positive_ids:
+                                continue
+                            if _injection_timeline.get(_cs_id):
+                                continue
+                            _cs_chunk = {"id": _cs_id, "summary": _cs_r[1],
+                                         "chunk_type": _cs_r[2], "importance": _cs_r[3],
+                                         "tags": _cs_r[4], "content": _cs_r[5],
+                                         "access_count": 0, "_cold_probe": True}
+                            _cold_candidates = [(float(_cs_r[3] or 0), _cs_chunk)]
+                            break
+                    except Exception:
+                        pass
                 if _cold_candidates:
                     # 按 importance 降序，取 top _cs_max 个
                     _cold_candidates.sort(key=lambda x: x[0], reverse=True)
@@ -6401,7 +6431,8 @@ def main():
                     if _cold_start_injected > 0:
                         _deferred.log(DMESG_DEBUG, "retriever",
                                       f"cold_start: injected={_cold_start_injected} "
-                                      f"imp>={_cs_imp_threshold:.2f}",
+                                      f"imp>={_cs_imp_threshold:.2f}"
+                                      f"{' (db_probe)' if any(c.get('_cold_probe') for _,c in positive[-_cold_start_injected:]) else ''}",
                                       session_id=session_id, project=project)
             except Exception:
                 pass  # cold_start 失败不阻塞主流程
