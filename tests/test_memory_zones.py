@@ -47,11 +47,11 @@ class TestMemoryZonesSysctl(unittest.TestCase):
     """Test that retriever.exclude_types sysctl is correctly registered."""
 
     def test_sysctl_registered(self):
-        """exclude_types sysctl exists with default 'prompt_context'."""
+        """exclude_types sysctl exists with expected default."""
         import config
         val = config.get("retriever.exclude_types")
-        self.assertEqual(val, "prompt_context",
-                         f"Default should be 'prompt_context', got {val!r}")
+        self.assertEqual(val, "prompt_context,conversation_summary",
+                         f"Default should be 'prompt_context,conversation_summary', got {val!r}")
 
 
 class TestFtsSearchTypeFilter(unittest.TestCase):
@@ -76,11 +76,11 @@ class TestFtsSearchTypeFilter(unittest.TestCase):
     def tearDown(self):
         self.conn.close()
 
-    def test_fts_no_filter_returns_all_types(self):
-        """Without chunk_types filter, all types are returned."""
+    def test_fts_no_filter_returns_non_excluded_types(self):
+        """Without chunk_types filter, prompt_context is excluded by default."""
         results = fts_search(self.conn, "python", "test-proj", top_k=10)
         types = {r["chunk_type"] for r in results}
-        self.assertIn("prompt_context", types)
+        self.assertNotIn("prompt_context", types)
         self.assertIn("decision", types)
 
     def test_fts_excludes_prompt_context(self):
@@ -94,12 +94,13 @@ class TestFtsSearchTypeFilter(unittest.TestCase):
                          "prompt_context must be excluded when not in chunk_types")
         self.assertIn("decision", types)
 
-    def test_fts_returns_all_when_none(self):
-        """None chunk_types means no filter (all types returned)."""
+    def test_fts_returns_non_excluded_when_none(self):
+        """None chunk_types means sysctl exclude_types applies."""
         results = fts_search(self.conn, "python", "test-proj", top_k=10,
                              chunk_types=None)
         types = {r["chunk_type"] for r in results}
-        self.assertIn("prompt_context", types)
+        self.assertNotIn("prompt_context", types)
+        self.assertIn("decision", types)
 
     def test_fts_single_allowed_type(self):
         """chunk_types=('decision',) only returns decisions."""

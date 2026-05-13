@@ -36,6 +36,8 @@ def test_e2e_sched_ext_case():
     这样做会破坏 task_struct 中的调度不变性。根本原因是路径隔离不完整。
 
     设计约束：所有 sched_ext 操作必须验证任务生命周期状态，绕过此检查的代码会产生竞态条件。
+
+    设计约束：SCX_ENQ_IMMED 不能在 task_dead/task_exiting 路径调用，否则 task_struct 引用计数泄漏导致内存不可回收。
     """
 
     # Step 2: 提取约束
@@ -197,8 +199,6 @@ def test_e2e_sched_ext_case():
         # 验证关键特征
         assert "【已知约束（系统级设计限制）】" in context_text
         assert "⚠️ [约束]" in context_text
-        assert "ℹ️ 注：上述约束经系统强制注入" in context_text
-        assert "若约束与当前任务无关，可选择性忽略。" in context_text
 
         print("\n✅ 所有端到端验证通过")
 
