@@ -4375,7 +4375,8 @@ def main():
                                    and not ((c.get("project", "") != project or c.get("project", "") == "global")
                                             and (c.get("access_count", 0) or 0) >= _fb_ac_thresh_hd(c))
                                    and _fb_7d_ok_hd(c)]
-                    if _sef_hd_imp and _sef_hd_max >= _DEAD_ZONE_MIN:
+                    # iter1683: zero_local_dead_zone_fallback_skip (HD) — local=0 跳过
+                    if _sef_hd_imp and _sef_hd_max >= _DEAD_ZONE_MIN and _local_chunk_count > 0:
                         _sef_hd_best = max(_sef_hd_imp, key=lambda x: x[0])
                         _sef_hd_best[1]["_fallback_protected"] = True
                         # iter1570: fallback_floor_safe
@@ -6018,7 +6019,13 @@ def main():
                                and not ((c.get("project", "") != project or c.get("project", "") == "global")
                                         and (c.get("access_count", 0) or 0) >= _fb_ac_thresh_full(c))
                                and _fb_7d_ok_full(c)]
-                if _sef_by_imp and _sef_full_max >= _DEAD_ZONE_MIN_FULL:
+                # iter1683: zero_local_dead_zone_fallback_skip — local=0 跳过 fallback
+                # 根因（数据驱动，2026-05-13）：abspath:7e3095aef7a6(local=0) suppress 全灭后
+                #   dead_zone_fallback 恢复跨项目 7e4b9f6b(kernel migration,ac=9) → pair 拉入
+                #   c9accb7b(feishu CLI) → 注入 2 条与 memory-os 开发无关的跨项目噪声。
+                #   iter1623 仅保护 _sef_full_max < DEAD_ZONE_MIN 路径，此处遗漏。
+                # 修复：对齐 iter1623，local=0 跳过此 fallback（所有候选均为跨项目=噪声）。
+                if _sef_by_imp and _sef_full_max >= _DEAD_ZONE_MIN_FULL and _local_chunk_count > 0:
                     _sef_best = max(_sef_by_imp, key=lambda x: x[0])
                     _sef_best[1]["_fallback_protected"] = True
                     # iter1570: fallback_floor_safe — score 不低于 floor，防止 floor_gate 二杀

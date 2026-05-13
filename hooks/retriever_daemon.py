@@ -5137,7 +5137,8 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                     return _7d < _t
                 _sef_by_imp = [(float(c[_CI_IMP] or 0), c) for _, c in final
                                if _fb_ac_ok(c) and _fb_7d_ok_d(c)]
-                if _sef_by_imp and _sef_full_max >= _DEAD_ZONE_MIN_FULL:
+                # iter1683: zero_local_dead_zone_fallback_skip — local=0 跳过 fallback（sync retriever.py）
+                if _sef_by_imp and _sef_full_max >= _DEAD_ZONE_MIN_FULL and _local_chunk_count_d > 0:
                     _sef_best = max(_sef_by_imp, key=_SORT_KEY)
                     _fallback_protected_ids.add(_sef_best[1][_CI_ID])
                     # iter1570: fallback_floor_safe — score 不低于 _score_floor，防止 floor_gate 二杀
@@ -5155,7 +5156,8 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                                   f"max_s={_sef_full_max:.4f} id={_sef_best[1][_CI_ID][:12]}",
                                   session_id=session_id, project=project)
                 # iter776→782: dead_zone_unified_fallback — 统一 [0, DEAD_ZONE_MIN) 兜底
-                elif _sef_by_imp and _sef_full_max < _DEAD_ZONE_MIN_FULL and candidates_count > 0:
+                # iter1683: zero_local_dead_zone_fallback_skip — local=0 跳过（sync retriever.py iter1623 对齐）
+                elif _sef_by_imp and _sef_full_max < _DEAD_ZONE_MIN_FULL and candidates_count > 0 and _local_chunk_count_d > 0:
                     _sef_best = max(_sef_by_imp, key=_SORT_KEY)
                     _fallback_protected_ids.add(_sef_best[1][_CI_ID])
                     # iter1570: fallback_floor_safe — score 不低于 _score_floor，防止 floor_gate 二杀
