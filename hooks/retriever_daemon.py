@@ -5640,7 +5640,7 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 if _db_chunk_count > 5:
                     top_k = [(s, c) for s, c in top_k
                              if c[_CI_ID] in _fallback_protected_ids
-                             or (_local_sparse and c[_CI_PROJ] == project)
+                             or (_local_sparse_d and c[_CI_CP] == project)
                              or (_rt663d_6h.get(c[_CI_ID], 0) < 2  # iter865: 6h_tighten_tiny — 统一阈值 2
                              and _rt663d_24h.get(c[_CI_ID], 0) < _d1020_24h_thresh(s, c)
                              # iter883: tiny 5→3, small 5/4→4/3（sync hard_deadline line 3268）
