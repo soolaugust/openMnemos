@@ -2788,12 +2788,21 @@ def main():
                     #   non-global dc cooldown=72h(ac=4-6) 太短，约束是静态规则，内化后再注入=零价值。
                     # 修复：design_constraint + ac>=4 → cooldown=10d（对齐 global），其余不变。
                     _cd_is_constraint = chunk.get("chunk_type") == "design_constraint"
+                    # iter1707: tiny_db_cooldown_halve — <50 chunk 库 cooldown 减半
+                    # 根因（数据驱动，2026-05-13）：31 chunk 库中 13/31(42%) 被 cooldown 锁死，
+                    #   5/6-5/11 期间 76 次检索中 67 次空召回(88%)。iter1617 将 dc cooldown
+                    #   统一到 10d，但 tiny_db 中 dc 占 40%+，10d 锁定=库的 40% 永久不可达。
+                    #   小库 chunk 多样性低，长 cooldown 导致"该注入时无可注入"。
+                    # 修复：tiny_db 中所有 cooldown 减半（14d→7d, 10d→5d, 72h→36h）。
+                    #   仍有 6h/24h/7d burst suppress 兜底防垄断，cooldown 仅作为长期间隔保护。
                     if _cd_is_global:
                         _cd_cutoff = _cutoff_14d if _acc >= 10 else _cutoff_10d
                     elif _cd_is_constraint and _acc >= 4:
                         _cd_cutoff = _cutoff_10d
                     else:
                         _cd_cutoff = _cutoff_14d if _acc >= 10 else (_cutoff_10d if _acc >= 7 else (_cutoff_72h if _acc >= 4 else _cutoff_72h))
+                    if _tiny_db and not _cd_is_global:
+                        _cd_cutoff = (_now647 - (_now647 - _dt647.fromisoformat(_cd_cutoff)) / 2).isoformat()
                     # iter1145: staggered_cooldown_jitter — 错峰解禁防止批量到期垄断
                     # 根因（数据驱动，2026-05-08）：5/6 密集 session 写入 40+ chunk，
                     #   cooldown=5d 同时到期(5/11)→同时解禁→瞬时争抢注入位→再垄断。
