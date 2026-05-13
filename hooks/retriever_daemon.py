@@ -4562,6 +4562,17 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 _iter1446_rel_map[chunk.get("id", "")] = relevance
                 final.append((score, _gc_dict_to_ci(chunk)))  # iter235: uniform _CI_* tuple
 
+        # iter1721: daemon_recall_fatigue — sync retriever.py iter1715/1720
+        # 根因（数据驱动，2026-05-13）：daemon 路径缺少 recall_fatigue，
+        #   ac=5 的 git commit/feishu CLI chunk 经 daemon 逃逸衰减，7 天注入 5-7 次。
+        if sysctl("retriever.recall_fatigue_enabled"):
+            _rf_thresh = sysctl("retriever.recall_fatigue_ac_threshold")
+            _rf_rate = sysctl("retriever.recall_fatigue_rate")
+            final = [
+                (s / (1.0 + _rf_rate * max(0, (c[_CI_AC] or 0) - _rf_thresh)), c)
+                for s, c in final
+            ]
+
         # Hard deadline post-scoring
         if _check_deadline("post_scoring", is_hard=True):
             final.sort(key=_SORT_KEY, reverse=True)  # iter218: C-level itemgetter vs lambda
@@ -4995,6 +5006,15 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 if matches > 0:
                     match_ratio = min(1.0, matches / max(1, len(hint_set) * 0.3))
                     final[i] = (score + boost * match_ratio, chunk)
+
+        # iter1721: daemon_recall_fatigue — sync retriever.py iter1715/1720 (FULL path)
+        if sysctl("retriever.recall_fatigue_enabled"):
+            _rf_thresh = sysctl("retriever.recall_fatigue_ac_threshold")
+            _rf_rate = sysctl("retriever.recall_fatigue_rate")
+            final = [
+                (s / (1.0 + _rf_rate * max(0, (c[_CI_AC] or 0) - _rf_thresh)), c)
+                for s, c in final
+            ]
 
         # ── DRR final selection ──
         final.sort(key=_SORT_KEY, reverse=True)  # iter218: C-level itemgetter vs lambda
