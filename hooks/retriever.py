@@ -8598,7 +8598,14 @@ def main():
                 #   memory验证(ac=6,dc,non-global) 14d注入4次。_LOCAL_SAT_AC_THRESH=7 使其逃逸。
                 #   design_constraint 是静态规则，内化后边际信息=0，与 global dc 性质相同。
                 # 修复：dc + ac>=4 统一走 sat_floor，无论 global/non-global。
-                _is_dc = c.get("chunk_type") == "design_constraint"
+                # iter1742: static_knowledge_sat_floor — qe 对齐 dc 的 real_inj>=4 门槛
+                # 根因（数据驱动，2026-05-14）：7e4b9f6b(qe,migration+125%,real_inj=3)
+                #   和 51d2a345(qe,mtk ALB,real_inj=4) 非 dc 逃逸 _is_dc 门槛，
+                #   5/12 以 score=0.05 跨项目注入 memory-os session，完全不相关。
+                #   quantitative_evidence 是静态量化数据，内化后边际信息=0，与 dc 性质相同。
+                # 修复：_is_dc 扩展为 _is_static_knowledge，覆盖 dc + qe。
+                _ct = c.get("chunk_type")
+                _is_dc = _ct == "design_constraint" or _ct == "quantitative_evidence"
                 # iter1730: sat_floor_use_real_inject_count — 对齐 iter1728/1725
                 # 根因（数据驱动，2026-05-13）：MTK ALB(ac=12,real_inj=0)、uclamp(ac=8,real_inj=0)
                 #   被 sat_floor suppress，但从未真正注入给用户。ac 膨胀源自 daemon/TLB probe。
@@ -9502,7 +9509,9 @@ def main():
                 #   7d 窗口滑动后 cnt_7d 衰减到 0→再次通过 gate→7 天周期震荡。
                 #   ac>=4 + timeline>=4 = 已充分内化，14d 冷却期防止周期性垄断。
                 _lifetime_suppress = False
-                _is_dc = _c1372.get("chunk_type") == "design_constraint"
+                # iter1742: static_knowledge_sat_floor — qe 对齐 dc
+                _ct_1372 = _c1372.get("chunk_type")
+                _is_dc = _ct_1372 == "design_constraint" or _ct_1372 == "quantitative_evidence"
                 if (_is_global or _is_dc) and _c_ac >= 4 and len(_tl) >= 4:
                     _cut_14d = (_now_1372 - _td1372(days=14)).isoformat()
                     if any(t > _cut_14d for t in _tl):

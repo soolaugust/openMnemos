@@ -6479,7 +6479,9 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 # iter1567 sync: sparse 项目本地 chunk 豁免 sat_floor
                 if _local_sparse_d and _sat_floor_proj(c) == project:
                     return False
-                _is_dc = _sat_floor_ct(c) == "design_constraint"
+                # iter1742: static_knowledge_sat_floor — qe 对齐 dc (sync retriever.py)
+                _ct_d = _sat_floor_ct(c)
+                _is_dc = _ct_d == "design_constraint" or _ct_d == "quantitative_evidence"
                 _ri = _sat_real_inj_d(c)
                 return (
                     (_is_dc and _ri >= 4 and s < _GLOBAL_SAT_FLOOR)
@@ -6682,7 +6684,9 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 return _omf_ceiling
             def _omf_lifetime_suppress_d(c):
                 _is_g = c[_CI_CP] == "global"
-                _is_dc = (c[_CI_CT] or "") == "design_constraint"
+                # iter1742: static_knowledge_sat_floor — qe 对齐 dc
+                _omf_ct = (c[_CI_CT] or "")
+                _is_dc = _omf_ct == "design_constraint" or _omf_ct == "quantitative_evidence"
                 if (_is_g or _is_dc) and (c[_CI_AC] or 0) >= 4:
                     _lt = _itl_lifetime.get(c[_CI_ID])
                     if _lt and _lt[0] >= 4 and _lt[1] > _cutoff_14d:
