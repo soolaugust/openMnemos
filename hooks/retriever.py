@@ -4261,7 +4261,7 @@ def main():
             # iter1368: sparse_cross_floor_tighten — 0.10→0.18 拦截低相关跨项目噪声
             # 数据驱动（2026-05-10）：abspath:7e3095aef7a6(1 local chunk) 被注入 5 条
             #   kernel/PE chunk（score≈0.10-0.15），用户在非 kernel 项目中无价值。
-            _cross_floor = 0.18 if _local_sparse else 0.25
+            _cross_floor = 0.25 if _local_chunk_count == 0 else (0.18 if _local_sparse else 0.25)
             positive = [(s, c) for s, c in positive
                         if c.get("project", "") in ("", project) or s >= _cross_floor]
             # iter826: single_result_pair_inject (hard_deadline path)
