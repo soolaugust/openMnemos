@@ -4637,8 +4637,12 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                                   f"s={_pi_best[0]:.3f} with top1 s={positive[0][0]:.3f}",
                                   session_id=session_id, project=project)
                 else:
-                    _ip_cands = [(float(c[_CI_IMP] or 0), c) for _, c in final
+                    # iter1722: daemon_imp_pair_score_gate — sync retriever.py
+                    # 根因：`for _, c` 丢弃 score，importance=0.95 的不相关 chunk 逃逸注入。
+                    _ip_pair_floor = 0.05 if _db_chunk_count < 20 else (0.08 if _db_chunk_count < 50 else 0.12)
+                    _ip_cands = [(float(c[_CI_IMP] or 0), c) for s, c in final
                                  if c[_CI_ID] != positive[0][1][_CI_ID]
+                                 and s >= _ip_pair_floor
                                  and (c[_CI_AC] or 0) < 30
                                  and _recent_7d_counts.get(c[_CI_ID], 0) < (3 if _db_chunk_count < 50 else 4)
                                  # iter1702: daemon_pair_dc_gate — sync retriever.py iter1608
@@ -5066,8 +5070,11 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                               f"s={_pi_best_f[0]:.3f} with top1 s={positive[0][0]:.3f}",
                               session_id=session_id, project=project)
             else:
-                _ip_cands_f = [(float(c[_CI_IMP] or 0), c) for _, c in final
+                # iter1722: daemon_imp_pair_score_gate — FULL path sync
+                _ip_floor_f = 0.05 if _db_chunk_count < 20 else (0.08 if _db_chunk_count < 50 else 0.12)
+                _ip_cands_f = [(float(c[_CI_IMP] or 0), c) for s, c in final
                                if c[_CI_ID] != positive[0][1][_CI_ID]
+                               and s >= _ip_floor_f
                                and (c[_CI_AC] or 0) < 30]
                 if _ip_cands_f:
                     _ip_best_f = max(_ip_cands_f, key=lambda x: x[0])

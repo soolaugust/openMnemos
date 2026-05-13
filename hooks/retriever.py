@@ -4339,8 +4339,13 @@ def main():
                     positive.append(_pair_best_hd)
                 else:
                     # iter827: importance_pair_fallback (hard_deadline path)
-                    _imp_pairs_hd = [(float(c.get("importance", 0) or 0), c) for _, c in final
+                    # iter1722: hd_imp_pair_score_gate — sync FULL path iter1192
+                    # 根因（数据驱动，2026-05-13）：HD imp_pair 用 `for _, c` 丢弃 score，
+                    #   importance=0.95 的 design_constraint(score=0.01) 被注入完全无关上下文。
+                    #   FULL 路径已有 `s >= _min_thresh` 门控(iter1192)，HD 遗漏。
+                    _imp_pairs_hd = [(float(c.get("importance", 0) or 0), c) for s, c in final
                                      if c.get("id") != positive[0][1].get("id")
+                                     and s >= _pair_floor_hd
                                      and (c.get("access_count", 0) or 0) < 30
                                      and _session_injection_counts.get(c.get("id", ""), 0) < _pair_dedup_thresh_hd
                                      and _recent_7d_counts.get(c.get("id", ""), 0) < _hd_pair_7d_cap(c)]
