@@ -4975,7 +4975,8 @@ def main():
                 #   score<0.10 说明 FTS5 词汇重叠极低（<1/10），注入无信息增量。
                 # iter996: micro_db_floor_relax — sync hard_deadline path
                 # iter1116: fallback_floor_relax_large_db — sync hard_deadline path
-                _fb_hd_floor = 0.01 if _db_chunk_count <= 5 else (0.05 if _db_chunk_count >= 50 else 0.10)
+                # iter1749: sparse_fallback_floor_raise — HD 路径同步 FULL iter1748
+                _fb_hd_floor = 0.01 if _db_chunk_count <= 5 else (0.05 if (_db_chunk_count >= 50 or _local_sparse) else 0.10)
                 # iter1691: zero_local_fallback_floor_raise — local=0 项目 fallback floor 0.10→0.18
                 # 根因（数据驱动，2026-05-13）：abspath:7e3095aef7a6(local=0) HD fallback
                 #   pool 中 max=0.05(kernel QE) < floor=0.10 本应被拦截，但 sparse_fallback_uncap

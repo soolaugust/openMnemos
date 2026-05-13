@@ -6184,7 +6184,8 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 #   但 retriever.py FULL 路径已在 iter1116 放宽到 0.05。
                 #   daemon LITE 路径比 FULL 严 2x → 大库 suppress_fallback 多 ~40% 空召回。
                 # 修复：对齐三档 floor：<=5/sparse=0.01, >=50=0.05, 其余=0.10。
-                _fb_floor = 0.01 if (_db_chunk_count <= 5 or _local_sparse_d) else (0.05 if _db_chunk_count >= 50 else 0.10)
+                # iter1749: sparse_fallback_floor_raise — sync retriever.py iter1748
+                _fb_floor = 0.01 if _db_chunk_count <= 5 else (0.05 if (_db_chunk_count >= 50 or _local_sparse_d) else 0.10)
                 # iter1700: daemon_fb_zero_local_floor — sync iter1691/1692
                 if _local_chunk_count_d == 0:
                     _fb_floor = max(_fb_floor, 0.18)
