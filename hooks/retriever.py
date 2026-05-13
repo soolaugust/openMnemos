@@ -5781,7 +5781,10 @@ def main():
         # iter1245: cross_project_relevance_floor (FULL path sync)
         # iter1246: sparse_cross_project_floor_relax (FULL path sync)
         # iter1368: sparse_cross_floor_tighten (FULL path sync)
-        _cross_floor_f = 0.18 if _local_sparse else 0.25
+        # iter1697: zero_local_cross_floor_full_sync — 对齐 HD 路径 iter1690
+        # 根因（数据驱动，2026-05-13）：FULL 路径缺少 local=0 的 0.25 保护，
+        #   abspath:7e3095aef7a6(local=0) 经 FULL 路径注入 MTK/git commit 跨项目噪声(score=0.05)。
+        _cross_floor_f = 0.25 if _local_chunk_count == 0 else (0.18 if _local_sparse else 0.25)
         positive = [(s, c) for s, c in positive
                     if c.get("project", "") in ("", project) or s >= _cross_floor_f]
         # iter843: pair_dedup_aware — 配对候选预过滤 dedup threshold
@@ -7866,6 +7869,12 @@ def main():
         #   内连续注入 4 次，24h suppress(>=2) 未拦截。
         # 修复：注入前实时重读 injection_timeline 文件（<1ms, 27 entries），
         #   补充过滤已超 24h/7d 阈值的 chunk。
+        # iter1697: cross_project_floor_lite — LITE 路径补充 cross_floor 过滤（对齐 HD/FULL）
+        # 根因（数据驱动，2026-05-13）：LITE 路径缺少 cross_project_relevance_floor，
+        #   local=0 项目低分跨项目 chunk(score=0.01~0.05) 直达 suppress_final_gate_lite。
+        _cross_floor_lite = 0.25 if _local_chunk_count == 0 else (0.18 if _local_sparse else 0.25)
+        top_k = [(s, c) for s, c in top_k
+                 if c.get("project", "") in ("", project) or s >= _cross_floor_lite]
         _pre_suppress_top_k_lite = list(top_k)  # iter793: snapshot before suppress
         if top_k:
             try:
