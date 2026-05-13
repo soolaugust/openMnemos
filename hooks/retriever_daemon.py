@@ -4792,7 +4792,10 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 #   HD 路径 floor=0.08 拦截 score=0.05~0.07 的有效本地候选。
                 #   retriever.py HD(line 4718) 已有 <20→0.05，daemon 此处遗漏未同步。
                 _sf_hd = 0.05 if _db_chunk_count < 20 else (0.08 if _db_chunk_count < 50 else 0.12)
-                if _db_chunk_count > 5:
+                # iter1739: sync retriever.py — local=0 floor raise + micro_db bypass fix
+                if _local_chunk_count_d == 0 and _sf_hd < 0.25:
+                    _sf_hd = 0.25
+                if _db_chunk_count > 5 or _local_chunk_count_d == 0:
                     _sf_hd_above = [(s, c) for s, c in top_k if s >= _sf_hd]
                     if _sf_hd_above:
                         if len(_sf_hd_above) < len(top_k):
@@ -6487,7 +6490,8 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
             _has_protected_d = any(_cid_fn(c) in _fallback_protected_ids for _, c in top_k)
             if not _has_local_d and not _has_protected_d:
                 _score_floor = 0.15
-        if len(top_k) > 0 and _db_chunk_count > 5:
+        # iter1739: micro_db_floor_gate_zero_local — sync retriever.py
+        if len(top_k) > 0 and (_db_chunk_count > 5 or _local_chunk_count_d == 0):
             _sf_above = [(s, c) for s, c in top_k if s >= _score_floor]
             if _sf_above:
                 if len(_sf_above) < len(top_k):

@@ -5082,7 +5082,8 @@ def main():
                 if _sf_hd < 0.15 and _local_chunk_count > 0 and top_k:
                     if not any(c.get("project") == project for _, c in top_k):
                         _sf_hd = 0.15
-                if _db_chunk_count > 5:
+                # iter1739: sync micro_db_floor_gate_zero_local (HD path)
+                if _db_chunk_count > 5 or _local_chunk_count == 0:
                     _sf_hd_above = [(s, c) for s, c in top_k if s >= _sf_hd]
                     if _sf_hd_above:
                         if len(_sf_hd_above) < len(top_k):
@@ -8640,7 +8641,13 @@ def main():
             _has_protected_in_topk = any(c.get("_fallback_protected") for _, c in top_k)
             if not _has_local_in_topk and not _has_protected_in_topk:
                 _score_floor = 0.15
-        if len(top_k) > 0 and _db_chunk_count > 5:
+        # iter1739: micro_db_floor_gate_zero_local — local=0 项目不跳过 floor_gate
+        # 根因（数据驱动，2026-05-14）：abspath:7e3095aef7a6(local=0,db=5) micro_db bypass
+        #   跳过整个 floor_gate → feishu CLI(score=0.01) 注入到无关项目。
+        #   iter1637 设 floor=0.25 但被 micro_db bypass 架空。
+        #   db<=5 + local=0 = 全 global chunk，floor_gate 是唯一保护。
+        # 修复：local=0 时强制走 floor_gate，不受 micro_db bypass。
+        if len(top_k) > 0 and (_db_chunk_count > 5 or _local_chunk_count == 0):
             _sf_pre_len = len(top_k)
             _sf_above = [(s, c) for s, c in top_k if s >= _score_floor]
             if _sf_above:
