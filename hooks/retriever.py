@@ -4335,11 +4335,13 @@ def main():
                 # iter1397: pair_floor_tinydb_relax — 小库 BM25 分数偏低，0.12 floor 挡住 53% 有效配对
                 # iter1541: sync tiny_db pair_floor
                 _pair_floor_hd = 0.05 if _db_chunk_count < 20 else (0.08 if _db_chunk_count < 50 else 0.12)
+                # iter1724: pair_global_dc_hard_exclude — global DC ac>=4 无条件排除
                 _pair_cands_hd = [(s, c) for s, c in final
                                   if s > _pair_floor_hd and s < _min_thresh
                                   and c.get("id") != positive[0][1].get("id")
                                   and _session_injection_counts.get(c.get("id", ""), 0) < _pair_dedup_thresh_hd
-                                  and _recent_7d_counts.get(c.get("id", ""), 0) < _hd_pair_7d_cap(c)]
+                                  and _recent_7d_counts.get(c.get("id", ""), 0) < _hd_pair_7d_cap(c)
+                                  and not (c.get("project") == "global" and c.get("chunk_type") == "design_constraint" and (c.get("access_count", 0) or 0) >= 4)]
                 if _pair_cands_hd:
                     _pair_best_hd = max(_pair_cands_hd, key=lambda x: x[0])
                     positive.append(_pair_best_hd)
@@ -4349,12 +4351,14 @@ def main():
                     # 根因（数据驱动，2026-05-13）：HD imp_pair 用 `for _, c` 丢弃 score，
                     #   importance=0.95 的 design_constraint(score=0.01) 被注入完全无关上下文。
                     #   FULL 路径已有 `s >= _min_thresh` 门控(iter1192)，HD 遗漏。
+                    # iter1724: pair_global_dc_hard_exclude — sync HD imp_pair path
                     _imp_pairs_hd = [(float(c.get("importance", 0) or 0), c) for s, c in final
                                      if c.get("id") != positive[0][1].get("id")
                                      and s >= _pair_floor_hd
                                      and (c.get("access_count", 0) or 0) < 30
                                      and _session_injection_counts.get(c.get("id", ""), 0) < _pair_dedup_thresh_hd
-                                     and _recent_7d_counts.get(c.get("id", ""), 0) < _hd_pair_7d_cap(c)]
+                                     and _recent_7d_counts.get(c.get("id", ""), 0) < _hd_pair_7d_cap(c)
+                                     and not (c.get("project") == "global" and c.get("chunk_type") == "design_constraint" and (c.get("access_count", 0) or 0) >= 4)]
                     if _imp_pairs_hd:
                         _imp_best_hd = max(_imp_pairs_hd, key=lambda x: x[0])
                         # iter941: imp_pair_top1_gate (hard_deadline path)
@@ -5902,13 +5906,15 @@ def main():
             # iter1397: pair_floor_tinydb_relax — 小库 BM25 分数偏低，0.12 floor 挡住 53% 有效配对
             # iter1541: sync tiny_db pair_floor
             _pair_floor = 0.05 if _db_chunk_count < 20 else (0.08 if _db_chunk_count < 50 else 0.12)
+            # iter1724: pair_global_dc_hard_exclude — global DC ac>=4 无条件排除
             _pair_candidates = [(s, c) for s, c in final
                                 if s > _pair_floor and s < _min_thresh
                                 and c.get("id") != positive[0][1].get("id")
                                 and _session_injection_counts.get(c.get("id", ""), 0) < _pair_dedup_thresh
                                 and _recent_7d_counts.get(c.get("id", ""), 0) < _pair_7d_cap(c)
                                 # iter1027: fallback_24h_align — global ac>=4 阈值=1
-                                and _recent_24h_counts.get(c.get("id", ""), 0) < (1 if c.get("project") == "global" and (c.get("access_count", 0) or 0) >= 4 else 3)]
+                                and _recent_24h_counts.get(c.get("id", ""), 0) < (1 if c.get("project") == "global" and (c.get("access_count", 0) or 0) >= 4 else 3)
+                                and not (c.get("project") == "global" and c.get("chunk_type") == "design_constraint" and (c.get("access_count", 0) or 0) >= 4)]
             if _pair_candidates:
                 # iter1585: pair_topic_diversity — 优先选不同 topic 的 pair 避免被 topic_group_dedup 抹杀
                 _top1_sum = (positive[0][1].get("summary") or "")
@@ -5931,6 +5937,7 @@ def main():
                 # 修复：从 final 中按 importance 取非 top1 的最佳 chunk，给予 top1*0.3
                 #   的象征性 score，确保组合上下文。排除 access_count>=30 的过饱和 chunk。
                 # iter1192: pair_min_score_gate — imp_pair 候选须通过 min_score
+                # iter1724: pair_global_dc_hard_exclude — sync FULL imp_pair path
                 _imp_pairs = [(float(c.get("importance", 0) or 0), c) for s, c in final
                               if c.get("id") != positive[0][1].get("id")
                               and s >= _min_thresh
@@ -5938,7 +5945,8 @@ def main():
                               and _session_injection_counts.get(c.get("id", ""), 0) < _pair_dedup_thresh
                               and _recent_7d_counts.get(c.get("id", ""), 0) < _pair_7d_cap(c)
                               # iter1027: fallback_24h_align — global ac>=4 阈值=1
-                              and _recent_24h_counts.get(c.get("id", ""), 0) < (1 if c.get("project") == "global" and (c.get("access_count", 0) or 0) >= 4 else 3)]
+                              and _recent_24h_counts.get(c.get("id", ""), 0) < (1 if c.get("project") == "global" and (c.get("access_count", 0) or 0) >= 4 else 3)
+                              and not (c.get("project") == "global" and c.get("chunk_type") == "design_constraint" and (c.get("access_count", 0) or 0) >= 4)]
                 if _imp_pairs:
                     # iter1585: pair_topic_diversity — sync imp_pair path
                     if _top1_tg:
@@ -8391,12 +8399,14 @@ def main():
             #   final>=2 时已有 1 条 FTS 相关候选可配对，无需等 3 条。
             _ps842_lite_top1_id = top_k[0][1].get("id", "")
             # iter1197: lite_pair_min_score_gate — sync iter842 path
+            # iter1724: pair_global_dc_hard_exclude — sync LITE pair path
             _ps842_lite_cands = [(float(c.get("importance", 0) or 0), c) for s, c in final
                                  if c.get("id") != _ps842_lite_top1_id
                                  and s >= _lt_pair_floor
                                  and (c.get("access_count", 0) or 0) < 30
                                  and _session_injection_counts.get(c.get("id", ""), 0) < _pair_dedup_thresh
-                                 and _pair_suppress_ok_lite(c.get("id", ""), 0.0, ac=c.get("access_count", 0) or 0)]
+                                 and _pair_suppress_ok_lite(c.get("id", ""), 0.0, ac=c.get("access_count", 0) or 0)
+                                 and not (c.get("project") == "global" and c.get("chunk_type") == "design_constraint" and (c.get("access_count", 0) or 0) >= 4)]
             if _ps842_lite_cands:
                 _ps842_lite_best = max(_ps842_lite_cands, key=lambda x: x[0])
                 if _ps842_lite_best[0] >= 0.3:

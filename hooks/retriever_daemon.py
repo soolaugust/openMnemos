@@ -4627,10 +4627,12 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
             #   retriever.py 的 iter826/827 从未在 daemon 被触发。
             if len(positive) == 1 and len(final) >= 3:
                 # iter936: pair_7d_align_final_gate — pair 候选加 7d suppress 检查
+                # iter1724: pair_global_dc_hard_exclude — sync daemon HD pair
                 _pi_cands = [(s, c) for s, c in final
                              if s > 0.12 and s < _min_thresh
                              and c[_CI_ID] != positive[0][1][_CI_ID]
-                             and _recent_7d_counts.get(c[_CI_ID], 0) < (3 if _db_chunk_count < 50 else 4)]
+                             and _recent_7d_counts.get(c[_CI_ID], 0) < (3 if _db_chunk_count < 50 else 4)
+                             and not ((c[_CI_CT] or "") == "design_constraint" and (c[_CI_AC] or 0) >= 4)]
                 if _pi_cands:
                     _pi_best = max(_pi_cands, key=lambda x: x[0])
                     positive.append(_pi_best)
@@ -5063,9 +5065,11 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
         # iter759: 移除 candidates_rescue（同 hard_deadline 路径）
         # ── iter830: daemon_pair_inject — 同步 retriever.py iter826/827 (FULL path) ──
         if len(positive) == 1 and len(final) >= 3:
+            # iter1724: pair_global_dc_hard_exclude — sync daemon FULL pair
             _pi_cands_f = [(s, c) for s, c in final
                            if s > 0.12 and s < _min_thresh
-                           and c[_CI_ID] != positive[0][1][_CI_ID]]
+                           and c[_CI_ID] != positive[0][1][_CI_ID]
+                           and not ((c[_CI_CT] or "") == "design_constraint" and (c[_CI_AC] or 0) >= 4)]
             if _pi_cands_f:
                 _pi_best_f = max(_pi_cands_f, key=lambda x: x[0])
                 positive.append(_pi_best_f)
@@ -5076,10 +5080,12 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
             else:
                 # iter1722: daemon_imp_pair_score_gate — FULL path sync
                 _ip_floor_f = 0.05 if _db_chunk_count < 20 else (0.08 if _db_chunk_count < 50 else 0.12)
+                # iter1724: pair_global_dc_hard_exclude — sync daemon FULL imp_pair
                 _ip_cands_f = [(float(c[_CI_IMP] or 0), c) for s, c in final
                                if c[_CI_ID] != positive[0][1][_CI_ID]
                                and s >= _ip_floor_f
-                               and (c[_CI_AC] or 0) < 30]
+                               and (c[_CI_AC] or 0) < 30
+                               and not ((c[_CI_CT] or "") == "design_constraint" and (c[_CI_AC] or 0) >= 4)]
                 if _ip_cands_f:
                     _ip_best_f = max(_ip_cands_f, key=lambda x: x[0])
                     # iter941: imp_pair_top1_gate (FULL path)
