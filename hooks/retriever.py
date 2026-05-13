@@ -7715,7 +7715,11 @@ def main():
                 #   top15 chunk 全在 cooldown/suppress 中，剩余候选 FTS score 0.03-0.08，
                 #   _fb_floor=0.10 全灭 → _fb_pool=None → ultimate_fallback 盲选。
                 #   大库 suppress 后候选多，0.05-0.10 弱相关知识好过空召回或盲选。
-                _fb_floor = 0.01 if (_db_chunk_count <= 5 or _local_sparse) else (0.05 if _db_chunk_count >= 50 else 0.10)
+                # iter1748: sparse_fallback_floor_raise — _local_sparse floor 0.01→0.05
+                # 根因（数据驱动，2026-05-14）：21% 注入 score<0.10，其中 _local_sparse 项目
+                #   fb_floor=0.01 允许 score=0.01-0.04 的纯噪声经 fallback 注入。
+                #   0.05 仍比标准(0.10)宽松，保护弱相关知识；score<0.05=零语义关联。
+                _fb_floor = 0.01 if _db_chunk_count <= 5 else (0.05 if (_db_chunk_count >= 50 or _local_sparse) else 0.10)
                 # iter1691: zero_local_fallback_floor_raise — FULL 路径同步
                 if _local_chunk_count == 0:
                     _fb_floor = max(_fb_floor, 0.18)
@@ -8338,7 +8342,8 @@ def main():
                     #   数据驱动（2026-05-06）：PE chunk score=0.071 走 LITE fallback 24h 3x 逃逸。
                     # iter996: micro_db_floor_relax — sync LITE path
                     # iter1116: fallback_floor_relax_large_db — sync LITE path
-                    _fb_lite_floor = 0.01 if (_db_chunk_count <= 5 or _local_sparse) else (0.05 if _db_chunk_count >= 50 else 0.10)
+                    # iter1748: sparse_fallback_floor_raise — LITE 路径同步 FULL
+                    _fb_lite_floor = 0.01 if _db_chunk_count <= 5 else (0.05 if (_db_chunk_count >= 50 or _local_sparse) else 0.10)
                     # iter1692: zero_local_fallback_floor_raise — LITE 路径同步 iter1691
                     if _local_chunk_count == 0:
                         _fb_lite_floor = max(_fb_lite_floor, 0.18)
