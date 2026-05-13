@@ -3982,27 +3982,32 @@ def main():
                 _lsr_imp_floor = 0.0 if _local_sparse else 0.70
                 if _local_chunk_count > 0:
                     try:
-                        _lsr_row = conn.execute(
+                        # iter1694: lite_rescue_rotate — LIMIT 5 + 6h dedup 轮转
+                        # 根因（数据驱动，2026-05-13）：LIMIT 1 + 6h>=2 导致同一项目
+                        #   LITE rescue 总注入最高 importance chunk（git:a0ab16e8cafc 总选 7e4b9f6b）。
+                        #   6h dedup >= 2 几乎不生效（单 session 很少连续 2 次 LITE miss）。
+                        # 修复：取 top-5 候选 + 6h>=1 跳过 → 轮转注入不同 chunk，消除单条垄断。
+                        _lsr_rows = conn.execute(
                             "SELECT id, summary, content, chunk_type, importance "
                             "FROM memory_chunks WHERE project=? AND chunk_state='ACTIVE' "
                             "AND importance >= ? "
-                            "ORDER BY importance DESC, access_count DESC LIMIT 1",
+                            "ORDER BY importance DESC, access_count DESC LIMIT 5",
                             (project, _lsr_imp_floor)
-                        ).fetchone()
-                        if _lsr_row:
+                        ).fetchall()
+                        for _lsr_row in _lsr_rows:
+                            if _recent_6h_counts.get(_lsr_row[0], 0) >= 1:
+                                continue
                             _lsr_chunk = {
                                 "id": _lsr_row[0], "summary": _lsr_row[1], "content": _lsr_row[2],
                                 "chunk_type": _lsr_row[3] or "", "importance": _lsr_row[4] or 0.5,
                             }
-                            # 6h dedup: 同一 chunk 6h 内已注入则跳过
-                            _lsr_skip = _recent_6h_counts.get(_lsr_row[0], 0) >= 2
-                            if not _lsr_skip:
-                                fts_results = [_lsr_chunk]
-                                use_fts = True
-                                _deferred.log(DMESG_DEBUG, "retriever",
-                                              f"iter1693_lite_local_rescue: sparse={_local_sparse} "
-                                              f"id={_lsr_row[0][:12]} imp={_lsr_row[4]:.2f}",
-                                              session_id=session_id, project=project)
+                            fts_results = [_lsr_chunk]
+                            use_fts = True
+                            _deferred.log(DMESG_DEBUG, "retriever",
+                                          f"iter1694_lite_rescue_rotate: sparse={_local_sparse} "
+                                          f"id={_lsr_row[0][:12]} imp={_lsr_row[4]:.2f}",
+                                          session_id=session_id, project=project)
+                            break
                     except Exception:
                         pass
                 if not use_fts:
