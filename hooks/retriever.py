@@ -2795,17 +2795,20 @@ def main():
                     #   小库 chunk 多样性低，长 cooldown 导致"该注入时无可注入"。
                     # 修复：tiny_db 中所有 cooldown 减半（14d→7d, 10d→5d, 72h→36h）。
                     #   仍有 6h/24h/7d burst suppress 兜底防垄断，cooldown 仅作为长期间隔保护。
+                    # iter1728: cooldown_use_real_inject_count — cooldown 阶梯改用真实注入次数
+                    # 根因（数据驱动，2026-05-13）：daemon retrieval 虚高 access_count，
+                    #   "向 maintainer 报告 bug"(ac=9, real_inj=2) 按 ac=9 判定 10d cooldown，
+                    #   但实际只注入 2 次——应该用 48h。6 个 chunk ac 被 daemon 虚高（ac=2-12,
+                    #   real_inj=0），虽有 never_injected bypass 但介于两者之间的 chunk 仍受影响。
+                    # 修复：cooldown 阶梯用 len(_injection_timeline[id]) 替代 _acc，
+                    #   对齐 iter1725(recall_fatigue) 的改进方向。
+                    _cd_real_inj = len(_injection_timeline.get(_cd_id, []))
                     if _cd_is_global:
-                        _cd_cutoff = _cutoff_14d if _acc >= 10 else _cutoff_10d
-                    elif _cd_is_constraint and _acc >= 4:
+                        _cd_cutoff = _cutoff_14d if _cd_real_inj >= 10 else _cutoff_10d
+                    elif _cd_is_constraint and _cd_real_inj >= 4:
                         _cd_cutoff = _cutoff_10d
                     else:
-                        # iter1712: ac3_cooldown_shorten — ac=3 用 48h 区分于 ac>=4 的 72h
-                        # 根因（数据驱动，2026-05-13）：ac=3 与 ac=4 共用 72h cooldown（iter1251遗留），
-                        #   但 ac=3 仅看过 3 次边际信息未耗尽，72h 锁定过长导致 42% chunk 不可达。
-                        #   "v1 patch Tejun 否决"(ac=3,decision) 是活跃开发关键参考。
-                        # 修复：ac=3 → 48h cooldown（tiny_db 减半=24h），ac>=4 维持 72h。
-                        _cd_cutoff = _cutoff_14d if _acc >= 10 else (_cutoff_10d if _acc >= 7 else (_cutoff_72h if _acc >= 4 else _cutoff_48h))
+                        _cd_cutoff = _cutoff_14d if _cd_real_inj >= 10 else (_cutoff_10d if _cd_real_inj >= 7 else (_cutoff_72h if _cd_real_inj >= 4 else _cutoff_48h))
                     if _tiny_db and not _cd_is_global and not _cd_is_constraint:
                         _cd_cutoff = (_now647 - (_now647 - _dt647.fromisoformat(_cd_cutoff)) / 2).isoformat()
                     # iter1145: staggered_cooldown_jitter — 错峰解禁防止批量到期垄断
@@ -2824,7 +2827,7 @@ def main():
                     #   含关键词的 prompt 天然给高分，不代表用户真正需要该约束提醒。
                     #   ac>=8 的 chunk 已被多次内化，即使高相关也不应豁免 cooldown。
                     # 修复：0.5→0.8 + ac>=8 不豁免。6h/24h/7d burst suppress 仍兜底。
-                    _cd_bypass_relevance = relevance >= 0.8 and _acc < 8
+                    _cd_bypass_relevance = relevance >= 0.8 and _cd_real_inj < 8
                     if _cd_last > _cd_cutoff_adj and not _cd_bypass_relevance:
                         score = 0.0
                         _hard_suppressed = True
