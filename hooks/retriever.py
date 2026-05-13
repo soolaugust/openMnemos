@@ -9252,10 +9252,16 @@ def main():
             # 根因（数据驱动，2026-05-13）：global dc chunk(ac=5) 因 timeline 并发覆写丢失条目
             #   → 7d session-dedup=1 不触发 ceiling → 长期反复注入（总 7 次/5 次）。
             # 修复：global dc ac>=5 且 timeline 无记录 → suppress。ac 是注入次数下界，可靠。
+            # iter1752: omf_lifetime_widen — 扩展到全部 dc(不限 global) + ac>=4
+            # 根因（数据驱动，2026-05-14）：非 global dc(memory验证路径,ac=4,tl=0) 逃逸——
+            #   _omf_lifetime_suppress 只检查 global，非 global 高 ac dc timeline 丢失时
+            #   omf_7d=0 < ceiling=2 通过。ac 与 timeline gap（3/30 chunk gap>=3）证实 timeline 不可靠。
+            # 修复：dc ac>=4 + (timeline 空或 timeline>=4) → suppress。去掉 global 限制。
             def _omf_lifetime_suppress(c):
-                if c.get("project", "") == "global" and c.get("chunk_type") == "design_constraint":
+                if c.get("chunk_type") == "design_constraint":
                     _oac = c.get("access_count", 0) or 0
-                    if _oac >= 5:
+                    _lt_thresh = 4 if c.get("project", "") == "global" else 4
+                    if _oac >= _lt_thresh:
                         _tl = _injection_timeline.get(c.get("id", ""))
                         if _tl and len(_tl) >= 4:
                             return True
