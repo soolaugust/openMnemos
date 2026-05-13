@@ -6041,7 +6041,12 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 # 修复：_fb_pool 最高分 < 0.05 时跳过，落到 db_ultimate_fallback（有分钟轮转多样性）。
                 # iter940: floor_raise — 0.05→0.10（sync retriever.py）
                 # iter996: micro_db_floor_relax — <=5 自有 chunk 库 floor 0.10→0.01（sync）
-                _fb_floor = 0.01 if (_db_chunk_count <= 5 or _local_sparse_d) else 0.10
+                # iter1701: daemon_fb_floor_large_db_sync — sync retriever.py iter1116
+                # 根因（数据驱动，2026-05-13）：>=50 chunk 库 daemon _fb_floor=0.10，
+                #   但 retriever.py FULL 路径已在 iter1116 放宽到 0.05。
+                #   daemon LITE 路径比 FULL 严 2x → 大库 suppress_fallback 多 ~40% 空召回。
+                # 修复：对齐三档 floor：<=5/sparse=0.01, >=50=0.05, 其余=0.10。
+                _fb_floor = 0.01 if (_db_chunk_count <= 5 or _local_sparse_d) else (0.05 if _db_chunk_count >= 50 else 0.10)
                 # iter1700: daemon_fb_zero_local_floor — sync iter1691/1692
                 if _local_chunk_count_d == 0:
                     _fb_floor = max(_fb_floor, 0.18)
