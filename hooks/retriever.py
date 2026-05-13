@@ -8568,10 +8568,19 @@ def main():
                 # 修复：sat_floor 判定用 real inject count（_injection_timeline），不用膨胀的 ac。
                 _sat_cid = c.get("id", "")
                 _sat_real_inj = len(_injection_timeline.get(_sat_cid, []))
+                # iter1731: sat_floor_mid_tier — 小库非 dc 的 real_inj>=5 也触发
+                # 根因（数据驱动，2026-05-13）：import-d06e1bb04f36(decision,real_inj=5)
+                #   和 51d2a345(qe,real_inj=5) 非 dc 且 real_inj<7 逃逸 sat_floor，
+                #   分别累计注入 5 次，信息早已内化但持续挤占 top_k slot。
+                # 修复：增加中间层 real_inj>=5 + score<sat_floor + 小库 → suppress。
+                _sat_mid_thresh = 5
                 _sat_hit = (
                     (_is_dc
                      and _sat_real_inj >= 4
                      and s < _GLOBAL_SAT_FLOOR)
+                    or (_sat_real_inj >= _sat_mid_thresh
+                        and s < _GLOBAL_SAT_FLOOR
+                        and _db_chunk_count < 50)
                     or (_sat_real_inj >= _LOCAL_SAT_AC_THRESH
                         and s < _GLOBAL_SAT_FLOOR))
                 if _sat_hit:
