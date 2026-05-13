@@ -92,7 +92,9 @@ _META_NOISE_KEYWORDS = re.compile(
 )
 _INDEX_TITLE_KEYWORDS = re.compile(
     r'参考链接|相关文件|影响范围|附录|changelog|目录|索引|待深入|'
-    r'references?$|related\s+files?|appendix',
+    r'references?$|related\s+files?|appendix|'
+    # iter1751: wip_task_section_gate — WIP 任务进度/状态章节无独立检索价值
+    r'下一步|当前状态|next\s*steps?|current\s*status|todo|action\s*items?',
     re.IGNORECASE
 )
 
