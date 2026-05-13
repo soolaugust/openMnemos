@@ -2803,6 +2803,9 @@ def main():
                     # 修复：cooldown 阶梯用 len(_injection_timeline[id]) 替代 _acc，
                     #   对齐 iter1725(recall_fatigue) 的改进方向。
                     _cd_real_inj = len(_injection_timeline.get(_cd_id, []))
+                    # iter1732: cooldown_timeline_fallback — 对齐 sat_floor fallback
+                    if _cd_real_inj == 0 and (_acc or 0) >= 4:
+                        _cd_real_inj = _acc or 0
                     if _cd_is_global:
                         _cd_cutoff = _cutoff_14d if _cd_real_inj >= 10 else _cutoff_10d
                     elif _cd_is_constraint and _cd_real_inj >= 4:
@@ -4233,9 +4236,15 @@ def main():
                     # iter1725: fatigue_use_real_inject_count — 用真实注入次数替代 access_count
                     # 根因（数据驱动，2026-05-13）：daemon retrieval 虚高 access_count(ac=5)
                     #   但真实注入 7 次。fatigue 用 ac 衰减仅 13%，用 inject_count 衰减 31%。
+                    def _rf_inj_count(c):
+                        _rfc = len(_injection_timeline.get(c.get("id", ""), []))
+                        # iter1732: timeline_fallback — ac>=4 + timeline 漏记时回退 ac
+                        if _rfc == 0 and (c.get("access_count") or 0) >= 4:
+                            _rfc = c.get("access_count") or 0
+                        return _rfc
                     final = [
-                        (s / (1.0 + _rf_rate * max(0, len(_injection_timeline.get(c.get("id", ""), [])) - _rf_thresh)), c)
-                        if _injection_timeline.get(c.get("id", "")) else (s, c)
+                        (s / (1.0 + _rf_rate * max(0, _rf_inj_count(c) - _rf_thresh)), c)
+                        if (_injection_timeline.get(c.get("id", "")) or (c.get("access_count") or 0) >= 4) else (s, c)
                         for s, c in final
                     ]
             except Exception:
@@ -5787,9 +5796,15 @@ def main():
             if _sysctl("retriever.recall_fatigue_enabled"):
                 _rf_thresh = _sysctl("retriever.recall_fatigue_ac_threshold")
                 _rf_rate = _sysctl("retriever.recall_fatigue_rate")
+                def _rf_inj_count_full(c):
+                    _rfc = len(_injection_timeline.get(c.get("id", ""), []))
+                    # iter1732: timeline_fallback (FULL path sync)
+                    if _rfc == 0 and (c.get("access_count") or 0) >= 4:
+                        _rfc = c.get("access_count") or 0
+                    return _rfc
                 final = [
-                    (s / (1.0 + _rf_rate * max(0, len(_injection_timeline.get(c.get("id", ""), [])) - _rf_thresh)), c)
-                    if _injection_timeline.get(c.get("id", "")) else (s, c)
+                    (s / (1.0 + _rf_rate * max(0, _rf_inj_count_full(c) - _rf_thresh)), c)
+                    if (_injection_timeline.get(c.get("id", "")) or (c.get("access_count") or 0) >= 4) else (s, c)
                     for s, c in final
                 ]
         except Exception:
@@ -8568,6 +8583,13 @@ def main():
                 # 修复：sat_floor 判定用 real inject count（_injection_timeline），不用膨胀的 ac。
                 _sat_cid = c.get("id", "")
                 _sat_real_inj = len(_injection_timeline.get(_sat_cid, []))
+                # iter1732: sat_floor_timeline_fallback — timeline 漏记时回退 ac
+                # 根因（数据驱动，2026-05-13）：c9accb7b(feishu CLI,ac=5,dc,global) recall_traces
+                #   记录 5 次注入，但 _injection_timeline 中 real_inj=0（写入路径未覆盖早期注入）。
+                #   iter1730 改用 real_inj 后该 chunk 逃逸所有 sat_floor 判定，30d 累计 5 次垄断注入。
+                # 修复：timeline 无记录 + ac>=4 → 回退使用 ac 作为 real_inj 下界估算。
+                if _sat_real_inj == 0 and (c.get("access_count") or 0) >= 4:
+                    _sat_real_inj = c.get("access_count") or 0
                 # iter1731: sat_floor_mid_tier — 小库非 dc 的 real_inj>=5 也触发
                 # 根因（数据驱动，2026-05-13）：import-d06e1bb04f36(decision,real_inj=5)
                 #   和 51d2a345(qe,real_inj=5) 非 dc 且 real_inj<7 逃逸 sat_floor，
