@@ -6575,7 +6575,12 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
             _has_local_d = any(_sat_floor_proj(c) == project for _, c in top_k)
             _cid_fn = lambda c: (c[_CI_ID] if isinstance(c, (list, tuple)) else c.get("id", ""))
             _has_protected_d = any(_cid_fn(c) in _fallback_protected_ids for _, c in top_k)
-            if not _has_local_d and not _has_protected_d:
+            # iter1764: sparse_cross_floor_shield — sparse 项目跳过 cross_project floor_raise
+            # 根因（数据驱动，2026-05-14）：git:78dc99a5695f(1 local, _local_sparse_d=True)
+            #   本地 chunk BM25 不匹配 → top_k 全跨项目 → floor 0.05→0.15 → fallback 二杀。
+            #   iter1685 已设 sparse floor=0.05，此处 floor_raise 覆盖了它 = 保护失效。
+            #   sparse 项目 FTS5 词汇极有限，跨项目知识是唯一兜底来源，不应因"无本地match"惩罚。
+            if not _has_local_d and not _has_protected_d and not _local_sparse_d:
                 _score_floor = 0.15
         # iter1739: micro_db_floor_gate_zero_local — sync retriever.py
         if len(top_k) > 0 and (_db_chunk_count > 5 or _local_chunk_count_d == 0):

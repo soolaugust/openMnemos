@@ -8733,7 +8733,11 @@ def main():
             #   fallback 恢复的 chunk 已是兜底路径，floor_raise 二次杀死 = fallback 形同虚设。
             _has_local_in_topk = any(c.get("project") == project for _, c in top_k)
             _has_protected_in_topk = any(c.get("_fallback_protected") for _, c in top_k)
-            if not _has_local_in_topk and not _has_protected_in_topk:
+            # iter1764: sparse_cross_floor_shield — sparse 项目跳过 cross_project floor_raise
+            # 根因（数据驱动，2026-05-14）：git:78dc99a5695f(1 local, sparse=True)
+            #   本地 chunk BM25 不匹配 → top_k 全跨项目 → floor 0.05→0.15 → fallback 二杀。
+            #   iter1685 已设 sparse floor=0.05，此处 floor_raise 覆盖 = 保护失效。
+            if not _has_local_in_topk and not _has_protected_in_topk and not _local_sparse:
                 _score_floor = 0.15
         # iter1739: micro_db_floor_gate_zero_local — local=0 项目不跳过 floor_gate
         # 根因（数据驱动，2026-05-14）：abspath:7e3095aef7a6(local=0,db=5) micro_db bypass
