@@ -4736,6 +4736,32 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                                       session_id=session_id, project=project)
                 except Exception:
                     pass
+            # iter1769: cold_start_db_probe — sync retriever.py iter1768 to daemon HD
+            if (len(positive) < effective_top_k
+                    and sysctl("retriever.cold_start_enabled")
+                    and _local_chunk_count_d > 0):
+                try:
+                    _cs_imp_t = sysctl("retriever.cold_start_imp_threshold")
+                    _cs_pos_ids = {c[_CI_ID] for _, c in positive}
+                    _cs_conn = __import__('sqlite3').connect(str(STORE_DB))
+                    _cs_rows = _cs_conn.execute(
+                        "SELECT id, summary, content, importance, chunk_type, access_count "
+                        "FROM memory_chunks WHERE project=? AND chunk_state='ACTIVE' "
+                        "AND access_count=0 AND importance>=? ORDER BY importance DESC LIMIT 3",
+                        (project, _cs_imp_t)).fetchall()
+                    _cs_conn.close()
+                    for _csr in _cs_rows:
+                        if _csr[0] in _cs_pos_ids or _itl_lifetime.get(_csr[0]):
+                            continue
+                        _cs_tup = (_csr[0], _csr[1], _csr[2], _csr[3], None, _csr[4], 0, None, None, None, project, None)
+                        _cs_floor = 0.05 if _db_chunk_count < 20 else (0.08 if _db_chunk_count < 50 else 0.12)
+                        positive.append((max(float(_csr[3] or 0), _cs_floor), _cs_tup))
+                        _deferred.log(DMESG_DEBUG, "retriever_daemon",
+                                      f"iter1769_cold_start_db_probe_hd: {_csr[0][:12]} imp={_csr[3]:.2f}",
+                                      session_id=session_id, project=project)
+                        break
+                except Exception:
+                    pass
             if _drr_enabled and len(positive) > effective_top_k:
                 top_k = _drr_select(positive, effective_top_k)
             else:
@@ -5198,6 +5224,32 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
             except Exception:
                 pass
 
+        # iter1769: cold_start_db_probe — sync retriever.py iter1768 to daemon FULL
+        if (len(positive) < effective_top_k
+                and sysctl("retriever.cold_start_enabled")
+                and _local_chunk_count_d > 0):
+            try:
+                _cs_imp_t = sysctl("retriever.cold_start_imp_threshold")
+                _cs_pos_ids = {c[_CI_ID] for _, c in positive}
+                _cs_conn = __import__('sqlite3').connect(str(STORE_DB))
+                _cs_rows = _cs_conn.execute(
+                    "SELECT id, summary, content, importance, chunk_type, access_count "
+                    "FROM memory_chunks WHERE project=? AND chunk_state='ACTIVE' "
+                    "AND access_count=0 AND importance>=? ORDER BY importance DESC LIMIT 3",
+                    (project, _cs_imp_t)).fetchall()
+                _cs_conn.close()
+                for _csr in _cs_rows:
+                    if _csr[0] in _cs_pos_ids or _itl_lifetime.get(_csr[0]):
+                        continue
+                    _cs_tup = (_csr[0], _csr[1], _csr[2], _csr[3], None, _csr[4], 0, None, None, None, project, None)
+                    _cs_floor = 0.05 if _db_chunk_count < 20 else (0.08 if _db_chunk_count < 50 else 0.12)
+                    positive.append((max(float(_csr[3] or 0), _cs_floor), _cs_tup))
+                    _deferred.log(DMESG_DEBUG, "retriever_daemon",
+                                  f"iter1769_cold_start_db_probe_full: {_csr[0][:12]} imp={_csr[3]:.2f}",
+                                  session_id=session_id, project=project)
+                    break
+            except Exception:
+                pass
         if _drr_enabled and len(positive) > effective_top_k:
             top_k = _drr_select(positive, effective_top_k)
         else:
