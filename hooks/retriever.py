@@ -4489,7 +4489,13 @@ def main():
                         _cid = c.get("id", "")
                         _7d = _recent_7d_counts.get(_cid, 0)
                         _t = 5 if _db_chunk_count < 50 else 3
-                        if c.get("project", "") == "global" and (c.get("access_count", 0) or 0) >= 4:
+                        _fb_ac = c.get("access_count", 0) or 0
+                        # iter1766: fallback_7d_dc_saturated_align — 对齐主路径 iter1745
+                        #   global dc ac>=5 主路径 7d thresh=1，但 fallback 仍用 max(2,_t-1)=4
+                        #   → 被主路径 suppress 的垄断 chunk 经 fallback 逃逸。
+                        if c.get("project", "") == "global" and c.get("chunk_type") == "design_constraint" and _fb_ac >= 5:
+                            _t = 1
+                        elif c.get("project", "") == "global" and _fb_ac >= 4:
                             _t = max(2, _t - 1)
                         return _7d < _t
                     _sef_hd_imp = [(float(c.get("importance", 0) or 0), c) for _, c in final
@@ -6226,7 +6232,11 @@ def main():
                     _cid = c.get("id", "")
                     _7d = _recent_7d_counts.get(_cid, 0)
                     _t = 5 if _db_chunk_count < 50 else 3
-                    if c.get("project", "") == "global" and (c.get("access_count", 0) or 0) >= 4:
+                    _fb_ac = c.get("access_count", 0) or 0
+                    # iter1766: fallback_7d_dc_saturated_align — 对齐主路径 iter1745
+                    if c.get("project", "") == "global" and c.get("chunk_type") == "design_constraint" and _fb_ac >= 5:
+                        _t = 1
+                    elif c.get("project", "") == "global" and _fb_ac >= 4:
                         _t = max(2, _t - 1)
                     return _7d < _t
                 _sef_by_imp = [(float(c.get("importance", 0) or 0), c) for _, c in final

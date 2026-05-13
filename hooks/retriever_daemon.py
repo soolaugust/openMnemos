@@ -5253,7 +5253,11 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                     _cid = c[_CI_ID]
                     _7d = _recent_7d_counts.get(_cid, 0)
                     _t = 5 if _db_chunk_count < 50 else 3
-                    if (c[_CI_CP] if len(c) > _CI_CP else "") == "global" and (c[_CI_AC] or 0) >= 4:
+                    _fb_ac_d = c[_CI_AC] or 0
+                    # iter1766: fallback_7d_dc_saturated_align — 对齐主路径 iter1745
+                    if (c[_CI_CP] if len(c) > _CI_CP else "") == "global" and (c[_CI_CT] if len(c) > _CI_CT else "") == "design_constraint" and _fb_ac_d >= 5:
+                        _t = 1
+                    elif (c[_CI_CP] if len(c) > _CI_CP else "") == "global" and _fb_ac_d >= 4:
                         _t = max(2, _t - 1)
                     return _7d < _t
                 _sef_by_imp = [(float(c[_CI_IMP] or 0), c) for _, c in final
