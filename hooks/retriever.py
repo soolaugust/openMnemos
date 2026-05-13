@@ -2812,7 +2812,12 @@ def main():
                     #   hash 确保同一 chunk 每次 jitter 相同（deterministic），不影响单测。
                     _cd_jitter_h = (zlib.crc32(_cd_id.encode()) % 49)  # 0-48 hours deterministic jitter
                     _cd_cutoff_adj = (_dt647.fromisoformat(_cd_cutoff) - _td647(hours=_cd_jitter_h)).isoformat()
-                    if _cd_last > _cd_cutoff_adj:
+                    # iter1708: cooldown_relevance_bypass — 高相关性跳过 cooldown
+                    # 根因（数据驱动，2026-05-13）：dc 工具约束(feishu CLI/git commit/微信)
+                    #   cooldown=5d(tiny_db)，用户实际操作该工具时(relevance>=0.5)仍被封锁。
+                    #   "已内化"假设仅对低相关性成立；高相关性=正在使用=需要约束提醒。
+                    # 修复：relevance>=0.5 豁免 cooldown。6h/24h/7d burst suppress 仍有效兜底。
+                    if _cd_last > _cd_cutoff_adj and relevance < 0.5:
                         score = 0.0
                         _hard_suppressed = True
             # iter1180: session_cooldown_sync — session 内 cooldown 补充
