@@ -5684,7 +5684,15 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 def _d1273_lifetime_ok(c):
                     # iter1337: sparse_global_lifetime_shield — sync retriever.py
                     if _local_sparse_d and (c[_CI_CP] or "") in (project, "global"):
-                        return True
+                        # iter1704: sparse_saturated_dc_pierce — sync retriever.py iter1468
+                        _sp_ac_d = c[_CI_AC] or 0
+                        _sp_lt_data = _itl_lifetime.get(c[_CI_ID])
+                        _sp_lt_d = max(_sp_lt_data[0] if _sp_lt_data else 0, _sp_ac_d)
+                        if (c[_CI_CP] or "") == "global" and (c[_CI_CT] or "") == "design_constraint" \
+                                and _sp_ac_d >= 4 and _sp_lt_d >= 4:
+                            pass  # fall through to normal suppress logic
+                        else:
+                            return True
                     _lt_data = _itl_lifetime.get(c[_CI_ID])
                     if not _lt_data:
                         # iter1375: ac_lifetime_dc_floor_align — sync retriever.py
@@ -6081,10 +6089,13 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                         if _fb_hash == last_hash:
                             _fb = _fb_sorted[1]
                     # iter1324: fallback_pair_inject — LITE path sync
+                    # iter1703: suppress_fallback_pair_dc_gate — DC ac>=5 不参与 pair
                     _fb_pair = [_fb]
                     if len(_fb_sorted) >= 2:
                         _fb2 = _fb_sorted[1] if _fb is _fb_sorted[0] else _fb_sorted[0]
-                        if _fb2[0] >= _fb[0] * 0.4:
+                        if (_fb2[0] >= _fb[0] * 0.4
+                                and not (_fb2[1][_CI_CT] == "design_constraint"
+                                         and (_fb2[1][_CI_AC] or 0) >= 5)):
                             _fb_pair.append(_fb2)
                     top_k = _fb_pair
                     # iter1516: suppress_fallback_floor_protect — 对齐 iter1506
