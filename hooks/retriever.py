@@ -4826,21 +4826,24 @@ def main():
                     if not _tl_hd:
                         return _fb_hd_ceiling
                     # iter1576: lifetime_fallback_ceiling_cap
-                    if len(_tl_hd) >= 4 and (c.get("access_count", 0) or 0) >= 4:
+                    # iter1738: fallback_saturated_ceiling_tighten — sync FULL path
+                    _lt_len_hd = len(_tl_hd)
+                    _fb_ac_hd = c.get("access_count", 0) or 0
+                    if _lt_len_hd >= 5 and _fb_ac_hd >= 5:
+                        return 1
+                    if _lt_len_hd >= 4 and _fb_ac_hd >= 4:
                         return 2
                     if c.get("project", "") == "global":
-                        _gac = c.get("access_count", 0) or 0
-                        if _gac >= 5:
-                            return 2
-                        if _gac >= 4:
+                        if _fb_ac_hd >= 5:
+                            return 1  # iter1738: sync — was 2
+                        if _fb_ac_hd >= 4:
                             return max(2, _fb_hd_ceiling - 2)
                         return _fb_hd_ceiling
-                    _lac = c.get("access_count", 0) or 0
-                    if _lac >= 7:
+                    if _fb_ac_hd >= 7:
                         return 1
-                    elif _lac >= 5:
+                    elif _fb_ac_hd >= 5:
                         return max(2, _fb_hd_ceiling - 2)
-                    elif _lac >= 3:
+                    elif _fb_ac_hd >= 3:
                         return min(_fb_hd_ceiling, 3 if _db_chunk_count < 50 else 2)  # iter1488: fb_ac3_cap — 对齐主路径 ac>=3 cap
                     return _fb_hd_ceiling
                 # iter1101: hd_fallback_cooldown — hard_deadline fallback 补充 cooldown 过滤
@@ -7546,14 +7549,22 @@ def main():
                     if not _tl_fb:
                         return _fb_ceiling
                     # iter1576: lifetime_fallback_ceiling_cap
-                    if len(_tl_fb) >= 4 and (c.get("access_count", 0) or 0) >= 4:
-                        return 2
-                    if c.get("project", "") == "global" and (c.get("access_count", 0) or 0) >= 4:
-                        return max(2, _fb_ceiling - 2)
-                    _lac = c.get("access_count", 0) or 0
-                    if _lac >= 7:
+                    # iter1738: fallback_saturated_ceiling_tighten — ac>=5+lt>=5 ceiling 2→1
+                    # 根因（数据驱动，2026-05-14）：0aff0d67(git commit,ac=5,lt=7) 和
+                    #   c9accb7b(feishu CLI,ac=5,lt=5) 每次 7d 窗口重置后经 fallback(ceiling=2)
+                    #   重新注入，累计 7/5 次占总注入 8.5%/6.1%。ceiling=2 允许 7d 内 1 次注入，
+                    #   周而复始导致垄断。收紧到 1：7d 有任何记录即禁止 fallback 恢复。
+                    _lt_len = len(_tl_fb)
+                    _fb_ac = c.get("access_count", 0) or 0
+                    if _lt_len >= 5 and _fb_ac >= 5:
                         return 1
-                    elif _lac >= 5:
+                    if _lt_len >= 4 and _fb_ac >= 4:
+                        return 2
+                    if c.get("project", "") == "global" and _fb_ac >= 4:
+                        return max(2, _fb_ceiling - 2)
+                    if _fb_ac >= 7:
+                        return 1
+                    elif _fb_ac >= 5:
                         return max(2, _fb_ceiling - 1)
                     return _fb_ceiling
                 # iter1363: fallback_global_relevance_gate — FULL 路径同步

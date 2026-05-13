@@ -6018,26 +6018,25 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 # iter1053: fallback_ceiling_align_local_deep — per-chunk ceiling 对齐 suppress thresh
                 def _fb_ceiling_d_fn(c):
                     # iter1576: lifetime_fallback_ceiling_cap — lifetime>=4 直接 ceiling=2
+                    # iter1738: fallback_saturated_ceiling_tighten — sync retriever.py
                     _lt_fb = (_itl_lifetime.get(c[_CI_ID], (0,))[0] if _itl_lifetime else 0)
-                    if _lt_fb >= 4 and (c[_CI_AC] or 0) >= 4:
+                    _fb_ac_d = c[_CI_AC] or 0
+                    if _lt_fb >= 5 and _fb_ac_d >= 5:
+                        return 1
+                    if _lt_fb >= 4 and _fb_ac_d >= 4:
                         return 2
-                    # iter1150: global_fallback_ceiling_align — ac>=5 直接=2
-                    # 根因：suppress_final_gate 对 global ac>=5→thresh=2，但 fallback ceiling
-                    #   仅区分 ac>=4→max(2,base-2)=3，ac=5-6 chunk 经 fallback 逃逸。
                     if c.get("project", "") == "global":
-                        _gac = c.get("access_count", 0) or 0
-                        if _gac >= 5:
-                            return 2
-                        if _gac >= 4:
+                        if _fb_ac_d >= 5:
+                            return 1  # iter1738: sync — was 2
+                        if _fb_ac_d >= 4:
                             return max(2, _fb_ceiling_d - 2)
                         return _fb_ceiling_d
-                    _lac = c[_CI_AC] or 0
-                    if _lac >= 7:
+                    if _fb_ac_d >= 7:
                         return 2
-                    elif _lac >= 5:
+                    elif _fb_ac_d >= 5:
                         return max(2, _fb_ceiling_d - 2)  # iter1152: local_mid_saturated_tighten
                     # iter1549: ac4_tiny_db_7d_cap2 — sync fallback ceiling path
-                    elif _lac >= 4:
+                    elif _fb_ac_d >= 4:
                         return 2 if _s672_tiny else max(2, _fb_ceiling_d - 2)
                     return _fb_ceiling_d
                 # iter1027: fallback_24h_align — global ac>=4 阈值=1
