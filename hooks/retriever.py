@@ -4719,7 +4719,9 @@ def main():
             #   suppress 全灭后 fallback 按 score 选最佳 → 高频 chunk 反复被选中。
             #   修复：score/(1+0.5*7d_count) 使低频 chunk 优先，促进注入多样性。
             # iter1609: zero_local_suppress_fallback_skip — HD 路径同步
-            if not top_k and _pre_suppress_top_k_hd and _local_chunk_count > 0:
+            # iter1689: zero_local_fallback_quality_gate — HD 路径同步
+            _has_quality_fallback_hd = _local_chunk_count > 0 or any(s >= 0.15 for s, c in _pre_suppress_top_k_hd)
+            if not top_k and _pre_suppress_top_k_hd and _has_quality_fallback_hd:
                 # iter892: fallback_exp_decay — 线性→指数衰减，高频 chunk 衰减更快促进多样性
                 # iter893: fallback_hard_ceiling — 7d>=5 绝对不选，防止垄断 chunk 经 fallback 逃逸
                 # iter894: fallback_realtime_align — ceiling 对齐 suppress_final_gate 阈值
@@ -7357,7 +7359,13 @@ def main():
             #   floor=0.15 正确清空不相关跨项目候选，但 suppress_fallback 用 _fb_floor=0.01
             #   （因 _local_sparse=True）将 score=0.05/0.01 的 kernel 知识恢复注入。
             #   local=0 表明当前项目无本地知识，所有候选均跨项目，不注入优于注入噪声。
-            if _pre_suppress_top_k and _local_chunk_count > 0:
+            # iter1689: zero_local_fallback_quality_gate — local=0 但有高分候选时仍允许 fallback
+            # 根因（数据驱动，2026-05-13）：git:a4ee2fcfacc4(6 local)、git:78dc99a5695f(1 local)
+            #   空召回率 70%/83%。iter1609 一刀切禁用 local=0 fallback，但 local>0 项目中
+            #   所有 local chunk 被 7d suppress 后 top_k 全灭，fallback 本应恢复有价值候选。
+            #   修复：条件从 local>0 改为 local>0 OR pre_suppress 中有 score>=0.15 的候选。
+            _has_quality_fallback = _local_chunk_count > 0 or any(s >= 0.15 for s, c in _pre_suppress_top_k)
+            if _pre_suppress_top_k and _has_quality_fallback:
                 _last_hash = _read_hash()
                 # iter892: fallback_exp_decay — 线性→指数衰减（同步 hard_deadline path）
                 # iter893: fallback_hard_ceiling — 7d>=5 绝对不选（同步 hard_deadline path）
