@@ -7439,15 +7439,19 @@ def main():
                 #   无 ac 限制（核心知识不应因多次访问而在 fallback 中被排除）。
                 #   仍受 _fb_floor 保护（score 过低不强注入）。
                 if not _fb_cap and _db_chunk_count < 100:
+                    # iter1687: fallback_last_resort_score_gate — 排除 score=0 (hard-suppressed) chunk
+                    #   根因（数据驱动，2026-05-13）：topic_mismatch_hard_suppress 将 kernel chunk
+                    #   score 置 0，但 local_last_resort 按 7d 排序忽略 score → 7d=0 的 kernel
+                    #   chunk 逃逸注入到 memory-os query。score>0 确保仅选有语义相关性的候选。
                     _fb_local_last = [(s, c) for s, c in _pre_suppress_top_k
-                                      if c.get("project", "") != "global"]
+                                      if c.get("project", "") != "global" and s > 0]
                     if _fb_local_last:
                         _fb_local_last.sort(key=lambda x: _fb_7d.get(x[1].get("id", ""), 0))
                         _fb_cap = [_fb_local_last[0]]
                 # iter1367: sparse_fallback_uncap — local_sparse 全灭时选 ac 最低候选(FULL path sync)
                 if not _fb_cap and _local_sparse:
                     _fb_cap = sorted(
-                        [(s, c) for s, c in _pre_suppress_top_k if _fb_relevance_ok(c)],
+                        [(s, c) for s, c in _pre_suppress_top_k if _fb_relevance_ok(c) and s > 0],
                         key=lambda x: (x[1].get("access_count", 0) or 0, -x[0])
                     )[:2]
                 # iter916: fallback_no_unfiltered_pool — 全灭时不回退无过滤池，走 db_ultimate_fallback
