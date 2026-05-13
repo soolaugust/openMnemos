@@ -3975,13 +3975,19 @@ def main():
                 #   iter1600 的 sparse_local_candidate_inject 仅在 use_fts=True 时触发，此处漏覆盖。
                 # 修复：_local_sparse 项目 LITE FTS5 miss 时，从 DB 取 top-1 local chunk 直接注入。
                 #   不走 BM25 全扫（仍避免噪音），仅注入该项目自己的知识（数量 ≤5，必定高相关）。
-                if _local_sparse and _local_chunk_count > 0:
+                # iter1693: lite_rescue_all_local — 扩展到所有有 local chunk 的项目
+                #   根因（数据驱动，2026-05-13）：git:a4ee2fcfacc4(6 local, non-sparse) LITE 3/10 空召回，
+                #   prompt 关键词不含 local chunk 术语 → FTS5 miss → exit。6 个高质量 local chunk 浪费。
+                #   non-sparse 项目加 importance>=0.7 门控避免低质量 fallback 噪音。
+                _lsr_imp_floor = 0.0 if _local_sparse else 0.70
+                if _local_chunk_count > 0:
                     try:
                         _lsr_row = conn.execute(
                             "SELECT id, summary, content, chunk_type, importance "
                             "FROM memory_chunks WHERE project=? AND chunk_state='ACTIVE' "
+                            "AND importance >= ? "
                             "ORDER BY importance DESC, access_count DESC LIMIT 1",
-                            (project,)
+                            (project, _lsr_imp_floor)
                         ).fetchone()
                         if _lsr_row:
                             _lsr_chunk = {
@@ -3994,7 +4000,7 @@ def main():
                                 fts_results = [_lsr_chunk]
                                 use_fts = True
                                 _deferred.log(DMESG_DEBUG, "retriever",
-                                              f"iter1643_lite_sparse_local_rescue: "
+                                              f"iter1693_lite_local_rescue: sparse={_local_sparse} "
                                               f"id={_lsr_row[0][:12]} imp={_lsr_row[4]:.2f}",
                                               session_id=session_id, project=project)
                     except Exception:
