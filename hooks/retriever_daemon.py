@@ -2738,6 +2738,7 @@ _PROJECT_MARKER_RE = __import__('re').compile(
 # None of these → guaranteed empty result (all 3 _ENTITY_RE patterns require them)
 # OS 类比：branch predictor guard — 快速判断分支是否可能命中，不可能时直接 early-exit
 _ENTITY_FAST_CHECK = __import__('re').compile(r'[`.A-Z]')
+_RE_NON_WORD = __import__('re').compile(r'[^\w一-鿿]')  # iter1673: topic_mismatch word extraction
 
 # iter220: 预编译 constraint relevance 正则（原为 re.sub 运行时传字符串，每次隐式 compile）
 # 用于 design_constraint 强制注入路径中的 query_words / s_words 分词。
@@ -3586,6 +3587,18 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
         # Default sc_sv_rmp=3.0 → guard always evaluates to 3.0; hoisting saves 1× max() call per chunk (ac=0 path).
         # OS 类比：LICM — CPython 无 LICM，需手动外提循环不变量。
         _sc_sv_rmp_safe = _sc_sv_rmp if _sc_sv_rmp > 0.1 else 0.1
+        # iter1673: topic_mismatch_discount — sync retriever.py iter1612
+        # 根因（数据驱动，2026-05-12）：同项目 kernel 知识（MTK ALB、PE 分析）
+        #   与 memory-os 迭代工作 topic 完全不匹配，FTS5 因共用词（如"注入"）匹配。
+        #   ac>=3 + overlap=0 → 降权防止噪声占位。
+        _query_content_words = set()
+        try:
+            _query_content_words = set(
+                w for w in _RE_NON_WORD.sub(' ', query.lower()).split()
+                if len(w) >= 2
+            )
+        except Exception:
+            pass
         def _score_chunk(chunk, relevance):
             # iter191: fully inlined retrieval_score
             # _age_days called 1-2 times instead of 3 (reuse if same string)
@@ -3856,6 +3869,14 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                         score = 0.0
                     else:
                         score *= 0.4
+            # iter1673: topic_mismatch_discount — sync retriever.py iter1612
+            if (score > 0 and not _is_xp_sc and _cp_sc != "global"
+                    and (chunk[_CI_AC] or 0) >= 3 and _query_content_words):
+                _tm_s = (chunk[_CI_SUM] or "").lower() if len(chunk) > _CI_SUM else ""
+                _tm_w = set(w for w in _RE_NON_WORD.sub(' ', _tm_s).split() if len(w) >= 2)
+                if _tm_w and len(_query_content_words & _tm_w) == 0:
+                    _tm_ct = chunk[_CI_CT] if len(chunk) > _CI_CT else ""
+                    score *= 0.6 if _tm_ct == "design_constraint" else 0.3
             # iter618: 24h + 7d burst suppress（daemon 此前完全缺失）
             # iter619: 阈值收紧 24h:3→2, 7d:8→5
             # iter672: relevance_exempt — 高分 chunk 放宽阈值，防 suppress 过杀
@@ -4081,6 +4102,12 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                     if _hard_util_sd > _bw_soft_start_d:
                         _bw_pen_d = 1.0 - (_hard_util_sd - _bw_soft_start_d) / (_inject_hard_cap - _bw_soft_start_d)
                         score *= _bw_pen_d
+            # iter1673: topic_mismatch_discount — sync retriever.py iter1612 (dict path)
+            if score > 0 and _cp != "global" and _cp == project and _ac >= 3 and _query_content_words:
+                _tm_sd = (chunk.get("summary") or "").lower()
+                _tm_wd = set(w for w in _RE_NON_WORD.sub(' ', _tm_sd).split() if len(w) >= 2)
+                if _tm_wd and len(_query_content_words & _tm_wd) == 0:
+                    score *= 0.6 if chunk.get("chunk_type") == "design_constraint" else 0.3
             # iter875/876: soft_diversity_penalty — sync with _score_chunk (factor 0.35)
             # iter898: small_db_diversity_boost — <50 库 factor 0.35→0.55
             _r7d_sd = _recent_7d_counts.get(_cid, 0)
