@@ -5535,12 +5535,12 @@ def main():
                     try:
                         from datetime import timedelta as _td648hd
                         _now648hd = __import__('datetime').datetime.now(__import__('datetime').timezone.utc)
-                        _cut_7d = (_now648hd - _td648hd(days=7)).isoformat()
+                        _cut_21d = (_now648hd - _td648hd(days=21)).isoformat()
                         _itl_hd = {}
                         if os.path.exists(_INJECTION_TIMELINE_FILE):
                             with open(_INJECTION_TIMELINE_FILE, encoding="utf-8") as _itf_hd:
                                 _itl_hd = json.loads(_itf_hd.read())
-                        _itl_hd = {k: [t for t in v if t > _cut_7d] for k, v in _itl_hd.items()}
+                        _itl_hd = {k: [t for t in v if t > _cut_21d] for k, v in _itl_hd.items()}
                         _itl_hd = {k: v for k, v in _itl_hd.items() if v}
                         _now_iso = _now648hd.isoformat()
                         for _aid in _timeline_ids:
