@@ -4619,11 +4619,13 @@ def main():
                     _ac_lt = c.get("access_count", 0) or 0
                     if not _tl:
                         # iter1376: no_timeline_allow_first_inject
-                        # 根因（数据驱动，2026-05-10）：sem_c4531bbda935(ac=12) 和 58c70136(ac=8)
-                        #   从未被自动注入但 ac 高（来自 memory_lookup 手动检索），
-                        #   ac_lifetime_floor 错将手动检索等同于被动内化 → 永久封锁。
-                        #   timeline 为空 = 从未注入 = 应允许首次注入（注入后 timeline 建立，
-                        #   后续正常 suppress）。14d 过期 chunk 同理：用户可能已遗忘。
+                        # iter1703: ac_lifetime_dc_floor_align — 同步 daemon iter1375
+                        # 根因：timeline 14d 过期后 global dc ac>=5 chunk "重获新生"，
+                        #   所有 suppress 被绕过。用 ac 作为 lifetime 代理。
+                        if _ac_lt >= 6:
+                            return False
+                        if (c.get("chunk_type") or "") == "design_constraint" and _ac_lt >= 4:
+                            return False
                         return True
                     _lt = max(len(_tl), _ac_lt)
                     # iter1326: lifetime_thresh_lower — 无条件阈值 6→5
@@ -4896,10 +4898,13 @@ def main():
                     #   pool 中第 2 条 chunk 已通过 7d ceiling + cooldown，与 top-1 共同注入
                     #   可提供互补上下文，不增加垄断风险（两条不同 chunk）。
                     # 条件：pool>=2 且 #2 score >= #1 score * 0.4（相关性不太差）
+                    # iter1703: suppress_fallback_pair_dc_gate — HD 同步 FULL DC gate
                     _fb_hd_pair = [_fb_hd]
                     if len(_fb_hd_sorted) >= 2:
                         _fb2 = _fb_hd_sorted[1] if _fb_hd is _fb_hd_sorted[0] else _fb_hd_sorted[0]
-                        if _fb2[0] >= _fb_hd[0] * 0.4:
+                        if (_fb2[0] >= _fb_hd[0] * 0.4
+                                and not (_fb2[1].get("chunk_type") == "design_constraint"
+                                         and (_fb2[1].get("access_count", 0) or 0) >= 5)):
                             _fb_hd_pair.append(_fb2)
                     # iter1554: hd_fallback_protected_propagation — HD suppress_fallback 继承标记
                     for _, _fbpc_hd in _fb_hd_pair:
@@ -7097,6 +7102,11 @@ def main():
                     _ac_lt = c.get("access_count", 0) or 0
                     if not _tl:
                         # iter1376: no_timeline_allow_first_inject — sync FULL path
+                        # iter1703: ac_lifetime_dc_floor_align — sync daemon iter1375
+                        if _ac_lt >= 6:
+                            return False
+                        if (c.get("chunk_type") or "") == "design_constraint" and _ac_lt >= 4:
+                            return False
                         return True
                     _lt = max(len(_tl), _ac_lt)
                     # iter1326: lifetime_thresh_lower — sync FULL path
@@ -7552,10 +7562,17 @@ def main():
                         if _fb_hash == _last_hash:
                             _fb = _fb_sorted[1]  # 选次优
                     # iter1324: fallback_pair_inject — FULL path sync
+                    # iter1703: suppress_fallback_pair_dc_gate — DC ac>=5 不参与 pair 配对
+                    # 根因（数据驱动，2026-05-13）：abspath:7e3095aef7a6(local=0) 5月12日 2次注入
+                    #   每次都搭载 DC(feishu CLI ac=5, git commit ac=5)。_fb_dc_penalty 降权不排除，
+                    #   候选池仅 2-3 条时 DC 仍经 pair 进入。FULL fallback_pair(line 6122) 已有 dc_gate。
+                    # 修复：pair 候选排除 global DC ac>=5（对齐 iter1698 + 略宽容因 fallback 场景）。
                     _fb_pair = [_fb]
                     if len(_fb_sorted) >= 2:
                         _fb2 = _fb_sorted[1] if _fb is _fb_sorted[0] else _fb_sorted[0]
-                        if _fb2[0] >= _fb[0] * 0.4:
+                        if (_fb2[0] >= _fb[0] * 0.4
+                                and not (_fb2[1].get("chunk_type") == "design_constraint"
+                                         and (_fb2[1].get("access_count", 0) or 0) >= 5)):
                             _fb_pair.append(_fb2)
                     # iter1553: fallback_protected_propagation — suppress_fallback 继承 _fallback_protected
                     # 根因（数据驱动，2026-05-12）：58% 空召回率。dead_zone_fallback 设 _fallback_protected，
@@ -8157,10 +8174,13 @@ def main():
                         # iter1331: fallback_pair_inject — LITE path sync HD/FULL
                         # 根因（数据驱动，2026-05-09）：52% injection 为 single-chunk。
                         #   HD(line 4273) 和 FULL(line 6529) 已有 pair inject，LITE 遗漏。
+                        # iter1703: suppress_fallback_pair_dc_gate — LITE 同步 FULL DC gate
                         _fb_lite_pair = [_fb_lite]
                         if len(_fb_lite_sorted) >= 2:
                             _fb2_lt = _fb_lite_sorted[1] if _fb_lite is _fb_lite_sorted[0] else _fb_lite_sorted[0]
-                            if _fb2_lt[0] >= _fb_lite[0] * 0.4:
+                            if (_fb2_lt[0] >= _fb_lite[0] * 0.4
+                                    and not (_fb2_lt[1].get("chunk_type") == "design_constraint"
+                                             and (_fb2_lt[1].get("access_count", 0) or 0) >= 5)):
                                 _fb_lite_pair.append(_fb2_lt)
                         # iter1557: lite_fallback_protected_propagation — LITE 路径 suppress_fallback 继承 _fallback_protected
                         # 根因（数据驱动，2026-05-11）：git:78dc99a5695f(1 local) LITE suppress_fallback
