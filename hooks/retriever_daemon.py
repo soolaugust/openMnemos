@@ -4628,7 +4628,9 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                     _ip_cands = [(float(c[_CI_IMP] or 0), c) for _, c in final
                                  if c[_CI_ID] != positive[0][1][_CI_ID]
                                  and (c[_CI_AC] or 0) < 30
-                                 and _recent_7d_counts.get(c[_CI_ID], 0) < (3 if _db_chunk_count < 50 else 4)]
+                                 and _recent_7d_counts.get(c[_CI_ID], 0) < (3 if _db_chunk_count < 50 else 4)
+                                 # iter1702: daemon_pair_dc_gate — sync retriever.py iter1608
+                                 and not ((c[_CI_CT] or "") == "design_constraint" and (c[_CI_AC] or 0) >= 4)]
                     if _ip_cands:
                         _ip_best = max(_ip_cands, key=lambda x: x[0])
                         # iter941: imp_pair_top1_gate — top1 score 过低时不配对
@@ -4654,7 +4656,9 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                     _div_conn_hd.close()
                     _div_7d_ceiling_hd = 5 if _db_chunk_count < 50 else (4 if _db_chunk_count < 100 else 6)  # iter1207: pair_ceiling_mid_tighten — 50-99 库 6→4 去垄断
                     _div_rows_hd = [r for r in _div_rows_hd
-                                    if _recent_7d_counts.get(r[0], 0) < _div_7d_ceiling_hd]
+                                    if _recent_7d_counts.get(r[0], 0) < _div_7d_ceiling_hd
+                                    # iter1702: daemon_pair_dc_gate — sync retriever.py iter1608
+                                    and not (r[3] == "design_constraint" and r[5] >= 4)]
                     if _div_rows_hd:
                         # iter872: diversity_counter (hard_deadline path)
                         _div_pick_hd = _div_rows_hd[_diversity_counter[0] % len(_div_rows_hd)]
@@ -4681,7 +4685,9 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 _ps842_hd_cands = [(float(c[_CI_IMP] or 0), c) for _, c in final
                                    if c[_CI_ID] != _ps842_hd_top1_id
                                    and (c[_CI_AC] or 0) < 30
-                                   and _recent_7d_counts.get(c[_CI_ID], 0) < (3 if _db_chunk_count < 50 else 4)]
+                                   and _recent_7d_counts.get(c[_CI_ID], 0) < (3 if _db_chunk_count < 50 else 4)
+                                   # iter1702: daemon_pair_dc_gate — sync retriever.py iter1608
+                                   and not ((c[_CI_CT] or "") == "design_constraint" and (c[_CI_AC] or 0) >= 4)]
                 if _ps842_hd_cands:
                     _ps842_hd_best = max(_ps842_hd_cands, key=lambda x: x[0])
                     if _ps842_hd_best[0] >= 0.3:
@@ -5850,7 +5856,9 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
             _ps842_cands = [(float(c[_CI_IMP] or 0), c) for _, c in final
                             if c[_CI_ID] != _ps842_top1_id
                             and (c[_CI_AC] or 0) < 30
-                            and _pair_suppress_ok_d(c[_CI_ID], 0.0)]
+                            and _pair_suppress_ok_d(c[_CI_ID], 0.0)
+                            # iter1702: daemon_pair_dc_gate — sync retriever.py iter1608
+                            and not ((c[_CI_CT] or "") == "design_constraint" and (c[_CI_AC] or 0) >= 4)]
             if _ps842_cands:
                 _ps842_best = max(_ps842_cands, key=lambda x: x[0])
                 if _ps842_best[0] >= 0.3:
@@ -5885,13 +5893,19 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 # iter923: pair_7d_align_final_gate — 对齐 suppress_final_gate 阈值（同 iter914）
                 _dp895_lim = 3 if _db_chunk_count < 50 else (5 if _db_chunk_count < 100 else 5)
                 _dp895_ok = [r for r in _dp895_rows
-                             if _recent_7d_counts.get(r[0], 0) < _dp895_lim]
+                             if _recent_7d_counts.get(r[0], 0) < _dp895_lim
+                             # iter1702: daemon_pair_dc_gate — sync retriever.py iter1608/1698
+                             and not (r[3] == "design_constraint" and r[5] >= 4)]
                 # iter1086: pair_relaxed_fallback — 全被 7d 过滤时选 7d 最低的一条
                 # 根因（数据驱动，2026-05-07）：22-chunk 库 64% chunk 7d>=3 → pair 候选全灭
                 #   → 44% 单条注入。pair 是辅助上下文，不应被 suppress 完全阻断。
                 # 修复：_dp895_ok 为空时从 _dp895_rows 选 7d 最低的 1 条（relaxed pair）。
                 if not _dp895_ok and _dp895_rows:
-                    _dp895_ok = [min(_dp895_rows, key=lambda r: _recent_7d_counts.get(r[0], 0))]
+                    # iter1702: daemon_pair_dc_gate — relaxed path 也排除 dc ac>=4
+                    _dp895_relaxed = [r for r in _dp895_rows
+                                      if not (r[3] == "design_constraint" and r[5] >= 4)]
+                    if _dp895_relaxed:
+                        _dp895_ok = [min(_dp895_relaxed, key=lambda r: _recent_7d_counts.get(r[0], 0))]
                 if _dp895_ok:
                     _dp895_pick = _dp895_ok[0]
                     # tuple: (id, summary, content, importance, last_accessed, chunk_type, access_count, ...)
@@ -6197,7 +6211,9 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 #   后经 fallback→pair 路径复活注入（如 import-90139 7d=4 仍注入 6 次/7d）。
                 # 修复：pair 7d 限制对齐 suppress_final_gate，阻止被 suppress 的 chunk 经配对逃逸。
                 _pf914_lim = 3 if _db_chunk_count < 50 else (5 if _db_chunk_count < 100 else 5)
-                _pf914_ok = [r for r in _pf914_rows if _pf914_7d.get(r[0], 0) < _pf914_lim]
+                _pf914_ok = [r for r in _pf914_rows if _pf914_7d.get(r[0], 0) < _pf914_lim
+                             # iter1702: daemon_pair_dc_gate — sync retriever.py iter1608
+                             and not (r[3] == "design_constraint" and r[5] >= 4)]
                 if _pf914_ok:
                     _pf914_pick = _pf914_ok[0]
                     _pf914_chunk = (_pf914_pick[0], _pf914_pick[1], _pf914_pick[2],
