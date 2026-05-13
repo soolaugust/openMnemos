@@ -6426,8 +6426,15 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
         # 根因（数据驱动，2026-05-12）：local>0 但 top_k 无本地 match 时 floor=0.05，
         #   跨项目低分噪声（score=0.01~0.05）通过 daemon 路径注入。
         # 修复：top_k 无当前项目 chunk 时 floor 提升到 0.15。
+        # iter1717: cross_floor_fallback_exempt_daemon — 同步 retriever.py iter1655
+        # 根因（数据驱动，2026-05-13）：daemon 路径 cross_project_only_floor_raise 缺少
+        #   _fallback_protected 检查。fallback 恢复的跨项目 chunk 被 floor 抬到 0.15 后
+        #   floor_gate 二杀。retriever.py 8548-8550 行已有 _has_protected_in_topk 豁免。
         if top_k and _score_floor < 0.15 and _local_chunk_count_d > 0:
-            if not any(_sat_floor_proj(c) == project for _, c in top_k):
+            _has_local_d = any(_sat_floor_proj(c) == project for _, c in top_k)
+            _cid_fn = lambda c: (c[_CI_ID] if isinstance(c, (list, tuple)) else c.get("id", ""))
+            _has_protected_d = any(_cid_fn(c) in _fallback_protected_ids for _, c in top_k)
+            if not _has_local_d and not _has_protected_d:
                 _score_floor = 0.15
         if len(top_k) > 0 and _db_chunk_count > 5:
             _sf_above = [(s, c) for s, c in top_k if s >= _score_floor]
