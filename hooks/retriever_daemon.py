@@ -4022,9 +4022,12 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                     _sat_mult = max(0.2, 0.8 - 0.1 * ((chunk[_CI_AC] or 0) - 5))
                     if (chunk[_CI_AC] or 0) >= 10:
                         _sat_mult *= 0.5
-                    # iter1620: dc_decay_threshold_raise — ac>=4→7, sync retriever.py
-                    if chunk[_CI_CT] == "design_constraint" and (chunk[_CI_AC] or 0) >= 7:
-                        _sat_mult *= 0.5
+                    # iter1674: dc_graduated_decay — sync retriever.py iter1622
+                    if chunk[_CI_CT] == "design_constraint":
+                        if (chunk[_CI_AC] or 0) >= 7:
+                            _sat_mult *= 0.5
+                        elif (chunk[_CI_AC] or 0) >= 5:
+                            _sat_mult *= 0.7
                     score *= _sat_mult
             return score
 
@@ -4250,9 +4253,12 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                     _sat_mult = max(0.2, 0.8 - 0.1 * ((chunk.get("access_count", 0) or 0) - 5))
                     if (chunk.get("access_count", 0) or 0) >= 10:
                         _sat_mult *= 0.5
-                    # iter1620: dc_decay_threshold_raise — ac>=4→7, sync retriever.py
-                    if chunk.get("chunk_type") == "design_constraint" and (chunk.get("access_count", 0) or 0) >= 7:
-                        _sat_mult *= 0.5
+                    # iter1674: dc_graduated_decay — sync retriever.py iter1622
+                    if chunk.get("chunk_type") == "design_constraint":
+                        if (chunk.get("access_count", 0) or 0) >= 7:
+                            _sat_mult *= 0.5
+                        elif (chunk.get("access_count", 0) or 0) >= 5:
+                            _sat_mult *= 0.7
                     score *= _sat_mult
             return score
 
@@ -6312,9 +6318,10 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
             # 根因（数据驱动，2026-05-13）：sat_floor 置 0 的 chunk 仍在 _fallback_protected_ids，
             #   floor_gate 全灭时 line 6310 rescue 路径将其复活（feishu CLI 7x/7d 注入）。
             _sat_stripped = set()
+            # iter1674: dc_sat_floor_unify — sync retriever.py iter1644
+            # non-global design_constraint ac>=4 也走 sat_floor（dc 是静态规则，内化后边际=0）
             top_k = [(s, c) if not (
-                (_sat_floor_proj(c) == "global"
-                 and _sat_floor_ct(c) == "design_constraint"
+                (_sat_floor_ct(c) == "design_constraint"
                  and _sat_floor_ac(c) >= 4
                  and s < _GLOBAL_SAT_FLOOR)
                 or (_sat_floor_ac(c) >= _LOCAL_SAT_AC_THRESH
