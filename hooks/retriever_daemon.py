@@ -4674,7 +4674,11 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
             # iter770: fallback_noise_gate — 硬性下限防止低分垃圾注入
             # iter771: tiny_db_fallback_relax — 小库降至 0.15
             # iter852: sync tiny_db boundary 30→50 (同 iter848/iter819)
-            _FALLBACK_NOISE_FLOOR = 0.15 if _db_chunk_count < 50 else 0.25
+            # iter1675: sparse_noise_floor_relax — sparse 项目 noise_floor 降低
+            # 根因（数据驱动，2026-05-13）：78dc 项目 1 local chunk(imp=0.85,ac=8)
+            #   FTS5 不匹配时 score=imp*0.1=0.085 < 0.15 → fallback 拒绝 → 空召回。
+            #   sparse 项目唯一知识源不应被 noise_floor 卡死。
+            _FALLBACK_NOISE_FLOOR = 0.05 if _local_sparse_d else (0.15 if _db_chunk_count < 50 else 0.25)
             # iter1667: scoring_wipeout_ftrace — hard_deadline 路径同步
             if not top_k and final:
                 _sw_top3_hd = [(s, c[_CI_ID][:10]) for s, c in final[:3]]
@@ -5070,7 +5074,8 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
         # iter771: tiny_db_fallback_relax — 小库降至 0.15
         # iter852: sync tiny_db boundary 30→50 (同 iter848/iter819)
         _fallback_protected_ids = set()
-        _FALLBACK_NOISE_FLOOR_FULL = 0.15 if _db_chunk_count < 50 else 0.25
+        # iter1675: sparse_noise_floor_relax — sync hard_deadline path
+        _FALLBACK_NOISE_FLOOR_FULL = 0.05 if _local_sparse_d else (0.15 if _db_chunk_count < 50 else 0.25)
         # iter1667: scoring_wipeout_ftrace — 全灭时记录候选分布，使 ftrace 非空
         if not top_k and final:
             _sw_top3 = [(s, c[_CI_ID][:10]) for s, c in final[:3]]
@@ -5383,7 +5388,8 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 # iter770: fallback_noise_gate — 硬性下限防止低分垃圾注入
                 # iter771: tiny_db_fallback_relax — 小库降至 0.15
                 # iter852: sync tiny_db boundary 30→50 (同 iter848/iter819)
-                _FALLBACK_NOISE_FLOOR_LATE = 0.15 if _db_chunk_count < 50 else 0.25
+                # iter1675: sparse_noise_floor_relax — sync late path
+                _FALLBACK_NOISE_FLOOR_LATE = 0.05 if _local_sparse_d else (0.15 if _db_chunk_count < 50 else 0.25)
                 if final:
                     _sef_best = max(final, key=_SORT_KEY)
                     if _sef_best[0] >= _FALLBACK_NOISE_FLOOR_LATE:

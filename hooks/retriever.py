@@ -4288,7 +4288,8 @@ def main():
             #   0.25 门槛导致 score 0.15-0.24 的有用 chunk 落入 dead zone（78% 空召回）。
             #   修复：tiny_db(<30 cands) 降至 0.15，保留大库 0.25 防垃圾。
             # iter852: sync tiny_db boundary 30→50 (同 iter848/iter819)
-            _FALLBACK_NOISE_FLOOR = 0.15 if _db_chunk_count < 50 else 0.25
+            # iter1675: sparse_noise_floor_relax — sparse 项目唯一知识源不被 noise_floor 卡死
+            _FALLBACK_NOISE_FLOOR = 0.05 if _local_sparse else (0.15 if _db_chunk_count < 50 else 0.25)
             if not positive and final:
                 # iter1381: fallback_exclude_saturated_global — 正常 fallback 也排除已内化 global dc
                 # 根因（数据驱动，2026-05-10）：feishu CLI(ac=4)、memory验证(ac=6)、git SOB(ac=4)
@@ -5948,7 +5949,8 @@ def main():
         # iter770: fallback_noise_gate — fallback 也需硬性下限
         # iter771: tiny_db_fallback_relax — 小库降至 0.15（同 hard_deadline 路径）
         # iter852: sync tiny_db boundary 30→50 (同 iter848/iter819)
-        _FALLBACK_NOISE_FLOOR_FULL = 0.15 if _db_chunk_count < 50 else 0.25
+        # iter1675: sparse_noise_floor_relax — sync full path
+        _FALLBACK_NOISE_FLOOR_FULL = 0.05 if _local_sparse else (0.15 if _db_chunk_count < 50 else 0.25)
         if not positive and final:
             # iter1381: fallback_exclude_saturated_global — sync FULL path
             def _fb_eligible_full(sc_pair):
