@@ -2657,11 +2657,13 @@ def main():
                     elif _share_ratio > 1.5:
                         _bpp_mult = 1.0 / (1.0 + 1.2 * (_share_ratio - 1.5))
                         score *= _bpp_mult
-                # iter1806: absolute_recall_cap — ac>=5 + rc>=4 无条件 hard suppress
-                # 数据驱动（2026-05-14）：rc=5,ratio=1.61 的 5 个 chunk penalty 仅 0.89×，
-                #   在小库中仍轮流垄断注入位。ac>=5 表示已见 5+ 次，rc>=4 表示已注入 4+ 次，
-                #   信息增量趋零。不依赖 ratio（受 rc_total 稀释），直接按绝对值 suppress。
-                if not _hard_suppressed and _rfd_rc >= 4 and _rfd_ac >= 5:
+                # iter1807: recall_cap_dynamic — 动态门槛替代固定 ac>=5
+                # 数据驱动（2026-05-14）：27-chunk 库 avg_ac=3.2, top ac=6。
+                #   旧门槛 ac>=5 suppress 了 26%(7/27) chunk，BPP ratio 全<=1.2 无真实垄断。
+                #   suppress 过度 → diversity_probe/fallback 兜底 → 注入质量反降。
+                # 修复：门槛=max(8, db_chunk_count * 0.3)，确保只在真正的高频异常值触发。
+                _arc_threshold = max(8, int(_db_chunk_count * 0.3))
+                if not _hard_suppressed and _rfd_rc >= 6 and _rfd_ac >= _arc_threshold:
                     _hard_suppressed = True
 
             # ── iter369: Soft Forgetting — Ebbinghaus 遗忘曲线阈值 ──────────
