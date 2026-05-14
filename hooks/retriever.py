@@ -4389,9 +4389,11 @@ def main():
                 # iter1541: sync tiny_db pair_floor
                 _pair_floor_hd = 0.05 if _db_chunk_count < 20 else (0.08 if _db_chunk_count < 50 else 0.12)
                 # iter1724: pair_global_dc_hard_exclude — global DC ac>=4 无条件排除
+                # iter1775: hd_pair_cross_floor — 跨项目 pair 候选须满足 cross_floor（同 LITE iter1775）
                 _pair_cands_hd = [(s, c) for s, c in final
                                   if s > _pair_floor_hd and s < _min_thresh
                                   and c.get("id") != positive[0][1].get("id")
+                                  and (c.get("project", "") in ("", project) or s >= _cross_floor)
                                   and _session_injection_counts.get(c.get("id", ""), 0) < _pair_dedup_thresh_hd
                                   and _recent_7d_counts.get(c.get("id", ""), 0) < _hd_pair_7d_cap(c)
                                   and not (c.get("project") == "global" and c.get("chunk_type") == "design_constraint" and (c.get("access_count", 0) or 0) >= 4)]
@@ -7605,10 +7607,13 @@ def main():
         #   低相关 chunk 被配对注入占用用户 context 无信息增量。LITE 已有 adaptive floor。
         # iter1541: sync tiny_db pair_floor
         _full_pair_floor = 0.05 if _db_chunk_count < 20 else (0.08 if _db_chunk_count < 50 else 0.15)
+        # iter1775: full_pair_cross_floor — 跨项目 pair 候选须满足 cross_floor（同 HD/LITE）
+        _cross_floor_full = 0.12 if _local_chunk_count == 0 else (0.18 if _local_sparse else 0.25)
         if len(top_k) == 1 and len(_pre_suppress_top_k) >= 2:
             _ps_top1_id = top_k[0][1].get("id", "")
             _ps_candidates = [(s, c) for s, c in _pre_suppress_top_k
                               if c.get("id", "") != _ps_top1_id and s >= _full_pair_floor
+                              and (c.get("project", "") in ("", project) or s >= _cross_floor_full)
                               and _session_injection_counts.get(c.get("id", ""), 0) < _pair_dedup_thresh
                               and _pair_suppress_ok(c.get("id", ""), s, ac=c.get("access_count", 0) or 0)]
             if _ps_candidates:
@@ -8657,8 +8662,14 @@ def main():
             # iter1200: adaptive_relevance_floor (LITE pair sync)
             # iter1541: sync tiny_db pair_floor
             _lt_pair_floor = 0.05 if _db_chunk_count < 20 else (0.08 if _db_chunk_count < 50 else 0.20)
+            # iter1775: lite_pair_cross_floor — 跨项目 pair 候选须满足 cross_floor
+            # 根因（数据驱动，2026-05-14）：abspath:7e3095aef7a6(local=0,db=5) LITE pair 注入
+            #   score=0.05 的跨项目 chunk(migration统计/feishu CLI)——pair_floor=0.05 对 <20 库
+            #   过低，完全不相关的跨项目知识通过 pair 逃逸 cross_floor(0.12)。
+            # 修复：pair 候选增加 cross_project 检查，跨项目 chunk 须同时满足 _cross_floor_lite。
             _ps_lite_cands = [(s, c) for s, c in _pre_suppress_top_k_lite
                               if c.get("id", "") != _ps_lite_top1_id and s >= _lt_pair_floor
+                              and (c.get("project", "") in ("", project) or s >= _cross_floor_lite)
                               and _session_injection_counts.get(c.get("id", ""), 0) < _pair_dedup_thresh
                               and _pair_suppress_ok_lite(c.get("id", ""), s, ac=c.get("access_count", 0) or 0)]
             if _ps_lite_cands:
