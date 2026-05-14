@@ -4506,6 +4506,7 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 except Exception:
                     pass
         else:
+            _lite_rescue_id = None
             if priority == "LITE":
                 # iter1645: daemon sync iter1643 lite_sparse_local_rescue
                 # iter1763: daemon_lite_rescue_align — sync retriever.py iter1694
@@ -4532,6 +4533,7 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                                             "access_count": _lsr_d[5],
                                             "project": _lsr_d[6] or project}]
                             use_fts = True
+                            _lite_rescue_id = _lsr_d[0]
                             _deferred.log(DMESG_DEBUG, "retriever",
                                           f"iter1763_daemon_lite_rescue_align: sparse={_local_sparse_d} "
                                           f"id={_lsr_d[0][:12]} imp={_lsr_d[4]:.2f}",
@@ -4708,6 +4710,10 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                         if _gb_nt < _min_thresh:
                             _min_thresh = _gb_nt
             # iter620: zero_score_absolute_gate — hard_suppressed chunk 绝对不入选
+            # iter1850: lite_rescue_score_floor — LITE rescue chunk 保底分防 BM25 淘汰
+            if _lite_rescue_id:
+                _lrf = max(0.10, _min_thresh)
+                final = [(max(s, _lrf) if c[_CI_ID] == _lite_rescue_id else s, c) for s, c in final]
             positive = [(s, c) for s, c in final if s >= _min_thresh and s > 0]
             # iter1828: zero_local_cross_floor_raise — sync retriever.py
             _cross_floor_d = 0.30 if _local_chunk_count_d == 0 else (0.18 if _local_sparse_d else 0.25)

@@ -4180,6 +4180,7 @@ def main():
             #   FULL 路径保留 BM25 fallback（FULL 表明用户需要全面检索，值得付出代价）
             #   LITE 路径 FTS5 miss 等价于"此 query 在 DB 中无相关知识"，
             #   BM25 全扫只会放大 importance 排序的噪音，不会找到真正相关内容。
+            _lite_rescue_id = None
             if priority == "LITE":
                 # iter1643: lite_sparse_local_rescue — LITE FTS5 miss 时 sparse 项目补入本地 chunk
                 # 根因（数据驱动，2026-05-13）：git:78dc99a5695f(2 local) LITE 路径 10/12 trace 空召回。
@@ -4217,6 +4218,7 @@ def main():
                             }
                             fts_results = [_lsr_chunk]
                             use_fts = True
+                            _lite_rescue_id = _lsr_row[0]
                             _deferred.log(DMESG_DEBUG, "retriever",
                                           f"iter1694_lite_rescue_rotate: sparse={_local_sparse} "
                                           f"id={_lsr_row[0][:12]} imp={_lsr_row[4]:.2f}",
@@ -4512,6 +4514,10 @@ def main():
             # 根因：_hard_suppressed 将 score 设为 0.0，但 adaptive_floor/gap_bridge
             #   可将 _min_thresh 降到 0.10，而 focus_bonus 等 += 操作可能将 0.0 抬到
             #   0.00009 级别，恰好通过极低 threshold。绝对零分门槛不可绕过。
+            # iter1850: lite_rescue_score_floor — LITE rescue chunk 保底分防 BM25 淘汰
+            if _lite_rescue_id:
+                _lrf = max(0.10, _min_thresh)
+                final = [(max(s, _lrf) if c.get("id") == _lite_rescue_id else s, c) for s, c in final]
             positive = [(s, c) for s, c in final if s >= _min_thresh and s > 0]
             # iter1781: saturated_lowscore_gate — ac>=4 且 score<0.05 的 chunk 无注入价值
             # 根因（数据驱动，2026-05-14）：62 trace 中 "feishu CLI"(score=0.01,ac=5) 和
