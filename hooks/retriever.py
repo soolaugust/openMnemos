@@ -2460,12 +2460,19 @@ def main():
                     ).fetchone()
                     if _sli_row:
                         _sli_min_rank = min(r.get("fts_rank", 1.0) for r in fts_results)
+                        # iter1833: sli_ac0_rank_boost — 从未注入的本地 chunk 提高 rank 乘数
+                        # 根因（数据驱动，2026-05-14）：git:78dc99a5695f(1 local, ac=0) 100% 空召回。
+                        #   iter1600 补入时 rank*0.5=0.08 < floor_gate(0.10) → 永远被拦。
+                        #   ac=0 chunk 用户从未内化，信息增量最高，应优先突破 floor。
+                        # 修复：ac=0 乘数 0.5→0.9；ac=1 乘数 0.7；其余保持 0.5。
+                        _sli_ac = _sli_row[5] or 0
+                        _sli_mult = 0.9 if _sli_ac == 0 else (0.7 if _sli_ac <= 1 else 0.5)
                         _sli_chunk = {
                             "id": _sli_row[0], "summary": _sli_row[1], "content": _sli_row[2],
                             "chunk_type": _sli_row[3] or "", "importance": _sli_row[4] or 0.5,
                             "access_count": _sli_row[5], "created_at": _sli_row[6],
                             "lru_gen": _sli_row[7], "project": _sli_row[8] or project,
-                            "fts_rank": _sli_min_rank * 0.5,
+                            "fts_rank": _sli_min_rank * _sli_mult,
                         }
                         fts_results.append(_sli_chunk)
                         _deferred.log(DMESG_DEBUG, "retriever",
@@ -3108,14 +3115,23 @@ def main():
                         _bw_penalty = 1.0 - (_hard_util - _bw_soft_start) / (_hard_cap_val - _bw_soft_start)
                         score *= _bw_penalty
             # iter1826: ac_permanent_decay — sync retriever_daemon.py
-            # iter1831: ac_decay_threshold_lower — ac>=5 即衰减
+            # iter1833: ac_decay_coefficient_strengthen — 系数 0.25→0.40
             # 数据驱动（2026-05-14）：ac=5 chunk 占 30d 注入位 36%(30/84)，
-            #   ac=0-1 仅 5%(4/84)。ac>=6 衰减未覆盖 ac=5 甜点区：
-            #   BPP ratio<1.5 + 7d=0 时完全无 penalty。ac=5 用户已见 5 次，信息增量低。
-            # 修复：门槛 6→5, 基准 5→4。ac=5→*0.80, ac=6→*0.67, ac=7→*0.57。
+            #   ac=0-1 仅 5%(4/84)。iter1831 系数 0.25 衰减 ac=5→*0.80 仍过弱：
+            #   叠加 exploration_boost(*2.0) 后 never_injected 仅 net *1.6 倍优势，
+            #   高 FTS base 的 ac=5 chunk 仍常胜出。
+            # 修复：系数 0.25→0.40。ac=5→*0.71, ac=6→*0.56, ac=7→*0.45。
+            #   never_injected 的 net 优势提升到 *2.8 倍(2.0/0.71)，确保曝光。
+            # iter1834: small_db_ac_decay_relax — <30 库系数 0.40→0.20
+            # 数据驱动（2026-05-14）：27-chunk 库 7/27(26%) chunk ac>=5 被 *0.71~*0.45 衰减，
+            #   这些是 PE barrier/Patch 格式/Android 诊断等核心知识，高 ac 因为常用而非噪声。
+            #   叠加 synthetic_7d + diversity_penalty 后 score 过低，FTS5 高相关时仍被压制。
+            #   <30 库知识密度高，ac=5 仅代表"被用了 5 次"非"已饱和"。
+            #   0.20: ac=5→*0.83, ac=6→*0.71, ac=7→*0.63。与 >=30 库保持梯度差异。
             _ac_dp = chunk.get("access_count", 0) or 0
             if _ac_dp >= 5 and _db_chunk_count > 5:
-                score *= 1.0 / (1.0 + (_ac_dp - 4) * 0.25)
+                _ac_decay_coeff = 0.20 if _db_chunk_count < 30 else 0.40
+                score *= 1.0 / (1.0 + (_ac_dp - 4) * _ac_decay_coeff)
             # iter875: soft_diversity_penalty — 7d 注入次数越高，score 乘法衰减越强
             # iter876: factor 0.2→0.35 — 数据驱动：7d=6 的 pe_analysis 仍垄断（0.2 时衰减仅到 45%，
             #   高 FTS 基分仍胜出）。0.35 使 7d=5→36%, 7d=6→32%，有效让位给 7d=0 chunk。

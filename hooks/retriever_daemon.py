@@ -3819,9 +3819,11 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                         _bw_penalty = 1.0 - (_hard_util_sc - _bw_soft_start) / (_inject_hard_cap - _bw_soft_start)
                         score *= _bw_penalty
             # iter1826: ac_permanent_decay — ac>=6 永久乘法衰减，不依赖时间窗口
-            # iter1831: ac_decay_threshold_lower — 门槛 6→5 (sync retriever.py)
+            # iter1833: ac_decay_coefficient_strengthen — 系数 0.25→0.40 (sync retriever.py)
+            # iter1834: small_db_ac_decay_relax — <30 库系数 0.40→0.20 (sync retriever.py)
             if _ac >= 5 and _db_chunk_count > 5:
-                score *= 1.0 / (1.0 + (_ac - 4) * 0.25)
+                _ac_decay_coeff = 0.20 if _db_chunk_count < 30 else 0.40
+                score *= 1.0 / (1.0 + (_ac - 4) * _ac_decay_coeff)
             # iter875: soft_diversity_penalty — 7d 注入次数越高，score 乘法衰减越强
             # iter876: factor 0.2→0.35 — 数据驱动：7d=6 的 pe_analysis 仍垄断（0.2 时衰减仅到 45%，
             #   高 FTS 基分仍胜出）。0.35 使 7d=5→36%, 7d=6→32%，有效让位给 7d=0 chunk。
@@ -4154,9 +4156,11 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                     else:
                         score *= 0.6 if chunk.get("chunk_type") == "design_constraint" else 0.3
             # iter1826: ac_permanent_decay (dict path) — sync _score_chunk
-            # iter1831: ac_decay_threshold_lower (dict path)
+            # iter1833: ac_decay_coefficient_strengthen (dict path)
+            # iter1834: small_db_ac_decay_relax (dict path) — sync retriever.py
             if _ac >= 5 and _db_chunk_count > 5:
-                score *= 1.0 / (1.0 + (_ac - 4) * 0.25)
+                _ac_decay_coeff_d = 0.20 if _db_chunk_count < 30 else 0.40
+                score *= 1.0 / (1.0 + (_ac - 4) * _ac_decay_coeff_d)
             # iter875/876: soft_diversity_penalty — sync with _score_chunk (factor 0.35)
             # iter898: small_db_diversity_boost — <50 库 factor 0.35→0.55
             _r7d_sd = _recent_7d_counts.get(_cid, 0)
