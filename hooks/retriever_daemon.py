@@ -4679,6 +4679,10 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
             _cross_floor_d = 0.30 if _local_chunk_count_d == 0 else (0.18 if _local_sparse_d else 0.25)
             positive = [(s, c) for s, c in positive
                         if (c[_CI_CP] or "") in ("", project) or s >= _cross_floor_d]
+            # iter1835: daemon_saturated_lowscore_gate — sync retriever.py iter1781
+            # ac>=4 + score<0.05 = 已内化知识在极低相关性时纯属噪声
+            positive = [(s, c) for s, c in positive
+                        if s >= 0.05 or (c[_CI_AC] or 0) < 4]
             # iter695: threshold_degrade — 阈值过高全灭时降级到默认 0.30
             if not positive and _min_thresh > 0.30:
                 positive = [(s, c) for s, c in final if s >= 0.30 and s > 0]
@@ -5207,6 +5211,9 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
         _cross_floor_f2 = 0.30 if _local_chunk_count_d == 0 else (0.18 if _local_sparse_d else 0.25)
         positive = [(s, c) for s, c in positive
                     if (c[_CI_CP] or "") in ("", project) or s >= _cross_floor_f2]
+        # iter1835: daemon_saturated_lowscore_gate — sync retriever.py iter1781 (FULL path)
+        positive = [(s, c) for s, c in positive
+                    if s >= 0.05 or (c[_CI_AC] or 0) < 4]
         # iter695: threshold_degrade — 阈值过高全灭时降级到默认 0.30
         if not positive and _min_thresh > 0.30:
             positive = [(s, c) for s, c in final if s >= 0.30 and s > 0]
