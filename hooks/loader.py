@@ -765,14 +765,17 @@ def main():
                     _sh_conn.close()
                 except Exception:
                     pass
-                # 向后兼容：写入 per-session 文件（替代全局 .shadow_trace.json）
-                # 全局文件已废弃（多 agent 并发时最后写者覆盖之前写者）
-                _sid_tag = _session_id[:16] if _session_id else "unknown"
-                _shadow_file = MEMORY_OS_DIR / f".shadow_trace.{_sid_tag}.json"
-                _shadow_file.write_text(
-                    json.dumps(_shadow_data, ensure_ascii=False),
-                    encoding="utf-8"
-                )
+                # iter1865: shadow_trace_file_gc — 清理无用 per-session shadow trace 文件
+                # 根因（数据驱动，2026-05-15）：loader 每 session 创建 .shadow_trace.{sid}.json，
+                #   但无任何代码读取这些文件（DB 已取代），导致 1474 个文件堆积(483KB)。
+                # 修复：停止写入 per-session 文件，启动时清理存量。
+                try:
+                    import glob as _glob
+                    _stale = _glob.glob(str(MEMORY_OS_DIR / ".shadow_trace.*.json"))
+                    for _sf in _stale:
+                        os.remove(_sf)
+                except Exception:
+                    pass
         except Exception:
             pass  # shadow_trace 预热失败不影响主流程
 
