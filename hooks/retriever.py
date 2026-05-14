@@ -5527,6 +5527,12 @@ def main():
                                  if s >= 0.03 or c.get("project") == project]
                         if _cpng:
                             top_k = _cpng
+                    # iter1810: zero_local_cross_project_filter (LITE path)
+                    if _local_chunk_count == 0 and len(top_k) > 0:
+                        _zl_global_l = [(s, c) for s, c in top_k
+                                        if c.get("project", "") in ("", "global", project)]
+                        if _zl_global_l:
+                            top_k = _zl_global_l
 
                     # iter1372: final_monopoly_gate (LITE path) — 同 FULL 路径
                     # iter1464: global_dc_7d_monopoly — sync LITE path
@@ -5681,6 +5687,12 @@ def main():
                                     if s >= 0.03 or c.get("project") == project]
                         if _cpng_hd:
                             top_k = _cpng_hd
+                    # iter1810: zero_local_cross_project_filter (HD path)
+                    if _local_chunk_count == 0 and len(top_k) > 0:
+                        _zl_global_hd = [(s, c) for s, c in top_k
+                                         if c.get("project", "") in ("", "global", project)]
+                        if _zl_global_hd:
+                            top_k = _zl_global_hd
                     accessed_ids = [c["id"] for _, c in top_k]
                     # 迭代323: SM-2 recall_quality — 从 top_k 分数推断
                     # avg_score > 0.6 → FTS5 强命中 → quality=5
@@ -9994,6 +10006,17 @@ def main():
                           if s >= 0.03 or c.get("project") == project]
             if _cpng_full:
                 top_k = _cpng_full
+
+        # iter1810: zero_local_cross_project_filter — local=0 项目只注入 global chunk
+        # 根因（数据驱动，2026-05-14）：abspath:7e3095aef7a6(local=0) 3 次注入全是跨项目噪声：
+        #   "Patch 发送工作流"(score=0.83,proj=kernel)、"migration 统计假象"(score=0.05)
+        #   FTS5 词汇匹配得分高但语义完全无关（memory-os Python 不需 kernel 知识）。
+        # 修复：local=0 时只保留 global chunk，不注入其他项目专业知识。
+        if _local_chunk_count == 0 and len(top_k) > 0:
+            _zl_global = [(s, c) for s, c in top_k
+                          if c.get("project", "") in ("", "global", project)]
+            if _zl_global:
+                top_k = _zl_global
 
         # iter1372: final_monopoly_gate — 最终出口 48h 注入频次硬上限
         # 根因（数据驱动，2026-05-10）：7d=5 的 chunk 仍经 fallback/pair 等路径逃逸全部 suppress。
