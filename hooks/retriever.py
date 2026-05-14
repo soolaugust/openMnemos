@@ -6552,9 +6552,11 @@ def main():
         #   BM25+suppress 后经常刚好超时，cold_start 是最后一个阶段被 skip。
         #   cold_start 本身仅 1 次 DB 查询（<1ms），不应被 soft deadline 挡住。
         # 修复：改用 hard deadline（80ms），确保 cold_start 在正常耗时内不被跳过。
-        if (priority == "FULL"
-                and _sysctl("retriever.cold_start_enabled")
-                and not _check_deadline("cold_start", is_hard=True)):
+        # iter1791: cold_start_no_deadline — cold_start 仅 1 次 DB 查询 (<1ms)，
+        #   不应被 deadline 拦截。实测 FULL 路径到此阶段已 400ms+ 每次都超 hard_deadline=200ms，
+        #   导致 cold_start 从未触发（24 天 ac=0 chunk 零曝光）。
+        #   同时去掉 FULL-only 限制：LITE 密集 session 中 ac=0 同样需要曝光机会。
+        if (_sysctl("retriever.cold_start_enabled")):
             try:
                 _cs_imp_threshold = _sysctl("retriever.cold_start_imp_threshold")
                 _cs_max = _sysctl("retriever.cold_start_max_inject")
