@@ -6042,15 +6042,30 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                             return False
                         return True
                     _lt_cnt, _lt_last = _lt_data
+                    _lt_ac_d = c[_CI_AC] or 0
+                    _lt_d = max(_lt_cnt, _lt_ac_d)
                     # iter1423: lifetime_thresh_align — 对齐 retriever.py: tiny=8, non-tiny=5
                     _lt_thresh_d = 8 if _sf663d_tiny_db else 5
-                    if _lt_cnt >= _lt_thresh_d:
+                    # iter1848: daemon_lifetime_dc_sync — 同步 retriever.py dc/global/saturated 阈值
+                    # 根因（数据驱动，2026-05-15）：0aff0d67(git commit,ac=5,dc,global,lt=5)
+                    #   在 daemon 走 _lt_thresh_d=8(tiny_db) 逃逸 lifetime suppress。
+                    #   retriever.py 已有 _lt_dc_thresh=4 但 daemon 未同步。
+                    if _sf663d_tiny_db and _lt_ac_d >= 5 and (c[_CI_CT] or "") != "design_constraint":
+                        _lt_thresh_d = 5
+                    if _sf663d_tiny_db and (c[_CI_CP] or "") == "global" and _lt_ac_d >= 4:
+                        _lt_thresh_d = 5
+                    _lt_dc_thresh_d = 4 if (not _sf663d_tiny_db or (c[_CI_CP] or "") == "global") else 6
+                    if _sf663d_tiny_db and (c[_CI_CT] or "") == "design_constraint" and _lt_ac_d >= 5:
+                        _lt_dc_thresh_d = 4
+                    if _lt_d >= _lt_thresh_d:
+                        return False
+                    if (c[_CI_CT] or "") == "design_constraint" and _lt_d >= _lt_dc_thresh_d:
                         return False
                     if _lt_cnt >= 5 and _lt_last > _cutoff_72h:
                         return False
                     # iter1370+1423: density_aware_lifetime — lifetime>=5 + 7d>=3 suppress
                     # iter1423: 扩展到 small_db — 73-chunk 库垄断 chunk lifetime=5-6 逃逸
-                    if (_sf663d_tiny_db or _sf663d_small_db) and _lt_cnt >= 5:
+                    if (_sf663d_tiny_db or _sf663d_small_db) and _lt_d >= 5:
                         if _rt663d_7d.get(c[_CI_ID], 0) >= 3:
                             return False
                     return True
