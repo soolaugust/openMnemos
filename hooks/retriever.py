@@ -438,7 +438,7 @@ def _vdso_fast_exit() -> bool:
     if _session_id_raw:
         try:
             with open(SESSION_INJECTED_FILE, encoding="utf-8") as _f:
-                _sid_has_inj = _session_id_raw in _f.read()
+                _sid_has_inj = _session_id_raw in set(_f.read().strip().split("\n"))
         except OSError:
             _sid_has_inj = False
 
@@ -1563,7 +1563,7 @@ def main():
     _sid_inj_main = False
     try:
         with open(SESSION_INJECTED_FILE, encoding="utf-8") as _f:
-            _sid_inj_main = session_id in _f.read()
+            _sid_inj_main = session_id in set(_f.read().strip().split("\n"))
     except OSError:
         pass
     if not has_page_fault and _sid_inj_main:
@@ -8573,7 +8573,7 @@ def main():
         _sid_inj_late = False
         try:
             with open(SESSION_INJECTED_FILE, encoding="utf-8") as _f:
-                _sid_inj_late = session_id in _f.read()
+                _sid_inj_late = session_id in set(_f.read().strip().split("\n"))
         except OSError:
             pass
         if current_hash == _read_hash() and _sid_inj_late:
