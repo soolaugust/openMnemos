@@ -2607,7 +2607,12 @@ def main():
             _rfd_rc = _recall_counts.get(chunk.get("id", ""), 0)
             _rfd_ac = chunk.get("access_count", 0) or 0
             if _rfd_rc >= 3 and _rfd_ac >= 4:
-                score *= 1.0 / (1.0 + 0.3 * (_rfd_rc - 2))
+                # iter1783: small_db_rfd_steepen — <50 库衰减斜率 0.3→0.6
+                # 数据驱动（2026-05-14）：27-chunk 库 top5 占注入 48%，
+                #   rc=5 时 0.3 斜率仅衰减到 0.53，高分 dc 衰减后仍胜出。
+                #   0.6 斜率：rc=4→0.45, rc=5→0.36, rc=7→0.25，低频 chunk 自然补位。
+                _rfd_slope = 0.6 if _db_chunk_count < 50 else 0.3
+                score *= 1.0 / (1.0 + _rfd_slope * (_rfd_rc - 2))
 
             # ── iter369: Soft Forgetting — Ebbinghaus 遗忘曲线阈值 ──────────
             # OS 类比：DAMON cold page candidate — 低访问频率页面降低换入优先级
