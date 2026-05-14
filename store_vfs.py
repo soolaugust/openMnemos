@@ -6389,7 +6389,8 @@ def insert_trace(conn: sqlite3.Connection, trace_dict: dict) -> None:
     raw_top_k = d.get("top_k_json")
     top_k = json.dumps(raw_top_k, ensure_ascii=False) if isinstance(raw_top_k, (list, tuple)) else (raw_top_k or "[]")
     injected = d["injected"]
-    if injected and (not raw_top_k or (isinstance(raw_top_k, (list, tuple)) and len(raw_top_k) == 0)):
+    # iter1862: trace_guard_string_empty — 字符串 "[]" 也视为空
+    if injected and (not raw_top_k or (isinstance(raw_top_k, (list, tuple)) and len(raw_top_k) == 0) or raw_top_k == "[]"):
         injected = 0
     ftrace = d.get("ftrace_json")
     ftrace_str = json.dumps(ftrace, ensure_ascii=False) if isinstance(ftrace, dict) else ftrace
