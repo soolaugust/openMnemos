@@ -5390,6 +5390,19 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                                       f"iter1771_sparse_wipeout_rescue: imp={_swr_best_d[0]:.2f} "
                                       f"id={_swr_best_d[1][_CI_ID][:12]}",
                                       session_id=session_id, project=project)
+                # iter1772: nonsparse_wipeout_rescue — non-sparse suppress 全灭兜底（sync retriever.py）
+                elif not _local_sparse_d and _sef_by_imp and _sef_full_max == 0 and _local_chunk_count_d >= 6:
+                    _nswr_local_d = [(imp, c) for imp, c in _sef_by_imp
+                                     if (c[_CI_CP] or "") == project]
+                    if _nswr_local_d:
+                        _nswr_best_d = max(_nswr_local_d, key=lambda x: x[0] / (1 + _recent_7d_counts.get(x[1][_CI_ID], 0)))
+                        _fallback_protected_ids.add(_nswr_best_d[1][_CI_ID])
+                        _fb_floor_nswr_d = 0.08 if _db_chunk_count < 50 else 0.12
+                        top_k = [(_fb_floor_nswr_d, _nswr_best_d[1])]
+                        _deferred.log(DMESG_WARN, "retriever_daemon",
+                                      f"iter1772_nonsparse_wipeout_rescue: imp={_nswr_best_d[0]:.2f} "
+                                      f"id={_nswr_best_d[1][_CI_ID][:12]} local={_local_chunk_count_d}",
+                                      session_id=session_id, project=project)
 
         # ── design_constraint 强制注入 ──
         # iter219: chunk_type [] not .get() — schema guarantees field exists (TEXT nullable)

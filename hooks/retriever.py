@@ -4558,6 +4558,25 @@ def main():
                                           f"iter1771_sparse_wipeout_rescue: imp={_swr_best[0]:.2f} "
                                           f"id={_swr_best[1].get('id','')[:12]}",
                                           session_id=session_id, project=project)
+                    # iter1772: nonsparse_wipeout_rescue — non-sparse 项目 suppress 全灭兜底
+                    # 根因（数据驱动，2026-05-14）：git:a0ab16e8cafc(16 local) 5/2~5/5 间
+                    #   11 次 FULL 空召回(25%)。suppress 累积使 16 chunk 全归零(_sef_hd_max=0)，
+                    #   iter1734 假设"全灭=无相关知识"不 fallback，iter1771 仅覆盖 sparse 项目。
+                    #   16 chunk 全灭是 suppress 过度而非无知识，应从 local chunk 兜底注入 1 条。
+                    # 修复：non-sparse + 全灭 + local>=6 时，从 local chunk 选 diversity-rotated 最高 imp 注入。
+                    #   门控 local>=6 确保库足够大（小库已被 sparse 覆盖），避免对 borderline 项目重复触发。
+                    elif not _local_sparse and _sef_hd_imp and _sef_hd_max == 0 and _local_chunk_count >= 6:
+                        _nswr_local = [(imp, c) for imp, c in _sef_hd_imp
+                                       if c.get("project", "") == project]
+                        if _nswr_local:
+                            _nswr_best = max(_nswr_local, key=lambda x: x[0] / (1 + len(_injection_timeline.get(x[1].get("id", ""), []))))
+                            _nswr_best[1]["_fallback_protected"] = True
+                            _fb_floor_nswr = 0.08 if _db_chunk_count < 50 else 0.12
+                            positive = [(_fb_floor_nswr, _nswr_best[1])]
+                            _deferred.log(DMESG_WARN, "retriever",
+                                          f"iter1772_nonsparse_wipeout_rescue: imp={_nswr_best[0]:.2f} "
+                                          f"id={_nswr_best[1].get('id','')[:12]} local={_local_chunk_count}",
+                                          session_id=session_id, project=project)
             # ── iter840: fallback_pair_inject (hard_deadline path) ──
             # 根因：iter826 在 fallback 之前检查 positive==1，fallback 产出的单条不被覆盖。
             if len(positive) == 1 and len(final) >= 3:
@@ -6307,6 +6326,32 @@ def main():
                                   f"iter776_suppress_zero_fallback_full: imp={_sef_best[0]:.2f} "
                                   f"id={_sef_best[1].get('id','')[:12]}",
                                   session_id=session_id, project=project)
+                # iter1772: nonsparse_wipeout_rescue — FULL 路径 suppress 全灭兜底（同步 HD path）
+                elif _sef_by_imp and _sef_full_max == 0 and _local_chunk_count >= 6:
+                    _nswr_local_f = [(imp, c) for imp, c in _sef_by_imp
+                                     if c.get("project", "") == project]
+                    if _nswr_local_f:
+                        _nswr_best_f = max(_nswr_local_f, key=lambda x: x[0] / (1 + len(_injection_timeline.get(x[1].get("id", ""), []))))
+                        _nswr_best_f[1]["_fallback_protected"] = True
+                        _fb_floor_nswr_f = 0.08 if _db_chunk_count < 50 else 0.12
+                        positive = [(_fb_floor_nswr_f, _nswr_best_f[1])]
+                        _deferred.log(DMESG_WARN, "retriever",
+                                      f"iter1772_nonsparse_wipeout_rescue_full: imp={_nswr_best_f[0]:.2f} "
+                                      f"id={_nswr_best_f[1].get('id','')[:12]} local={_local_chunk_count}",
+                                      session_id=session_id, project=project)
+                # iter1772: sparse_wipeout_rescue_full — sparse 项目 FULL 路径同步 HD iter1771
+                elif _local_sparse and _sef_by_imp and _sef_full_max == 0 and _local_chunk_count > 0:
+                    _swr_local_f = [(imp, c) for imp, c in _sef_by_imp
+                                    if c.get("project", "") == project]
+                    if _swr_local_f:
+                        _swr_best_f = max(_swr_local_f, key=lambda x: x[0])
+                        _swr_best_f[1]["_fallback_protected"] = True
+                        _fb_floor_swr_f = 0.05 if _db_chunk_count < 20 else 0.08
+                        positive = [(_fb_floor_swr_f, _swr_best_f[1])]
+                        _deferred.log(DMESG_WARN, "retriever",
+                                      f"iter1772_sparse_wipeout_rescue_full: imp={_swr_best_f[0]:.2f} "
+                                      f"id={_swr_best_f[1].get('id','')[:12]}",
+                                      session_id=session_id, project=project)
 
         # ── iter840: fallback_pair_inject (FULL path) ──
         # 根因：iter826 只覆盖 positive=1(score 过阈)。45% 单条来自 positive=0→fallback=1。
