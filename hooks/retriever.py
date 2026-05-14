@@ -6784,7 +6784,14 @@ def main():
                 _rc = _recall_counts.get(_cid, 0)
                 # hard cap: 注入频率超阈值直接 suppress，不论 relevance
                 # iter610: 用 _local_bw_window 防止 memcg inflate 稀释垄断检测
-                if _rc / max(_local_bw_window, 1) > _inject_hard_cap:
+                # iter1790: constraint_saturated_hardcap — 同步 early exit/scorer 的 ac>=4 收紧
+                #   根因（数据驱动，2026-05-14）：27-chunk 库 hard_cap=0.10，rc=3 时
+                #   util=3/30=0.10 恰好不满足 >0.10 → 6 个 ac>=4 chunk 逃逸 suppress。
+                #   early exit(iter1777) 和 scorer(iter1777) 已收紧到 0.08，constraint 遗漏。
+                _cst_hard_cap = _inject_hard_cap
+                if _cst_hard_cap <= 0.10 and _ac_abs >= 4:
+                    _cst_hard_cap = 0.08
+                if _rc / max(_local_bw_window, 1) > _cst_hard_cap:
                     return False
                 _rel = _constraint_relevance(c)
                 # iter598: zero relevance gate — 与 query 零词重叠的 constraint 无条件拦截
