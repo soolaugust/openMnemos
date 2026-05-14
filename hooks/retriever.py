@@ -6195,7 +6195,7 @@ def main():
                 elif _l_ac >= 5:
                     _cap = min(_cap, max(2, _pair_7d_ceiling - 1))
             return _cap
-        if len(positive) == 1 and len(final) >= 3:
+        if len(positive) == 1 and len(final) >= 3 and _local_chunk_count > 0:
             # iter1397: pair_floor_tinydb_relax — 小库 BM25 分数偏低，0.12 floor 挡住 53% 有效配对
             # iter1541: sync tiny_db pair_floor
             _pair_floor = 0.05 if _db_chunk_count < 20 else (0.08 if _db_chunk_count < 50 else 0.12)
@@ -6265,7 +6265,11 @@ def main():
         #   _pre_score_relevance 保留了 suppress 前的原始 BM25 相关度，可安全配对。
         # 修复：positive=1 且 pair/imp_pair 均未命中时，从 _pre_score_relevance 选
         #   relevance>=0.25 + importance>=0.3 + 7d/24h/session 过滤的最佳候选配对。
-        if len(positive) == 1 and _pre_score_relevance:
+        # iter1805: zero_local_pair_skip — local=0 项目跳过 pair
+        # 数据驱动（2026-05-14）：abspath:7e3095aef7a6(local=0,5 global) pair 注入
+        #   feishu CLI(score=0.01)/git commit(score=0.01) 等低分噪声，占 5/12 的 2/2 注入位。
+        #   local=0 仅有 global 约束，pair 的"补充上下文"无额外信息增量。
+        if len(positive) == 1 and _pre_score_relevance and _local_chunk_count > 0:
             _top1_id_rp = positive[0][1].get("id", "")
             # iter1395: rp_small_db_relax — 小库 relevance_pair 阈值放宽
             # 根因（数据驱动，2026-05-10）：37-chunk 库 62% 注入仅 1 条(36/58)，
@@ -6308,7 +6312,7 @@ def main():
         #   chunk 作为 diversity pair。给予 top1*0.25 的低 score，确保不喧宾夺主。
         #   排除 top1 自身、session 内已注入的 chunk。仅 tiny_db(<50) 启用（大库 FTS 覆盖足够）。
         # iter1203: diversity_pair_threshold_100 — 50→100，覆盖 50-99 chunk 库的多知识组合
-        if len(positive) == 1 and _db_chunk_count < 100:
+        if len(positive) == 1 and _db_chunk_count < 100 and _local_chunk_count > 0:
             _top1_id = positive[0][1].get("id", "")
             try:
                 from datetime import datetime as _dt864, timezone as _tz864
@@ -6590,7 +6594,7 @@ def main():
         #   选同 project、低 ac、高 importance、7d=0 的新鲜 chunk 作为 diversity pair。
         #   复用 diversity_pair_from_db 逻辑，条件收窄（仅 7d=0）确保不引入垄断。
         # iter1203: diversity_pair_threshold_100 — 50→100
-        if len(positive) == 1 and _db_chunk_count < 100:
+        if len(positive) == 1 and _db_chunk_count < 100 and _local_chunk_count > 0:
             _pfd_top1_id = positive[0][1].get("id", "")
             try:
                 import sqlite3 as _pfd_sql
@@ -7823,7 +7827,7 @@ def main():
                               f"iter832_post_suppress_pair: paired {_ps_best[1].get('id','')[:12]} "
                               f"s={_ps_best[0]:.3f} with top1={_ps_top1_id[:12]}",
                               session_id=session_id, project=project)
-        elif len(top_k) == 1 and len(final) >= 3:
+        elif len(top_k) == 1 and len(final) >= 3 and _local_chunk_count > 0:
             # iter842: post_suppress_pair_from_final — iter832 兜底失败时从 final 按 importance 配对
             # 根因（数据驱动，2026-05-05）：iter826/827 在 scoring 阶段未配对成功
             #   → _pre_suppress_top_k=1 → iter832 条件不满足 → 单条逃逸。
@@ -7859,7 +7863,7 @@ def main():
         #   当 suppress 把所有候选干掉只剩 1 条时，两者均无法配对 → 单条逃逸。
         # 修复：从 DB 直接选 access_count 最低 + importance 最高的非 top1 chunk 作为补充上下文。
         #   限制：7d 注入 < suppress_final_gate 阈值 +3（比主注入更宽容），且 chunk_type 不同于 top1。
-        if len(top_k) == 1:
+        if len(top_k) == 1 and _local_chunk_count > 0:
             _dp895_top1 = top_k[0][1]
             _dp895_top1_id = _dp895_top1.get("id", "")
             _dp895_top1_type = _dp895_top1.get("chunk_type", "")
@@ -8236,7 +8240,7 @@ def main():
         # 根因（数据驱动，2026-05-06）：52% 单条注入中多数因 suppress 全灭→fallback 恢复 1 条，
         #   但 iter895 在 fallback 之前执行（top_k=0 时条件不满足）→ 无配对机会。
         # 修复：fallback 恢复后再次从 DB 选不同类型低频 chunk 配对（复用 iter895 逻辑）。
-        if len(top_k) == 1:
+        if len(top_k) == 1 and _local_chunk_count > 0:
             _pf914_top1 = top_k[0][1]
             _pf914_top1_id = _pf914_top1.get("id", "")
             _pf914_top1_type = _pf914_top1.get("chunk_type", "")
@@ -9484,7 +9488,7 @@ def main():
         #   上游 pair 逻辑（iter826/842/868/895）各有条件限制或 except 静默失败，
         #   到 dedup 后仍存在 top_k=1 的漏网。此为最终兜底：从 DB 选不同于 top1 的
         #   低 7d + session 未注入的 chunk 补充配对，确保多知识组合上下文。
-        if len(top_k) == 1 and _db_chunk_count >= 4:
+        if len(top_k) == 1 and _db_chunk_count >= 4 and _local_chunk_count > 0:
             _p1556_top1_id = top_k[0][1].get("id", "")
             try:
                 import sqlite3 as _p1556_sql
