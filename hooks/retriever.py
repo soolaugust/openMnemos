@@ -2652,7 +2652,7 @@ def main():
                     # iter1806: bpp_hard_suppress_lower — ratio>=2.0 + ac>=4 升级 hard suppress
                     # 数据驱动（2026-05-14）：rc=7 ratio=2.25 逃逸旧门槛 2.5，soft penalty
                     #   0.53× 在 27-chunk 小库中仍胜出（候选不足）。降至 2.0 覆盖 ratio=2.25。
-                    if _share_ratio >= 2.0 and _acc is not None and _acc >= 4:
+                    if _share_ratio >= 2.0 and _rfd_ac >= 4:
                         _hard_suppressed = True
                     elif _share_ratio > 1.5:
                         _bpp_mult = 1.0 / (1.0 + 1.2 * (_share_ratio - 1.5))
