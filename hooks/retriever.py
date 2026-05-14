@@ -2635,12 +2635,19 @@ def main():
             #   叠加 RFD 后总衰减 0.4*0.62=0.25x，让低频 chunk 自然胜出。
             if _rfd_rc >= 3 and _db_chunk_count > 5:
                 _rc_total = sum(_recall_counts.values()) or 1
-                _fair_share = 1.0 / max(_db_chunk_count, 1)
-                _actual_share = _rfd_rc / _rc_total
-                _share_ratio = _actual_share / _fair_share if _fair_share > 0 else 0
-                if _share_ratio > 2.0:
-                    _bpp_mult = 1.0 / (1.0 + 0.5 * (_share_ratio - 2.0))
-                    score *= _bpp_mult
+                # iter1798: bpp_sample_floor — 总注入样本不足时跳过 penalty
+                # 根因（数据驱动，2026-05-14）：新 session 或低活跃度项目 _rc_total=6~10，
+                #   rc=3 → share=0.30/0.037=8.1x → penalty=0.25x 过激。
+                #   统计样本 < chunk_count 时比例不稳定，penalty 放大噪声。
+                # 修复：_rc_total < max(10, _db_chunk_count//2) 时跳过。
+                _bpp_floor = max(10, _db_chunk_count // 2)
+                if _rc_total >= _bpp_floor:
+                    _fair_share = 1.0 / max(_db_chunk_count, 1)
+                    _actual_share = _rfd_rc / _rc_total
+                    _share_ratio = _actual_share / _fair_share if _fair_share > 0 else 0
+                    if _share_ratio > 2.0:
+                        _bpp_mult = 1.0 / (1.0 + 0.5 * (_share_ratio - 2.0))
+                        score *= _bpp_mult
 
             # ── iter369: Soft Forgetting — Ebbinghaus 遗忘曲线阈值 ──────────
             # OS 类比：DAMON cold page candidate — 低访问频率页面降低换入优先级
