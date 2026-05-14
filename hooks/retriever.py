@@ -7364,7 +7364,12 @@ def main():
         try:
             from wmb import apply_wmb_budget as _wmb_budget, tier_chunks as _wmb_tier
             _wmb_pairs = [(s, c) for s, c in top_k]  # 格式：(score, chunk)
-            _wmb_tier_result = _wmb_tier(_wmb_pairs, top_k=effective_top_k)
+            # iter1819: wmb_tinydb_bg_relax — tiny_db BM25 分布高度偏斜，
+            #   top2 通常仅 10-20% of top1 → background_threshold=0.35 全部落 dormant。
+            #   降低到 0.15 让语义相关的 #2/#3 通过 WMB 而非依赖 pair/cold_start 恢复。
+            _wmb_bg_thresh = 0.15 if _db_chunk_count < 50 else 0.35
+            _wmb_tier_result = _wmb_tier(_wmb_pairs, top_k=effective_top_k,
+                                         background_threshold=_wmb_bg_thresh)
             _wmb_injected = _wmb_tier_result["active"] + _wmb_tier_result["background"]
             if _wmb_injected:
                 _wmb_dormant_count = len(_wmb_tier_result["dormant"])
