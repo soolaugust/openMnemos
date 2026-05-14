@@ -909,6 +909,52 @@ def check_negative_ac_invariant(conn: sqlite3.Connection, fix: bool = False) -> 
     return r
 
 
+def audit_empty_recall_rate(conn: sqlite3.Connection, fix: bool = False) -> AssertionResult:
+    """
+    监控 7d 内空召回率（injected=0 且非 same_hash 的 trace 比例）。
+    空召回 = 检索执行了但没注入任何知识，是用户可感知的质量退化。
+    阈值：每个有 >=5 traces 的项目空召回率应 < 50%。
+    """
+    r = AssertionResult("empty_recall_rate", "assumption")
+    t0 = time.time()
+    try:
+        rows = conn.execute(
+            "SELECT project, "
+            "  COUNT(*) as total, "
+            "  SUM(CASE WHEN injected=0 AND reason NOT LIKE '%same_hash%' THEN 1 ELSE 0 END) as empty "
+            "FROM recall_traces "
+            "WHERE timestamp > datetime('now', '-7 days') "
+            "GROUP BY project HAVING total >= 5"
+        ).fetchall()
+        if not rows:
+            r.passed = True
+            r.message = "No projects with >=5 traces in 7d (skip)"
+            r.duration_ms = (time.time() - t0) * 1000
+            return r
+        violations = []
+        for proj, total, empty in rows:
+            rate = empty / total if total > 0 else 0
+            if rate >= 0.50:
+                violations.append({"project": proj[:30], "total": total,
+                                   "empty": empty, "rate": round(rate, 2)})
+        if not violations:
+            rates = [f"{r[0][:15]}={r[2]}/{r[1]}" for r in rows]
+            r.passed = True
+            r.message = f"Empty recall <50% for all {len(rows)} project(s): {', '.join(rates)}"
+        else:
+            r.passed = False
+            r.message = (f"{len(violations)} project(s) have >=50% empty recall rate "
+                         f"in 7d — suppress may be too aggressive")
+            r.actual = violations
+            r.expected = "<50% empty recall per project"
+    except Exception as e:
+        r.passed = True
+        r.severity = "info"
+        r.message = f"Skip: {e}"
+    r.duration_ms = (time.time() - t0) * 1000
+    return r
+
+
 # ── 运行器 ────────────────────────────────────────────────────────────────────
 
 ALL_ASSERTIONS = [
@@ -921,6 +967,7 @@ ALL_ASSERTIONS = [
     audit_latency_baseline,
     audit_retrieval_diversity,
     audit_zero_access_rate,
+    audit_empty_recall_rate,
     # Hygiene
     check_test_pollution,
     check_stale_refs,

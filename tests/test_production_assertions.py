@@ -256,7 +256,7 @@ def test_T11_run_all_returns_report():
     assert "summary" in report
     assert "status" in report
     assert "results" in report
-    assert report["summary"]["total"] == 13
+    assert report["summary"]["total"] == 14
     assert report["summary"]["passed"] + report["summary"]["failed"] == report["summary"]["total"]
 
 
