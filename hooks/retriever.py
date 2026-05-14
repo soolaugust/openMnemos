@@ -2978,7 +2978,12 @@ def main():
                 #   衰减 *0.3/*0.2，FTS base=0.6 时得 0.18/0.12→仍通过 min_thresh(0.10-0.18)。
                 #   ac>=10 表明 agent 已 10+ 次内化，7d 重置后仍"合法"注入 = 零信息增量。
                 # 修复：ac>=10 额外 *0.5（0.3→0.15, 0.2→0.10），使 base=0.6→score=0.09 < min_thresh。
-                _sat_mult = max(0.2, 0.8 - 0.1 * (_acc - 5))
+                # iter1815: sat_mult_steepen — ac>=5 基础衰减 0.8→0.6
+                # 数据驱动（2026-05-14）：5 个 ac=5 chunk ratio=1.31 逃逸 BPP(需>=1.5)，
+                #   *0.8 衰减后 score 仍碾压 ac=0-2 chunk，占 45% 注入位(38/84)。
+                #   ac>=5 用户已见 5+ 次，信息增量低，需让位给新鲜知识。
+                #   0.6 使 ac=5 从 base=0.6→0.36(>floor=0.12)，给 ac=0-2 竞争空间。
+                _sat_mult = max(0.2, 0.6 - 0.1 * (_acc - 5))
                 if _acc >= 10:
                     _sat_mult *= 0.5
                 # iter1604: constraint_accelerated_decay — design_constraint 加速衰减
