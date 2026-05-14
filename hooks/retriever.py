@@ -8208,10 +8208,13 @@ def main():
                         # iter1846: fallback_ceiling_zero — timeline GC 后 ac>=7 完全禁止 fallback
                         # 数据驱动（2026-05-15）：7e4b9f6b(ac=7,lt=5) 7d 窗口重置后 ceiling=1,
                         #   7d=0<1 通过 → fallback 恢复 → 周而复始垄断。ceiling=0 彻底封堵。
+                        # iter1857: small_db_fallback_ceiling_floor — <50 库 ceiling 最低=1
+                        #   数据驱动（2026-05-15）：24-chunk 库 5/5 后 52% 空注入(23/44)。
+                        #   ac>=5 chunk ceiling=0 封死唯一知识源。小库允许 7d 内 1 次 fallback。
                         if _ntl_ac >= 7:
-                            return 0
+                            return 1 if _db_chunk_count < 50 else 0
                         if _ntl_ac >= 5:
-                            return 0
+                            return 1 if _db_chunk_count < 50 else 0
                         if _ntl_ac >= 4 and c.get("project", "") == "global":
                             return 1
                         return _fb_ceiling
@@ -8224,8 +8227,9 @@ def main():
                     _lt_len = len(_tl_fb)
                     _fb_ac = c.get("access_count", 0) or 0
                     # iter1846: ceiling 1→0 封堵 7d 重置逃逸
+                    # iter1857: small_db_fallback_ceiling_floor — <50 库 ceiling 最低=1
                     if _lt_len >= 5 and _fb_ac >= 5:
-                        return 0
+                        return 1 if _db_chunk_count < 50 else 0
                     if _lt_len >= 4 and _fb_ac >= 4:
                         return 1
                     if c.get("project", "") == "global" and _fb_ac >= 4:
@@ -8236,7 +8240,7 @@ def main():
                     if _lt_len >= 6:
                         return 1
                     if _fb_ac >= 7:
-                        return 0
+                        return 1 if _db_chunk_count < 50 else 0
                     elif _fb_ac >= 5:
                         return max(1, _fb_ceiling - 2)
                     # iter1746: fb_ac3_cap_full_sync — 对齐 HD 路径 iter1488
