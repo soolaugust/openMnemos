@@ -7297,7 +7297,10 @@ def trim_shadow_entries(conn: sqlite3.Connection, project: str = None) -> dict:
         total = conn.execute("SELECT COUNT(*) FROM shadow_traces").fetchone()[0]
 
     if total > max_entries:
-        excess = min(total - max_entries, max_expire_per_scan)
+        # iter1860: trim_shadow_full_flush — 一次清完全部积压而非 cap 200
+        # 数据驱动（2026-05-15）：daemon 写入速度>trim 频率，per-scan cap=200
+        #   导致 shadow_traces 积压 1422 条（max=100），26% orphan refs 污染工作集。
+        excess = total - max_entries
         if project:
             # 按 ROWID 升序（最老优先）批量删除
             conn.execute(

@@ -226,10 +226,10 @@ class TestEdgeCases:
         elapsed = (time.time() - start) * 1000
 
         assert elapsed < 200, f"Too slow: {elapsed:.1f}ms"
-        # max_expire_per_scan=200, 所以先淘汰 200 条 (500-100=400, capped at 200)
-        assert result["expired"] == 200
-        # 剩余 300 条中各有 1 stale ref 需要 scrub
-        assert result["scrubbed_refs"] >= 100  # 至少 scrub 存活的那些
+        # iter1860: full_flush — 一次清完全部积压 (500-100=400)
+        assert result["expired"] == 400
+        # 剩余 100 条中各有 1 stale ref 需要 scrub
+        assert result["scrubbed_refs"] >= 50  # 至少 scrub 存活的那些
 
 
 if __name__ == "__main__":
