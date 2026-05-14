@@ -2626,6 +2626,22 @@ def main():
                     _rfd_floor = 0.05
                 score = max(score * _rfd_mult, _rfd_floor) if score > _rfd_floor else score * _rfd_mult
 
+            # ── iter1797: bandwidth_proportion_penalty — 注入占比超公平份额额外衰减 ──
+            # 数据驱动（2026-05-14）：27-chunk 库中 top5 chunk rc=5~7 占总注入 48%,
+            #   RFD 衰减到 0.4x 仍在小库中胜出（候选不足）。
+            #   公平份额 = 1/N_active_chunks。超过 2x 公平份额时按比例惩罚。
+            # 效果：rc=7 在 27-chunk 库中 fair_share=1/27≈3.7%，实际=7/sum≈12%，
+            #   ratio=12/3.7=3.2x，超 2x → penalty=1/(1+0.5*(3.2-2))=0.62。
+            #   叠加 RFD 后总衰减 0.4*0.62=0.25x，让低频 chunk 自然胜出。
+            if _rfd_rc >= 3 and _db_chunk_count > 5:
+                _rc_total = sum(_recall_counts.values()) or 1
+                _fair_share = 1.0 / max(_db_chunk_count, 1)
+                _actual_share = _rfd_rc / _rc_total
+                _share_ratio = _actual_share / _fair_share if _fair_share > 0 else 0
+                if _share_ratio > 2.0:
+                    _bpp_mult = 1.0 / (1.0 + 0.5 * (_share_ratio - 2.0))
+                    score *= _bpp_mult
+
             # ── iter369: Soft Forgetting — Ebbinghaus 遗忘曲线阈值 ──────────
             # OS 类比：DAMON cold page candidate — 低访问频率页面降低换入优先级
             # retrievability < 0.15 的 chunk 被视为"高度遗忘"状态：
