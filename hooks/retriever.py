@@ -3108,9 +3108,14 @@ def main():
                         _bw_penalty = 1.0 - (_hard_util - _bw_soft_start) / (_hard_cap_val - _bw_soft_start)
                         score *= _bw_penalty
             # iter1826: ac_permanent_decay — sync retriever_daemon.py
+            # iter1831: ac_decay_threshold_lower — ac>=5 即衰减
+            # 数据驱动（2026-05-14）：ac=5 chunk 占 30d 注入位 36%(30/84)，
+            #   ac=0-1 仅 5%(4/84)。ac>=6 衰减未覆盖 ac=5 甜点区：
+            #   BPP ratio<1.5 + 7d=0 时完全无 penalty。ac=5 用户已见 5 次，信息增量低。
+            # 修复：门槛 6→5, 基准 5→4。ac=5→*0.80, ac=6→*0.67, ac=7→*0.57。
             _ac_dp = chunk.get("access_count", 0) or 0
-            if _ac_dp >= 6 and _db_chunk_count > 5:
-                score *= 1.0 / (1.0 + (_ac_dp - 5) * 0.25)
+            if _ac_dp >= 5 and _db_chunk_count > 5:
+                score *= 1.0 / (1.0 + (_ac_dp - 4) * 0.25)
             # iter875: soft_diversity_penalty — 7d 注入次数越高，score 乘法衰减越强
             # iter876: factor 0.2→0.35 — 数据驱动：7d=6 的 pe_analysis 仍垄断（0.2 时衰减仅到 45%，
             #   高 FTS 基分仍胜出）。0.35 使 7d=5→36%, 7d=6→32%，有效让位给 7d=0 chunk。
@@ -5688,6 +5693,12 @@ def main():
                                       f"iter1743_final_dedup_hd: {len(top_k)}->{len(_seen_cid_dd_hd)}",
                                       session_id=session_id, project=project)
                         top_k = list(_seen_cid_dd_hd.values())
+                    # iter1831: global_lowscore_final_floor (HD/LITE path sync)
+                    if len(top_k) > 1:
+                        _glf_hd = [(s, c) for s, c in top_k
+                                   if s >= 0.03 or c.get("project") == project]
+                        if _glf_hd:
+                            top_k = _glf_hd
                     constraint_items = []
                     normal_items = []
                     hard_deadline_forced = False
@@ -10237,6 +10248,16 @@ def main():
                           f"iter1743_final_dedup: {len(top_k)}->{len(_seen_cid_dedup)}",
                           session_id=session_id, project=project)
             top_k = list(_seen_cid_dedup.values())
+
+        # iter1831: global_lowscore_final_floor — 最终出口统一 score floor
+        # 根因（数据驱动，2026-05-14）：global chunk score=0.01 通过 pair/fallback 逃逸 iter1658 gate。
+        #   feishu CLI(0.01)、git SOB(0.01) 在 5/12 两次 trace 中以近零 score 占位注入。
+        # 修复：top_k 最终出口处，global/跨项目 chunk score<0.03 无条件剔除（保留至少 1 条）。
+        if len(top_k) > 1:
+            _glf = [(s, c) for s, c in top_k
+                    if s >= 0.03 or c.get("project") == project]
+            if _glf:
+                top_k = _glf
 
         constraint_items = []
         normal_items = []
