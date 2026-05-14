@@ -4073,7 +4073,7 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
             _ac = chunk["access_count"]
             _cid = chunk["id"]
             _rc = _recall_counts.get(_cid, 0)
-            _imp = chunk["importance"] or 0.5
+            _imp = max(chunk["importance"] or 0.5, 0.15)  # iter1823: importance_floor_clamp
             _lg = chunk["lru_gen"]
             _cp = chunk.get("project") or ""
             age_la = _age_days_fast(_la)

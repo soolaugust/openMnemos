@@ -2589,9 +2589,17 @@ def main():
             # 效果：FTS5 强命中时 recency 权重上升（刚被用到的 chunk 更优先）
             #       BM25 弱命中时 importance 权重上升（靠领域知识先验筛选噪音）
             _dyn_alpha = _sysctl("retriever.qci_base_alpha") - _sysctl("retriever.qci_relevance_slope") * relevance
+            # iter1823: importance_floor_clamp — 评分时 importance 不低于 0.15
+            # 根因（数据驱动，2026-05-14）：import-62257(Kernel Patch 邮件标签, decision, ac=1)
+            #   importance=0.06，多条 importance 衰减路径叠加后跌破合理下限，
+            #   导致有用 chunk 评分接近 0 永远无法被召回。
+            # 修复：评分时 clamp importance>=0.15（不改 DB 值，只影响评分计算）。
+            #   0.15 ≈ 最低 importance_map(0.70) * pelt_min_discount(0.50) * safety_margin(0.43)。
+            _imp_floor = 0.15
+            _imp_clamped = max(float(chunk["importance"]), _imp_floor)
             score = _unified_retrieval_score(
                 relevance=relevance,
-                importance=float(chunk["importance"]),
+                importance=_imp_clamped,
                 last_accessed=chunk["last_accessed"],
                 access_count=chunk.get("access_count", 0) or 0,
                 created_at=chunk.get("created_at", ""),
