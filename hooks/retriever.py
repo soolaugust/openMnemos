@@ -3733,12 +3733,17 @@ def main():
             #   BM25 vocabulary 偏差导致这些 chunk 始终输给相似主题的其他候选。
             #   fallback_never_injected_boost(iter1793) 只在 fallback 路径生效，正常竞争无曝光机会。
             # 修复：never_injected + 本地 + imp>=0.7 → score *= 1.5（乘法不绕过 hard_gate）。
-            #   效果：BM25 score=0.08 → 0.12，刚好越过 score_floor(0.10-0.12) 获得注入资格。
+            #   效果：BM25 score=0.08 → 0.16，安全越过 score_floor(0.10-0.12) 获得注入资格。
+            # iter1796: exploration_boost_widen — 乘数 1.5→2.0 增加容错余量
+            # 数据驱动（2026-05-14）：58c70136(ac=0,imp=0.85) 评分 0.084*1.5=0.126 仅超
+            #   floor=0.12 以 0.006 余量。若 soft_forgetting(retrievability<0.15→*0.55)
+            #   或 topic_mismatch_discount 叠加，0.126*0.55=0.069 < floor → 仍被拦截。
+            #   2.0→0.084*2.0=0.168 留出 40% 余量，保证首次注入机会。
             if (not _hard_suppressed and score > 0
                     and not _injection_timeline.get(chunk.get("id", ""))
                     and chunk.get("project") == project
                     and float(chunk.get("importance") or 0) >= 0.7):
-                score *= 1.5
+                score *= 2.0
             # ── iter616: final_hard_gate — 防止 additive bonus 绕过 hard suppression ──
             # 根因：24h_burst_suppression (iter614) 和 bandwidth_hard_cap (iter601) 设
             #   score=0.0，但后续 focus_bonus/emotional_boost/priming_boost 是 += 操作，

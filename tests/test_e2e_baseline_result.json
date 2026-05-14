@@ -1,12 +1,12 @@
 {
-  "timestamp": "2026-05-14T02:53:47.097049",
+  "timestamp": "2026-05-14T05:13:24.979513",
   "iteration": 71,
   "project_id": "test:e2e_baseline",
   "swap_out": {
     "hit_ids_count": 0,
     "decisions_count": 3,
     "excluded_paths_count": 1,
-    "elapsed_ms": 0.10251998901367188,
+    "elapsed_ms": 0.0705718994140625,
     "hit_ids": [],
     "decisions": [
       {
@@ -36,7 +36,7 @@
     "coverage": 0.0,
     "space_efficiency": 0.20333333333333334,
     "quality_score": 0.0,
-    "elapsed_ms": 0.00858306884765625,
+    "elapsed_ms": 0.0059604644775390625,
     "sample_context": "【上次会话状态 · 自动恢复】\n关键知识（0 items）:\n\n核心决策（3 items）:\n  • Swap_out 100% 恢复率需要 queries_global_top_k\n  • PreCompact hook 需要 immutable DB 避免锁竞争\n  • TLB 多槽缓存解决 DB mtime 频繁失效\n\n排除路径: /test/*, *.bak, __pycache__\n..."
   },
   "db_health": {
@@ -47,7 +47,7 @@
     "issues": []
   },
   "metrics": {
-    "total_time_ms": 0.11110305786132812,
+    "total_time_ms": 0.07653236389160156,
     "hit_rate": 0.0,
     "quality_score": 0.0
   }
