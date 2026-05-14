@@ -5577,11 +5577,27 @@ def main():
                         # 根因：L4486 生成 top_k_data 后，suppress/filter 修改 top_k 但未重建
                         #   → trace 记录与实际注入不一致 → chunk_recall_counts 统计偏差。
                         top_k_data = [{"id": c["id"], "summary": c.get("summary", ""), "score": round(s, 4), "chunk_type": c.get("chunk_type", "")} for s, c in top_k]
-                        _write_trace(session_id, project, prompt_hash, candidates_count,
-                                     top_k_data, 1, reason, duration_ms, conn=wconn)
-                        _deferred.flush(wconn)
-                        wconn.commit()
-                        wconn.close()
+                        # iter1773: hd_empty_recall_ftrace — 同步 FULL 路径 iter1594
+                        # 根因（数据驱动，2026-05-14）：89%(16/18) LITE 空召回 ftrace_json=NULL，
+                        #   因 HD 路径无 iter825/1594 对齐 → injected=1+top_k=[] 数据污染+诊断盲区。
+                        # 修复：top_k 为空时写 injected=0 + deferred log 尾部作为 ftrace。
+                        if not top_k_data:
+                            _hd_er_ftrace = None
+                            if _deferred._buf and candidates_count > 0:
+                                _hd_er_msgs = [msg for _, _, msg, _, _, _ in _deferred._buf[-5:]]
+                                if _hd_er_msgs:
+                                    _hd_er_ftrace = json.dumps(_hd_er_msgs, ensure_ascii=False)
+                            _write_trace(session_id, project, prompt_hash, candidates_count,
+                                         [], 0, reason, duration_ms, conn=wconn, ftrace_json=_hd_er_ftrace)
+                            _deferred.flush(wconn)
+                            wconn.commit()
+                            wconn.close()
+                        else:
+                            _write_trace(session_id, project, prompt_hash, candidates_count,
+                                         top_k_data, 1, reason, duration_ms, conn=wconn)
+                            _deferred.flush(wconn)
+                            wconn.commit()
+                            wconn.close()
                     except Exception:
                         pass  # write-back 失败不影响已输出的结果
                     # 迭代85：Shadow Trace

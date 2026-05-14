@@ -5046,15 +5046,33 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                         #   chunk list 与实际注入不一致。重建以反映真实注入内容。
                         _hd_top_k = [{"id": c[_CI_ID], "summary": c[_CI_SUM], "score": s,
                                       "chunk_type": c[_CI_CT] or ""} for s, c in top_k] or top_k_data or [{"id": cid} for cid in accessed_ids]
-                        store_insert_trace(wconn, {
-                            "id": str(uuid_mod.uuid4()),
-                            "timestamp": datetime.now(timezone.utc).isoformat(),
-                            "session_id": session_id, "project": project,
-                            "prompt_hash": prompt_hash, "candidates_count": candidates_count,
-                            "top_k_json": _hd_top_k, "injected": 1,
-                            "reason": f"hash_changed|{priority.lower()}|hard_deadline",
-                            "duration_ms": duration_ms,
-                        })
+                        # iter1773: hd_empty_recall_ftrace — 同步 retriever.py iter1773
+                        if not _hd_top_k:
+                            _hd_er_ftrace = None
+                            if _deferred._buf and candidates_count > 0:
+                                _hd_er_msgs = [msg for _, _, msg, _, _, _ in _deferred._buf[-5:]]
+                                if _hd_er_msgs:
+                                    _hd_er_ftrace = json.dumps(_hd_er_msgs, ensure_ascii=False)
+                            store_insert_trace(wconn, {
+                                "id": str(uuid_mod.uuid4()),
+                                "timestamp": datetime.now(timezone.utc).isoformat(),
+                                "session_id": session_id, "project": project,
+                                "prompt_hash": prompt_hash, "candidates_count": candidates_count,
+                                "top_k_json": [], "injected": 0,
+                                "reason": f"hash_changed|{priority.lower()}|hard_deadline",
+                                "duration_ms": duration_ms,
+                                "ftrace_json": _hd_er_ftrace,
+                            })
+                        else:
+                            store_insert_trace(wconn, {
+                                "id": str(uuid_mod.uuid4()),
+                                "timestamp": datetime.now(timezone.utc).isoformat(),
+                                "session_id": session_id, "project": project,
+                                "prompt_hash": prompt_hash, "candidates_count": candidates_count,
+                                "top_k_json": _hd_top_k, "injected": 1,
+                                "reason": f"hash_changed|{priority.lower()}|hard_deadline",
+                                "duration_ms": duration_ms,
+                            })
                         _deferred.flush(wconn)
                         wconn.commit()
                         wconn.close()
