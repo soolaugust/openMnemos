@@ -9433,7 +9433,10 @@ def main():
         # 修复：local=0 时强制走 floor_gate，不受 micro_db bypass。
         if len(top_k) > 0 and (_db_chunk_count > 5 or _local_chunk_count == 0):
             _sf_pre_len = len(top_k)
-            _sf_above = [(s, c) for s, c in top_k if s >= _score_floor]
+            # iter1859: floor_gate_protect_fallback — 对齐 LITE floor_gate(line 5660)
+            # 数据驱动（2026-05-15）：sparse_rescue/ultimate_fallback 注入 chunk(score=0.001)
+            #   与通过 floor 的 global chunk 共存时被丢弃 → 本地唯一知识丢失。
+            _sf_above = [(s, c) for s, c in top_k if s >= _score_floor or c.get("_fallback_protected")]
             if _sf_above:
                 if len(_sf_above) < len(top_k):
                     # iter926: pair_preserve — 保护配对不被 score_floor 砍到单条
