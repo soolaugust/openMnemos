@@ -6769,6 +6769,7 @@ def main():
         if (_sysctl("retriever.cold_start_enabled") is not False):
             try:
                 _cs_imp_threshold = _sysctl("retriever.cold_start_imp_threshold") or 0.50
+                _cs_ac_threshold = int(_sysctl("retriever.cold_start_ac_threshold") or 1)
                 _cs_max = _sysctl("retriever.cold_start_max_inject") or 1
                 _positive_ids = {c["id"] for _, c in positive}
                 # 从 final 候选中筛选：高 imp、零访问、不在 positive 中
@@ -6781,7 +6782,7 @@ def main():
                 _cold_candidates = [
                     (imp_val, c) for s, c in final
                     if c.get("id", "") not in _positive_ids
-                    and (c.get("access_count", 0) or 0) == 0
+                    and (c.get("access_count", 0) or 0) <= _cs_ac_threshold
                     and float(c.get("importance", 0) or 0) >= _cs_imp_threshold
                     and (_local_chunk_count > 0 or c.get("project") == "global")
                     for imp_val in [float(c.get("importance", 0) or 0)]
@@ -6799,8 +6800,8 @@ def main():
                         _cs_rows = _cs_conn.execute(
                             "SELECT id, summary, chunk_type, importance, tags, content "
                             "FROM memory_chunks WHERE project=? AND chunk_state='ACTIVE' "
-                            "AND access_count=0 AND importance>=? ORDER BY importance DESC LIMIT 3",
-                            (project, _cs_imp_threshold)).fetchall()
+                            "AND access_count<=? AND importance>=? ORDER BY access_count ASC, importance DESC LIMIT 3",
+                            (project, _cs_ac_threshold, _cs_imp_threshold)).fetchall()
                         _cs_conn.close()
                         for _cs_r in _cs_rows:
                             _cs_id = _cs_r[0]
@@ -9059,7 +9060,8 @@ def main():
         # 数据驱动（2026-05-14）：sem_c4531bbd(ac=0,imp=0.85) 创建 14 天从未曝光，
         #   cold_start_probe 0 次触发——因 top_k 总包含 ac=1/2 的 chunk 不满足 all(>=3)。
         #   实际需求：只要 top_k 中没有 ac=0 chunk（避免自替换），就应探测 ac=0 曝光。
-        _csl_topk_has_cold = any((c.get("access_count", 0) or 0) == 0 for _, c in top_k) if top_k else False
+        _csl_ac_thresh = int(_sysctl("retriever.cold_start_ac_threshold") or 1)
+        _csl_topk_has_cold = any((c.get("access_count", 0) or 0) <= _csl_ac_thresh for _, c in top_k) if top_k else False
         # iter1811: cold_probe_empty_topk — top_k 为空时仍触发 cold probe
         # 根因（数据驱动，2026-05-14）：git:78dc99a5695f 9 次 LITE 全部 top_k=[]
         #   (cands=11-25 全被 suppress/threshold 过滤)。58c70136(ac=0,imp=0.85) 创建 25 天
@@ -9072,9 +9074,9 @@ def main():
                 _csl_row = _csl_conn.execute(
                     "SELECT id, summary, content, chunk_type, importance "
                     "FROM memory_chunks WHERE project=? AND chunk_state='ACTIVE' "
-                    "AND access_count=0 AND importance>=0.7 "
-                    "ORDER BY importance DESC LIMIT 1",
-                    (project,)).fetchone()
+                    "AND access_count<=? AND importance>=0.7 "
+                    "ORDER BY access_count ASC, importance DESC LIMIT 1",
+                    (project, _csl_ac_thresh)).fetchone()
                 _csl_conn.close()
                 if _csl_row and _csl_row[0] not in {c.get("id", "") for _, c in top_k}:
                     _csl_chunk = {"id": _csl_row[0], "summary": _csl_row[1],

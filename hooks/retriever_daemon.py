@@ -4772,13 +4772,14 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                     and _local_chunk_count_d > 0):
                 try:
                     _cs_imp_t = sysctl("retriever.cold_start_imp_threshold") or 0.50
+                    _cs_ac_t = int(sysctl("retriever.cold_start_ac_threshold") or 1)
                     _cs_pos_ids = {c[_CI_ID] for _, c in positive}
                     _cs_conn = __import__('sqlite3').connect(str(STORE_DB))
                     _cs_rows = _cs_conn.execute(
                         "SELECT id, summary, content, importance, chunk_type, access_count "
                         "FROM memory_chunks WHERE project=? AND chunk_state='ACTIVE' "
-                        "AND access_count=0 AND importance>=? ORDER BY importance DESC LIMIT 3",
-                        (project, _cs_imp_t)).fetchall()
+                        "AND access_count<=? AND importance>=? ORDER BY access_count ASC, importance DESC LIMIT 3",
+                        (project, _cs_ac_t, _cs_imp_t)).fetchall()
                     _cs_conn.close()
                     for _csr in _cs_rows:
                         if _csr[0] in _cs_pos_ids or _itl_lifetime.get(_csr[0]):
@@ -5301,13 +5302,14 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 and _local_chunk_count_d > 0):
             try:
                 _cs_imp_t = sysctl("retriever.cold_start_imp_threshold") or 0.50
+                _cs_ac_t = int(sysctl("retriever.cold_start_ac_threshold") or 1)
                 _cs_pos_ids = {c[_CI_ID] for _, c in positive}
                 _cs_conn = __import__('sqlite3').connect(str(STORE_DB))
                 _cs_rows = _cs_conn.execute(
                     "SELECT id, summary, content, importance, chunk_type, access_count "
                     "FROM memory_chunks WHERE project=? AND chunk_state='ACTIVE' "
-                    "AND access_count=0 AND importance>=? ORDER BY importance DESC LIMIT 3",
-                    (project, _cs_imp_t)).fetchall()
+                    "AND access_count<=? AND importance>=? ORDER BY access_count ASC, importance DESC LIMIT 3",
+                    (project, _cs_ac_t, _cs_imp_t)).fetchall()
                 _cs_conn.close()
                 for _csr in _cs_rows:
                     if _csr[0] in _cs_pos_ids or _itl_lifetime.get(_csr[0]):
