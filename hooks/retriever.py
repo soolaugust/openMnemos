@@ -6544,7 +6544,8 @@ def main():
         #   但 fallback_pair 不检查 7d/24h → 垄断 chunk 经 pair 路径重新注入。
         _fb_pair_7d_ceiling = 7 if _db_chunk_count < 50 else (6 if _db_chunk_count < 100 else 6)  # iter1521: tiny 5→7 sync
         # iter1800: pair_freshness_cap — pair 补充上下文优先低频未内化 chunk
-        _fb_pair_ac_cap = max(4, _db_chunk_count // 6)
+        # iter1801: pair_ac_cap_widen — 4→5, 让 ac=4(median) chunk 参与 pair 扩大候选池
+        _fb_pair_ac_cap = max(5, _db_chunk_count // 5)
         if len(positive) == 1 and len(final) >= 3:
             _fb_pair_top1_id = positive[0][1].get("id", "")
             # iter1166: fallback_cooldown_align — sync FULL fallback_pair
@@ -6591,9 +6592,11 @@ def main():
                     "ORDER BY access_count ASC, importance DESC LIMIT 5",
                     (project, _pfd_top1_id)).fetchall()
                 _pfd_conn.close()
+                # iter1801: diversity_pair_7d_relax — 7d==0 过严，27 chunk 库大部分 7d>=1 导致无候选
+                # 数据驱动（2026-05-14）：51% 注入仅 1 条，pair 候选空导致。放宽到 <2 允许低频 chunk 配对。
                 _pfd_cands = [r for r in _pfd_rows
                               if _session_injection_counts.get(r[0], 0) < _pair_dedup_thresh
-                              and _recent_7d_counts.get(r[0], 0) == 0]
+                              and _recent_7d_counts.get(r[0], 0) < 2]
                 if _pfd_cands:
                     from datetime import datetime as _dt1136, timezone as _tz1136
                     _pfd_now = _dt1136.now(_tz1136.utc).isoformat()
@@ -7850,7 +7853,8 @@ def main():
                 _dp895_exclude = f"'{_dp895_top1_id}'"
                 # iter1371: pair_global_include — 包含 global chunk（同步 iter868）
                 # iter1800: pair_freshness_cap — pair 补充上下文优先低频未内化 chunk
-                _dp895_ac_cap = max(4, _db_chunk_count // 6)
+                # iter1801: pair_ac_cap_widen — 同步 line 6547
+                _dp895_ac_cap = max(5, _db_chunk_count // 5)
                 _dp895_rows = conn.execute(
                     f"SELECT id, summary, content, chunk_type, importance, access_count "
                     f"FROM memory_chunks WHERE (project=? OR project='global') AND chunk_state='ACTIVE' "
