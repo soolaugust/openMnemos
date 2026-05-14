@@ -3208,6 +3208,9 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                     pass
             except Exception:
                 pass
+            # iter1838: bpp_precompute — 预计算 BPP 所需的 rc_total (sync retriever.py iter1797)
+            _bpp_rc_total = sum(_recall_counts.values()) or 1
+            _bpp_floor = max(10, _db_chunk_count // 2)
             # ── iter618: 7d_rolling_suppress — 长期垄断检测 ──────────────────
             # daemon 此前缺少 24h/7d burst suppress（iter614~617 只加在 retriever.py）。
             # 根因：daemon 是生产主路径，缺失导致垄断 chunk 完全逃逸。
@@ -3818,6 +3821,20 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                     if _hard_util_sc > _bw_soft_start:
                         _bw_penalty = 1.0 - (_hard_util_sc - _bw_soft_start) / (_inject_hard_cap - _bw_soft_start)
                         score *= _bw_penalty
+            # iter1838: daemon_bpp_sync — sync retriever.py iter1797 bandwidth_proportion_penalty
+            if _rc >= 3 and _db_chunk_count > 5:
+                if _bpp_rc_total >= _bpp_floor:
+                    _bpp_fair = 1.0 / max(_db_chunk_count, 1)
+                    _bpp_actual = _rc / _bpp_rc_total
+                    _bpp_ratio = _bpp_actual / _bpp_fair if _bpp_fair > 0 else 0
+                    if _bpp_ratio >= 1.5 and _ac >= 5:
+                        score *= 0.01
+                    elif _bpp_ratio >= 2.0 and _ac >= 4:
+                        score = 0.0
+                    elif _bpp_ratio > 1.5:
+                        score *= 1.0 / (1.0 + 1.2 * (_bpp_ratio - 1.5))
+                elif _rc >= 5 and _ac >= 5:
+                    score *= 0.01
             # iter1826: ac_permanent_decay — ac>=6 永久乘法衰减，不依赖时间窗口
             # iter1833: ac_decay_coefficient_strengthen — 系数 0.25→0.40 (sync retriever.py)
             # iter1834: small_db_ac_decay_relax — <30 库系数 0.40→0.20 (sync retriever.py)
@@ -4155,6 +4172,20 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                         score = 0.0
                     else:
                         score *= 0.6 if chunk.get("chunk_type") == "design_constraint" else 0.3
+            # iter1838: daemon_bpp_sync (dict path) — sync retriever.py iter1797
+            if _rc >= 3 and _db_chunk_count > 5:
+                if _bpp_rc_total >= _bpp_floor:
+                    _bpp_fair_d = 1.0 / max(_db_chunk_count, 1)
+                    _bpp_actual_d = _rc / _bpp_rc_total
+                    _bpp_ratio_d = _bpp_actual_d / _bpp_fair_d if _bpp_fair_d > 0 else 0
+                    if _bpp_ratio_d >= 1.5 and _ac >= 5:
+                        score *= 0.01
+                    elif _bpp_ratio_d >= 2.0 and _ac >= 4:
+                        score = 0.0
+                    elif _bpp_ratio_d > 1.5:
+                        score *= 1.0 / (1.0 + 1.2 * (_bpp_ratio_d - 1.5))
+                elif _rc >= 5 and _ac >= 5:
+                    score *= 0.01
             # iter1826: ac_permanent_decay (dict path) — sync _score_chunk
             # iter1833: ac_decay_coefficient_strengthen (dict path)
             # iter1834: small_db_ac_decay_relax (dict path) — sync retriever.py
