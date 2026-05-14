@@ -3853,6 +3853,10 @@ def main():
             #   实测：feishu CLI chunk 24h 注入 12 次 (>=3 应 suppress)，score=0.0001 仍入选。
             # 修复：在所有 bonus 之后、return 之前，硬性归零。
             if _hard_suppressed:
+                _deferred.log(DMESG_DEBUG, "retriever",
+                              f"hard_suppress: id={chunk.get('id','')[:12]} "
+                              f"ac={chunk.get('access_count',0)} rel={relevance:.3f}",
+                              session_id=session_id, project=project)
                 return 0.0
             return score
 
@@ -5905,7 +5909,7 @@ def main():
                         if not top_k_data:
                             _hd_er_ftrace = None
                             if _deferred._buf and candidates_count > 0:
-                                _hd_er_msgs = [msg for _, _, msg, _, _, _ in _deferred._buf[-5:]]
+                                _hd_er_msgs = [msg for _, _, msg, _, _, _ in _deferred._buf[-20:]]
                                 if _hd_er_msgs:
                                     _hd_er_ftrace = json.dumps(_hd_er_msgs, ensure_ascii=False)
                             _write_trace(session_id, project, prompt_hash, candidates_count,
@@ -10765,7 +10769,7 @@ def main():
                 # 修复：写 injected=0 trace 并附 deferred log 尾部作为 ftrace，保留诊断上下文。
                 _er_ftrace = None
                 if _deferred._buf and candidates_count > 0:
-                    _er_msgs = [msg for _, _, msg, _, _, _ in _deferred._buf[-5:]]
+                    _er_msgs = [msg for _, _, msg, _, _, _ in _deferred._buf[-20:]]
                     if _er_msgs:
                         _er_ftrace = json.dumps(_er_msgs, ensure_ascii=False)
                 _write_trace(session_id, project, prompt_hash, candidates_count,
