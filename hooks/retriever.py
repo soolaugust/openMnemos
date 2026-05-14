@@ -5614,6 +5614,21 @@ def main():
                         if _zl_global_l:
                             top_k = _zl_global_l
 
+                    # iter1842: score_floor_gate_lite — LITE 路径对齐 FULL score_floor
+                    _sf_lite = 0.05 if _db_chunk_count < 20 else (0.10 if _db_chunk_count < 50 else 0.12)
+                    if _local_sparse and _local_chunk_count > 0 and _sf_lite > 0.05:
+                        _sf_lite = 0.05
+                    if _local_chunk_count == 0 and _sf_lite < 0.10:
+                        _sf_lite = 0.10
+                    if len(top_k) > 1:
+                        _sf_above_l = [(s, c) for s, c in top_k if s >= _sf_lite]
+                        if _sf_above_l and len(_sf_above_l) < len(top_k):
+                            top_k = _sf_above_l
+                            _deferred.log(DMESG_INFO, "retriever",
+                                          f"iter1842_score_floor_gate_lite: removed "
+                                          f"{len(top_k)} below floor={_sf_lite}",
+                                          session_id=session_id, project=project)
+
                     # iter1372: final_monopoly_gate (LITE path) — 同 FULL 路径
                     # iter1464: global_dc_7d_monopoly — sync LITE path
                     if _injection_timeline and len(top_k) > 1:
