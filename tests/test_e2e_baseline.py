@@ -83,22 +83,24 @@ def populate_test_data(conn):
     ]
 
     for query_idx, query in enumerate(queries):
-        for hit_idx in range(min(3, len(inserted_ids))):  # 每个查询命中 3 个 chunks
-            try:
-                cursor.execute("""
-                    INSERT INTO recall_traces
-                    (session_id, project_id, query_hash, hit_ids, top_k_json, created_at)
-                    VALUES (?, ?, ?, ?, ?, ?)
-                """, (
-                    "test_session",
-                    project_id,
-                    hash(query) % (2**31),
-                    json.dumps([inserted_ids[hit_idx]]),
-                    json.dumps([{"id": inserted_ids[hit_idx], "summary": chunks[hit_idx]["summary"], "score": 0.8 - hit_idx*0.1}]),
-                    datetime.utcnow().isoformat()
-                ))
-            except sqlite3.OperationalError:
-                pass  # recall_traces 表可能不存在，忽略
+        hit_batch = inserted_ids[:min(3, len(inserted_ids))]
+        top_k = [{"id": inserted_ids[i], "summary": chunks[i]["summary"],
+                   "score": 0.8 - i * 0.1} for i in range(len(hit_batch))]
+        try:
+            cursor.execute("""
+                INSERT INTO recall_traces
+                (session_id, project, prompt_hash, top_k_json, injected, timestamp)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, (
+                "test_session",
+                project_id,
+                str(hash(query) % (2**31)),
+                json.dumps(top_k),
+                1,
+                datetime.utcnow().isoformat()
+            ))
+        except sqlite3.OperationalError:
+            pass
 
     conn.commit()
     return project_id, inserted_ids
@@ -113,10 +115,17 @@ def measure_swap_out(conn, project_id):
     hit_ids = []
     try:
         cursor.execute("""
-            SELECT DISTINCT json_extract(hit_ids, '$[0]') FROM recall_traces
-            WHERE project = ? ORDER BY created_at DESC LIMIT 100
+            SELECT top_k_json FROM recall_traces
+            WHERE project = ? AND injected = 1 ORDER BY timestamp DESC LIMIT 100
         """, (project_id,))
-        hit_ids = [row[0] for row in cursor.fetchall() if row[0]]
+        seen = set()
+        for row in cursor.fetchall():
+            if row[0]:
+                for item in json.loads(row[0]):
+                    cid = item["id"] if isinstance(item, dict) else item
+                    if cid not in seen:
+                        hit_ids.append(cid)
+                        seen.add(cid)
     except sqlite3.OperationalError:
         pass
 
