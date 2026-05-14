@@ -5105,8 +5105,13 @@ def main():
                         if c.get("chunk_type") == "design_constraint" and (c.get("access_count", 0) or 0) >= 5:
                             return 0.3
                         return 1.0
+                    # iter1793: fallback_never_injected_boost — 从未注入的本地 chunk 排序加权
+                    def _fb_hd_ni_boost(c):
+                        if not _injection_timeline.get(c.get("id", "")) and c.get("project", "") == project and (c.get("access_count", 0) or 0) <= 1:
+                            return 2.0
+                        return 1.0
                     _fb_hd_sorted = sorted(_fb_hd_pool,
-                                           key=lambda x: x[0] * (0.5 ** (_recent_7d_counts.get(x[1].get("id", ""), 0) / 2)) * _fb_hd_dc_penalty(x[1]),
+                                           key=lambda x: x[0] * (0.5 ** (_recent_7d_counts.get(x[1].get("id", ""), 0) / 2)) * _fb_hd_dc_penalty(x[1]) * _fb_hd_ni_boost(x[1]),
                                            reverse=True)
                     _fb_hd = _fb_hd_sorted[0]
                     _last_hash_hd = _read_hash()
@@ -7996,8 +8001,13 @@ def main():
                         if c.get("chunk_type") == "design_constraint" and (c.get("access_count", 0) or 0) >= 5:
                             return 0.3
                         return 1.0
+                    # iter1793: fallback_never_injected_boost — 从未注入的本地 chunk 排序加权
+                    def _fb_ni_boost(c):
+                        if not _injection_timeline.get(c.get("id", "")) and c.get("project", "") == project and (c.get("access_count", 0) or 0) <= 1:
+                            return 2.0
+                        return 1.0
                     _fb_sorted = sorted(_fb_pool,
-                                        key=lambda x: x[0] * (0.5 ** (_fb_7d.get(x[1].get("id", ""), 0) / 2)) * _fb_dc_penalty(x[1]),
+                                        key=lambda x: x[0] * (0.5 ** (_fb_7d.get(x[1].get("id", ""), 0) / 2)) * _fb_dc_penalty(x[1]) * _fb_ni_boost(x[1]),
                                         reverse=True)
                     _fb = _fb_sorted[0]
                     if _last_hash and len(_fb_sorted) > 1:
