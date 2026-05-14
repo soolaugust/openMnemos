@@ -3107,6 +3107,10 @@ def main():
                         # iter612: linear ramp from 1.0 → 0.0 over [soft_start, hard_cap]
                         _bw_penalty = 1.0 - (_hard_util - _bw_soft_start) / (_hard_cap_val - _bw_soft_start)
                         score *= _bw_penalty
+            # iter1826: ac_permanent_decay — sync retriever_daemon.py
+            _ac_dp = chunk.get("access_count", 0) or 0
+            if _ac_dp >= 6 and _db_chunk_count > 5:
+                score *= 1.0 / (1.0 + (_ac_dp - 5) * 0.25)
             # iter875: soft_diversity_penalty — 7d 注入次数越高，score 乘法衰减越强
             # iter876: factor 0.2→0.35 — 数据驱动：7d=6 的 pe_analysis 仍垄断（0.2 时衰减仅到 45%，
             #   高 FTS 基分仍胜出）。0.35 使 7d=5→36%, 7d=6→32%，有效让位给 7d=0 chunk。
