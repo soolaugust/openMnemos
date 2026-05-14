@@ -2645,8 +2645,12 @@ def main():
                     _fair_share = 1.0 / max(_db_chunk_count, 1)
                     _actual_share = _rfd_rc / _rc_total
                     _share_ratio = _actual_share / _fair_share if _fair_share > 0 else 0
-                    if _share_ratio > 2.0:
-                        _bpp_mult = 1.0 / (1.0 + 0.5 * (_share_ratio - 2.0))
+                    # iter1799: bpp_steeper_curve — 阈值 2.0→1.5, 系数 0.5→1.2
+                    # 数据驱动（2026-05-14）：top chunk ratio=2.18 旧 penalty=0.92 近乎无效,
+                    #   rc=7 chunk 持续垄断注入位。收紧曲线让 ratio>1.5 即显著衰减。
+                    # 效果：ratio=2.18 → penalty=1/(1+1.2*0.68)=0.55（旧=0.92）
+                    if _share_ratio > 1.5:
+                        _bpp_mult = 1.0 / (1.0 + 1.2 * (_share_ratio - 1.5))
                         score *= _bpp_mult
 
             # ── iter369: Soft Forgetting — Ebbinghaus 遗忘曲线阈值 ──────────
