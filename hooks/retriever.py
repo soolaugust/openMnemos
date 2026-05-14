@@ -5648,11 +5648,44 @@ def main():
                                               f"{len(top_k) - len(_sf_above_l)} below floor={_sf_lite}",
                                               session_id=session_id, project=project)
                         else:
+                            # iter1852: lite_sparse_floor_rescue — LITE 路径 floor_gate 全灭时 sparse local rescue
+                            # 根因（数据驱动，2026-05-15）：git:78dc99a5695f(1 local, _local_sparse=True)
+                            #   LITE 路径 floor_gate 全灭后无 iter1568 对齐的 local rescue，
+                            #   本地唯一 chunk(imp=0.85,ac=0) 永远不被注入 → 100% 空召回。
+                            #   FULL 路径 iter1568 有 sparse_floor_gate_local_rescue 兜底，LITE 遗漏。
+                            # 修复：对齐 FULL iter1568，floor_gate 全灭 + _local_sparse + local>0 时从 DB 拉本地 chunk。
+                            _lite_rescued = False
+                            if _local_sparse and _local_chunk_count > 0:
+                                try:
+                                    import sqlite3 as _sfr1852
+                                    _sfr_conn_l = _sfr1852.connect(str(STORE_DB))
+                                    _sfr_row_l = _sfr_conn_l.execute(
+                                        "SELECT id, summary, content, chunk_type, importance "
+                                        "FROM memory_chunks WHERE project=? AND chunk_state='ACTIVE' "
+                                        "ORDER BY importance DESC LIMIT 1",
+                                        (project,)
+                                    ).fetchone()
+                                    _sfr_conn_l.close()
+                                    if _sfr_row_l:
+                                        _sfr_c_l = {"id": _sfr_row_l[0], "summary": _sfr_row_l[1],
+                                                    "content": _sfr_row_l[2], "chunk_type": _sfr_row_l[3] or "",
+                                                    "importance": _sfr_row_l[4] or 0.5,
+                                                    "project": project,
+                                                    "_fallback_protected": True}
+                                        top_k = [(0.001, _sfr_c_l)]
+                                        _lite_rescued = True
+                                        _deferred.log(DMESG_WARN, "retriever",
+                                                      f"iter1852_lite_sparse_floor_rescue: "
+                                                      f"id={_sfr_row_l[0][:12]} imp={_sfr_row_l[4]:.2f}",
+                                                      session_id=session_id, project=project)
+                                except Exception:
+                                    pass
+                            if not _lite_rescued:
+                                top_k = []
                             _deferred.log(DMESG_INFO, "retriever",
-                                          f"iter1843_lite_floor_gate_allbelow: all {len(top_k)} "
-                                          f"below floor={_sf_lite}, clearing",
+                                          f"iter1843_lite_floor_gate_allbelow: all below "
+                                          f"floor={_sf_lite}, rescued={_lite_rescued}",
                                           session_id=session_id, project=project)
-                            top_k = []
 
                     # iter1372: final_monopoly_gate (LITE path) — 同 FULL 路径
                     # iter1464: global_dc_7d_monopoly — sync LITE path
