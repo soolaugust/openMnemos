@@ -7234,6 +7234,45 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
             if _ocg_filtered_d:
                 top_k = _ocg_filtered_d
 
+        # ── iter1845: session_dedup_daemon — sync retriever.py iter359/1844 ──
+        # 根因（数据驱动，2026-05-15）：daemon 主路径(LITE+FULL top_k 输出)缺少 session dedup，
+        #   同一 chunk 在同 session 内可被无限次注入（constraint 通道有 cap=2，主路径无保护）。
+        #   retriever.py 9641-9659 有完整 session dedup（iter1844 统一 1× 阈值）。
+        # 修复：从 .last_session_injections.json 加载计数，>= threshold 的 chunk 从 top_k 移除。
+        _sd_threshold = sysctl("retriever.session_dedup_threshold") or 2
+        if _sd_threshold > 0 and top_k:
+            try:
+                _sd_path = os.path.join(MEMORY_OS_DIR, ".last_session_injections.json")
+                _sd_counts = {}
+                if os.path.exists(_sd_path):
+                    with open(_sd_path, encoding="utf-8") as _sdf:
+                        _sd_data = json.loads(_sdf.read())
+                        if _sd_data.get("session_id") == session_id:
+                            from datetime import datetime as _dt_sd, timezone as _tz_sd, timedelta as _td_sd
+                            _sd_decay_cutoff = (_dt_sd.now(_tz_sd.utc) - _td_sd(hours=6)).isoformat()
+                            _sd_ts_map = _sd_data.get("inj_ts", {})
+                            for _sd_cid, _sd_cnt in _sd_data.get("counts", {}).items():
+                                _sd_ts = _sd_ts_map.get(_sd_cid, "")
+                                if _sd_ts and _sd_ts < _sd_decay_cutoff:
+                                    continue
+                                _sd_counts[_sd_cid] = _sd_cnt
+                if _sd_counts:
+                    _sd_filtered = [(s, c) for s, c in top_k
+                                    if _sd_counts.get(c[_CI_ID], 0) < _sd_threshold]
+                    if _sd_filtered:
+                        if len(_sd_filtered) < len(top_k):
+                            _deferred.log(DMESG_DEBUG, "retriever_daemon",
+                                          f"iter1845_session_dedup: {len(top_k)}->{len(_sd_filtered)}",
+                                          session_id=session_id, project=project)
+                        top_k = _sd_filtered
+                    else:
+                        top_k = []
+            except Exception:
+                pass
+        if not top_k:
+            conn.close()
+            return
+
         # ── Build context text ──
         # iter1743: final_chunk_id_dedup (daemon FULL path)
         _seen_dd_df = {}
