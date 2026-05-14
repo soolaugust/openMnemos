@@ -916,17 +916,26 @@ def audit_empty_recall_rate(conn: sqlite3.Connection, fix: bool = False) -> Asse
     阈值：每个有 >=3 traces 的项目空召回率应 < 50%。
     iter1864: 窗口 7d→14d, 最低 trace 数 5→3。数据驱动：7d 内最活跃项目仅 8 条 trace，
       低活跃项目 <5 条完全跳过检查 → 空召回率异常无法被捕获。14d+3 覆盖更多项目。
+    iter1869: active_project_only — 只检查最近 3d 有活动的项目。
+      数据驱动（2026-05-15）：3 个项目 14d 空召回 >=50% 但全部在 iter1852 修复前发生，
+      修复后 0 次空召回。死项目的历史数据持续误报 → 噪声化警报。
+      3d 窗口确保：(1) 只评估正在使用的项目；(2) 代码修复后 3d 内自动清除假阳性。
     """
     r = AssertionResult("empty_recall_rate", "assumption")
     t0 = time.time()
     try:
+        cutoff_14d = (datetime.now(timezone.utc) - timedelta(days=14)).isoformat()
+        cutoff_3d = (datetime.now(timezone.utc) - timedelta(days=3)).isoformat()
         rows = conn.execute(
             "SELECT project, "
             "  COUNT(*) as total, "
             "  SUM(CASE WHEN injected=0 AND reason NOT LIKE '%same_hash%' THEN 1 ELSE 0 END) as empty "
             "FROM recall_traces "
-            "WHERE timestamp > datetime('now', '-14 days') "
-            "GROUP BY project HAVING total >= 3"
+            "WHERE timestamp > ? "
+            "  AND project IN (SELECT DISTINCT project FROM recall_traces "
+            "                   WHERE timestamp > ?) "
+            "GROUP BY project HAVING total >= 3",
+            (cutoff_14d, cutoff_3d)
         ).fetchall()
         if not rows:
             r.passed = True
