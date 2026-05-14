@@ -5407,6 +5407,14 @@ def main():
                 # iter1512: sync iter1507 small_db_score_floor_relax — <50 库 0.12→0.08
                 # iter1541: sync tiny_db_score_floor_relax — <20 库 0.08→0.05
                 _sf_hd = 0.05 if _db_chunk_count < 20 else (0.08 if _db_chunk_count < 50 else 0.12)
+                # iter1854: hd_sparse_floor_cap — HD 路径对齐 FULL/LITE sparse cap
+                # 根因（数据驱动，2026-05-15）：git:78dc99a5695f(1 local, _local_sparse=True)
+                #   FULL(iter1685) 和 LITE(iter1852) 路径 sparse floor cap=0.05，
+                #   HD 路径缺失 → _db_chunk_count>=50 时 floor=0.12 → 本地 chunk BM25<0.12 被拦截。
+                #   iter1529 HD rescue 仅覆盖 floor_gate 全灭，不覆盖 floor 过高导致的过滤。
+                # 修复：HD 路径同步 sparse cap，确保三路径 floor 一致。
+                if _local_sparse and _local_chunk_count > 0 and _sf_hd > 0.05:
+                    _sf_hd = 0.05
                 # iter1607: sync iter1602 — HD 路径 local=0 floor 对齐
                 if _local_chunk_count == 0 and _sf_hd < 0.25:
                     _sf_hd = 0.25
