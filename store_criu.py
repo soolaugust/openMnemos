@@ -335,7 +335,8 @@ def checkpoint_collect_hits(conn: sqlite3.Connection, project: str,
 
 def chunk_recall_counts(conn: 'sqlite3.Connection', project: str,
                         window: int = 30,
-                        session_id: str = "") -> dict:
+                        session_id: str = "",
+                        max_days: int = 14) -> dict:
     """
     统计每个 chunk 在最近 window 条 injected=1 traces 中被选入 top_k 的次数。
     迭代312：新增 session_id 参数（保留兼容旧接口）。
@@ -346,12 +347,16 @@ def chunk_recall_counts(conn: 'sqlite3.Connection', project: str,
       iter596-601 已在 scoring+constraint 两路径加 hard_gate，不再需要靠膨胀 rc
       来触发拦截。回退为只统计真正注入的 trace，让被拦截的 chunk 自然衰减。
         统计"冷热"不能只看成功的 page access，还要算被 TLB cached 拦截的访问。
+    iter1786：rc_time_bound — 条数窗口 + 时间窗口(14d)取交集。
+      低频项目 window=30 跨越数周，过期注入持续压制 chunk → RFD 永久衰减。
+      加 max_days 确保统计窗口不超过 14 天，低频项目 rc 自然归零。
 
     Args:
         conn: 数据库连接
         project: 项目 ID
         window: 回溯的 trace 条数（默认 30）
         session_id: 当前 session ID（保留参数，不影响全局计数）
+        max_days: 时间窗口上限天数（默认 14）
 
     Returns:
         dict: {chunk_id: recall_count}  ← 全局计数（兼容旧接口）
@@ -362,11 +367,13 @@ def chunk_recall_counts(conn: 'sqlite3.Connection', project: str,
         # 根因：60% injected trace 的 top_k_json 为空数组（无 chunk 达到注入阈值），
         #   空 trace 占据 LIMIT 窗口但不贡献任何 chunk 计数，导致有效窗口缩水。
         #   例：LIMIT 30 中只有 12 条非空 → 分子最大只能到 12，分母却是 30。
+        # iter1786: rc_time_bound — 加 14d 时间约束，防止低频项目窗口跨越数周。
         cur = conn.execute(
             "SELECT top_k_json FROM recall_traces "
             "WHERE project=? AND top_k_json IS NOT NULL AND top_k_json != '[]' AND injected=1 "
+            "AND timestamp > datetime('now', '-' || ? || ' days') "
             "ORDER BY rowid DESC LIMIT ?",
-            (project, window)
+            (project, max_days, window)
         )
         counts = {}
         for (top_k_json,) in cur.fetchall():
