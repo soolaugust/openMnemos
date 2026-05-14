@@ -5182,6 +5182,27 @@ def main():
                 #   FULL 路径已在 iter916 修复（cap 空→None→db_ultimate_fallback）。
                 # 修复：hard_deadline 对齐——cap 空时不选，让 iter677/db_fallback 接管。
                 _fb_hd_pool = _fb_hd_cap if _fb_hd_cap else None
+                # iter1818: hd_nonsparse_wipeout_rescue — HD 路径对齐 FULL iter1772
+                # 数据驱动（2026-05-14）：30天 76 次空召回(56%)，LITE 路径占 60%+。
+                #   git:a4ee2fcfacc4(cands=59) 密集 session 中所有候选 7d 超 ceiling，
+                #   sparse_fallback_uncap 不覆盖非 sparse 项目 → 全灭。
+                #   FULL 路径 iter1772 已兜底(nonsparse_wipeout_rescue)，HD 缺失对齐。
+                # 修复：_fb_hd_pool=None + non-sparse + local>=3 时，
+                #   从 _pre_suppress_top_k_hd 选 session 未注入 + ac 最低的本地 chunk。
+                if not _fb_hd_pool and not _local_sparse and _local_chunk_count >= 3:
+                    _nswr_hd_cands = [(s, c) for s, c in _pre_suppress_top_k_hd
+                                      if c.get("project", "") == project
+                                      and _session_injection_counts.get(c.get("id", ""), 0) == 0]
+                    if _nswr_hd_cands:
+                        _nswr_hd_best = max(_nswr_hd_cands,
+                                            key=lambda x: x[0] / (1 + len(_injection_timeline.get(x[1].get("id", ""), []))))
+                        _nswr_hd_best[1]["_fallback_protected"] = True
+                        _fb_hd_pool = [_nswr_hd_best]
+                        _deferred.log(DMESG_WARN, "retriever",
+                                      f"iter1818_hd_nonsparse_wipeout_rescue: "
+                                      f"id={_nswr_hd_best[1].get('id','')[:12]} "
+                                      f"ac={_nswr_hd_best[1].get('access_count',0)}",
+                                      session_id=session_id, project=project)
                 # iter939: fallback_relevance_floor — hard_deadline 路径同步
                 # iter940: floor_raise — 0.05→0.10 对齐 dead_zone_min/gap_bridge_floor
                 #   数据驱动（2026-05-06）：PE chunk score=0.071 逃逸 0.05 floor，24h 被注入 5 次。
