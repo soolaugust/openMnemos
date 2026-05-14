@@ -6277,7 +6277,8 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 if _csd_row and _csd_row[0] not in {c[_CI_ID] for _, c in top_k}:
                     _csd_chunk = (_csd_row[0], _csd_row[1], _csd_row[2],
                                   _csd_row[4] or 0.5, None, _csd_row[3] or "",
-                                  _csd_row[5] or 0) + (None,) * 6
+                                  _csd_row[5] or 0, None, None, None,
+                                  project, None, None)
                     _csd_score = float(_csd_row[4] or 0.5)
                     if top_k:
                         _csd_worst = min(range(len(top_k)), key=lambda i: top_k[i][0])

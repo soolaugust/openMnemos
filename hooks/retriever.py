@@ -6812,7 +6812,8 @@ def main():
                             _cs_chunk = {"id": _cs_id, "summary": _cs_r[1],
                                          "chunk_type": _cs_r[2], "importance": _cs_r[3],
                                          "tags": _cs_r[4], "content": _cs_r[5],
-                                         "access_count": 0, "_cold_probe": True}
+                                         "access_count": 0, "project": project,
+                                         "_cold_probe": True}
                             _cold_candidates = [(float(_cs_r[3] or 0), _cs_chunk)]
                             break
                     except Exception:
