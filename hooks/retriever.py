@@ -2672,9 +2672,15 @@ def main():
             #   知识已经"淡出"工作记忆，score 折扣 × 0.55
             #   使其只在 FTS5 强命中（高 relevance）时才能出现在 top-K 中
             # 豁免：design_constraint（约束不受遗忘影响）
+            # iter1809: never_injected_forgetting_exempt — 从未注入的 chunk 豁免 soft_forgetting
+            # 数据驱动（2026-05-14）：58c70136(ac=0,ret=0.15,imp=0.85) 边界值，ret 自然衰减
+            #   到 0.14 后 *0.55 叠加 exploration_boost *2.0 = net *1.1，几乎无提权效果。
+            #   从未注入 = 用户从未见过该知识，"遗忘"假设不成立。豁免后 exploration_boost 全效。
             _ret = float(chunk.get("retrievability") or 1.0)
+            _chunk_never_injected = not _injection_timeline.get(chunk.get("id", ""))
             if (_ret < 0.15
-                    and chunk.get("chunk_type") != "design_constraint"):
+                    and chunk.get("chunk_type") != "design_constraint"
+                    and not _chunk_never_injected):
                 score *= 0.55
 
             # ── iter1303: thin_content_hard_suppress — content==summary 极短碎片硬拦截 ──
