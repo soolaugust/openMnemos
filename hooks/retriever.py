@@ -2770,20 +2770,10 @@ def main():
             #   72h cooldown 对日活 tiny_db 项目过长，用户换话题后回来需要同一知识时被挡。
             # 修复：tiny_db(<50) 项目中 non-global chunk cooldown floor 3→5，
             #   ac=3-4 不受 cooldown 限制（仍有 6h/24h/7d burst suppress 兜底）。
-            _cd_acc_floor = 5 if _tiny_db and not _cd_is_global else 3
-            # iter1075: cooldown_cross_project_sync — micro_db bypass 不保护跨项目 chunk
-            # 根因（数据驱动，2026-05-07）：9a2692fd(ac=10,proj=git:a0ab16e8cafc) 在
-            #   abspath:7e3095aef7a6(cands=5,micro_db) 被注入，cooldown 被 micro_db bypass 跳过。
-            #   与 iter1049 同理：micro_db 保护本项目唯一知识，跨项目 chunk 不应享受此免疫。
             _cd_chunk_proj = chunk.get("project", "")
             _cd_is_cross_project = _cd_chunk_proj != "" and _cd_chunk_proj != project
-            # iter1083: global_cooldown_floor_fix — global chunk cooldown 不受 ac_floor 限制
-            # 根因（数据驱动，2026-05-07）：iter1079 意图"global chunk 统一 5d 无论 ac"，
-            #   但 L2465 前提 _acc>=_cd_acc_floor(=4) 使 ac<4 的 global chunk 跳过 cooldown。
-            #   import-d(ac=2,"元能力复用") 5/7 被注入，9d07bb29(ac=3,"用户偏好") 无 cooldown。
-            #   global chunk 全是 design_constraint/procedure，agent 已内化，应无条件 cooldown。
-            # 修复：global chunk 绕过 _cd_acc_floor 检查，对齐 iter1079 意图。
             _cd_is_global = _cd_chunk_proj == "global"
+            _cd_acc_floor = 5 if _tiny_db and not _cd_is_global else 3
             # iter1313: sparse_cooldown_shield — local_sparse 本地 chunk 跳过 cooldown
             # 根因（数据驱动，2026-05-09）：58c70136(ac=8,local) 在 git:78dc99a5695f(2 local)
             #   被 cooldown suppress，_local_sparse=True 但 cooldown 路径未对齐 iter1200。
@@ -5310,6 +5300,7 @@ def main():
                                         return True
                             return False
                         # iter1669: omf_fallback_protect (HD path sync)
+                        _fallback_protected_ids = {c.get("id", "") for _, c in top_k if c.get("_fallback_protected")}
                         _omf_filt_hd = [(s, c) for s, c in top_k
                                         if c.get("id", "") in _fallback_protected_ids
                                         or (_recent_7d_counts.get(c.get("id", ""), 0) < _omf_hd_ceil(c)
@@ -9598,6 +9589,7 @@ def main():
                             return True
                 return False
             # iter1669: omf_fallback_protect — fallback 恢复的 chunk 不被 omf 二次清空
+            _fallback_protected_ids = {c.get("id", "") for _, c in top_k if c.get("_fallback_protected")}
             _omf_filtered = [(s, c) for s, c in top_k
                              if c.get("id", "") in _fallback_protected_ids
                              or (_local_sparse and c.get("project", "") == project)
