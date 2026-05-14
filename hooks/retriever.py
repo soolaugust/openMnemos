@@ -2632,7 +2632,12 @@ def main():
             #   ac=3,rc=3→0.625  ac=3,rc=4→0.526  ac=3,rc=6→0.400
             if _rfd_rc >= 2 and _rfd_ac >= 3:
                 # iter1783: small_db_rfd_steepen — <50 库衰减斜率 0.3→0.6
-                _rfd_slope = 0.6 if _db_chunk_count < 50 else 0.3
+                # iter1861: micro_db_rfd_relax — <30 库回退斜率 0.6→0.25
+                # 根因（数据驱动，2026-05-15）：24-chunk 库 rc_total=52，fair_share=4.2%，
+                #   rc=5 的 chunk RFD=0.217 + BPP=0.01 → 总衰减 0.002x 等效 hard suppress。
+                #   10/16 高价值 chunk(ac>=5) 被实质封杀 → 56% 空召回率。
+                #   <30 库 chunk 少，每个 chunk 被频繁召回是正常现象而非垄断。
+                _rfd_slope = 0.25 if _db_chunk_count < 30 else (0.6 if _db_chunk_count < 50 else 0.3)
                 _rfd_ac_boost = 1.5 if _rfd_ac >= 5 else 1.0
                 _rfd_mult = 1.0 / (1.0 + _rfd_slope * (_rfd_rc - 1) * _rfd_ac_boost)
                 # iter1784: rfd_floor_clamp — 衰减不低于 score_floor 防 floor_gate 误杀
@@ -2675,9 +2680,14 @@ def main():
                     # 数据驱动（2026-05-14）：BPP hard suppress 在 _score_chunk 内清零,
                     #   chunk 不进 _pre_suppress_top_k → fallback 无法恢复 → 全灭空召回。
                     #   改为 *0.01：有候选时被 score_floor 过滤让位，全灭时 fallback 可恢复。
-                    if _share_ratio >= 1.5 and _rfd_ac >= 5:
+                    # iter1861: bpp_micro_db_relax — <30 库提高 ratio 门槛
+                    # 根因（数据驱动，2026-05-15）：24-chunk 库 fair_share=4.2%，rc=5 → ratio=2.3x，
+                    #   5/16 个 ac>=5 chunk 被 *0.01 实质封杀。小库中 ratio>1.5 是统计常态非垄断。
+                    _bpp_ratio_ac5 = 2.5 if _db_chunk_count < 30 else 1.5
+                    _bpp_ratio_ac4 = 3.0 if _db_chunk_count < 30 else 2.0
+                    if _share_ratio >= _bpp_ratio_ac5 and _rfd_ac >= 5:
                         score *= 0.01
-                    elif _share_ratio >= 2.0 and _rfd_ac >= 4:
+                    elif _share_ratio >= _bpp_ratio_ac4 and _rfd_ac >= 4:
                         _hard_suppressed = True
                     elif _share_ratio > 1.5:
                         _bpp_mult = 1.0 / (1.0 + 1.2 * (_share_ratio - 1.5))
