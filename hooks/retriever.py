@@ -4369,6 +4369,14 @@ def main():
             #   可将 _min_thresh 降到 0.10，而 focus_bonus 等 += 操作可能将 0.0 抬到
             #   0.00009 级别，恰好通过极低 threshold。绝对零分门槛不可绕过。
             positive = [(s, c) for s, c in final if s >= _min_thresh and s > 0]
+            # iter1781: saturated_lowscore_gate — ac>=4 且 score<0.05 的 chunk 无注入价值
+            # 根因（数据驱动，2026-05-14）：62 trace 中 "feishu CLI"(score=0.01,ac=5) 和
+            #   "git SOB"(score=0.01,ac=5) 因 tiny_db threshold=0.10 放行，占 50% 注入位。
+            #   已内化知识(ac>=4) 在极低相关性时纯属噪声，不如不注入。
+            _slg_thresh = 0.05
+            _slg_before = len(positive)
+            positive = [(s, c) for s, c in positive
+                        if s >= _slg_thresh or (c.get("access_count") or 0) < 4]
             # iter1245: cross_project_relevance_floor — 跨项目 chunk 最低 score 门槛
             # 根因（数据驱动，2026-05-09）：global "memory 验证路径"(score=0.148) 注入 kernel 项目，
             #   "飞书 CLI"(0.193) 注入无关项目。低 score 跨项目 chunk 仅因本地候选不足被填充。
@@ -6036,6 +6044,10 @@ def main():
                                       session_id=session_id, project=project)
         # iter620: zero_score_absolute_gate (FULL path) — 同 hard_deadline 路径
         positive = [(s, c) for s, c in final if s >= _min_thresh and s > 0]
+        # iter1781: saturated_lowscore_gate (FULL path sync)
+        _slg_thresh_f = 0.05
+        positive = [(s, c) for s, c in positive
+                    if s >= _slg_thresh_f or (c.get("access_count") or 0) < 4]
         # iter1245: cross_project_relevance_floor (FULL path sync)
         # iter1246: sparse_cross_project_floor_relax (FULL path sync)
         # iter1368: sparse_cross_floor_tighten (FULL path sync)
