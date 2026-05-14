@@ -2501,6 +2501,9 @@ def main():
                     # iter861: small_db_bw_tighten — <50 收紧 0.25→0.15
                     # iter1642: small_db_hardcap_tighten — <50 收紧 0.15→0.10 (rc>3 即 suppress)
                     _ee_hard_cap = 1.0 if _db_chunk_count <= 5 else (0.10 if _db_chunk_count < 50 else 0.12)
+                # iter1777: saturated_hardcap_tighten (early exit path)
+                if _ee_hard_cap <= 0.10 and (chunk.get("access_count") or 0) >= 4:
+                    _ee_hard_cap = 0.08
                 if _rc_ee > 0 and _rc_ee / _local_bw_window > _ee_hard_cap:
                     return 0.0
                 # iter617: early exit 也必须检查 24h_burst_suppression
@@ -2995,6 +2998,14 @@ def main():
                     #   根因（数据驱动，2026-05-13）：37-chunk 库 hard_cap=0.15 → rc>4.5 才 suppress，
                     #   最垄断 chunk rc=4/30=0.133 刚好逃逸。收紧到 0.10 → rc>3 即 hard suppress。
                     _hard_cap_val = 0.10 if _db_chunk_count < 50 else 0.12
+                # iter1777: saturated_hardcap_tighten — ac>=4 已内化 chunk 收紧 0.10→0.08
+                #   根因（数据驱动，2026-05-14）：21-chunk 库中 feishu CLI(ac=5,rc=3)
+                #   和 git commit(ac=5,rc=3) util=3/30=0.10 恰好等于 hard_cap=0.10，
+                #   不满足 >0.10 → 逃逸 suppress。ac>=4 已内化知识信息增量≈0。
+                #   收紧到 0.08：rc>=3 时 util=0.10>0.08 → hard suppress。
+                #   新知识(ac<4)保持 0.10 不受影响。
+                if _hard_cap_val <= 0.10 and _acc is not None and _acc >= 4:
+                    _hard_cap_val = 0.08
                 _hard_util = _rc / _local_bw_window
                 if _hard_util > _hard_cap_val:
                     score = 0.0  # iter601: hard gate
