@@ -2649,15 +2649,20 @@ def main():
                     # 数据驱动（2026-05-14）：top chunk ratio=2.18 旧 penalty=0.92 近乎无效,
                     #   rc=7 chunk 持续垄断注入位。收紧曲线让 ratio>1.5 即显著衰减。
                     # 效果：ratio=2.18 → penalty=1/(1+1.2*0.68)=0.55（旧=0.92）
-                    # iter1804: bpp_hard_suppress — ratio>=2.5 + ac>=4 升级 hard suppress
-                    # 数据驱动（2026-05-14）：penalty=0.39 的 chunk 若 BM25 base=0.4 仍得
-                    #   0.156 可胜出。ac>=4 已内化，ratio>=2.5 占 >2.5x 公平份额，信息增量=0。
-                    #   当前最垄断 chunk ratio=2.78(inj=7/84)，penalty=0.39 不够→hard suppress。
-                    if _share_ratio >= 2.5 and _acc is not None and _acc >= 4:
+                    # iter1806: bpp_hard_suppress_lower — ratio>=2.0 + ac>=4 升级 hard suppress
+                    # 数据驱动（2026-05-14）：rc=7 ratio=2.25 逃逸旧门槛 2.5，soft penalty
+                    #   0.53× 在 27-chunk 小库中仍胜出（候选不足）。降至 2.0 覆盖 ratio=2.25。
+                    if _share_ratio >= 2.0 and _acc is not None and _acc >= 4:
                         _hard_suppressed = True
                     elif _share_ratio > 1.5:
                         _bpp_mult = 1.0 / (1.0 + 1.2 * (_share_ratio - 1.5))
                         score *= _bpp_mult
+                # iter1806: absolute_recall_cap — ac>=5 + rc>=4 无条件 hard suppress
+                # 数据驱动（2026-05-14）：rc=5,ratio=1.61 的 5 个 chunk penalty 仅 0.89×，
+                #   在小库中仍轮流垄断注入位。ac>=5 表示已见 5+ 次，rc>=4 表示已注入 4+ 次，
+                #   信息增量趋零。不依赖 ratio（受 rc_total 稀释），直接按绝对值 suppress。
+                if not _hard_suppressed and _rfd_rc >= 4 and _rfd_ac >= 5:
+                    _hard_suppressed = True
 
             # ── iter369: Soft Forgetting — Ebbinghaus 遗忘曲线阈值 ──────────
             # OS 类比：DAMON cold page candidate — 低访问频率页面降低换入优先级
