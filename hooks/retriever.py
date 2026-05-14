@@ -2606,11 +2606,11 @@ def main():
             #   平滑衰减让低频 chunk 自然胜出，不触发 fallback。
             _rfd_rc = _recall_counts.get(chunk.get("id", ""), 0)
             _rfd_ac = chunk.get("access_count", 0) or 0
-            # iter1787: rfd_ac_boost — ac 维度加速衰减 + 门槛 rc>=3→2
-            # 数据驱动（2026-05-14）：ac=5+rc=3 衰减仅 0.625，ac=5+rc=4 衰减 0.45，
-            #   高 ac chunk 衰减后分数仍胜出低频 chunk。rc>=2 开始衰减+ac boost：
-            #   ac=5,rc=3→0.50  ac=5,rc=4→0.36  ac=4,rc=3→0.625（不变）
-            if _rfd_rc >= 2 and _rfd_ac >= 4:
+            # iter1788: rfd_ac_floor_lower — ac 门槛 4→3 防 ac=3 高频逃逸
+            # 数据驱动（2026-05-14）：PE barrier(ac=3,rc=6) 逃逸 RFD，7d 内注入 6 次。
+            #   ac=3 表明 agent 已见过 3 次，第 4+ 次注入信息增量低。
+            #   ac=3,rc=3→0.625  ac=3,rc=4→0.526  ac=3,rc=6→0.400
+            if _rfd_rc >= 2 and _rfd_ac >= 3:
                 # iter1783: small_db_rfd_steepen — <50 库衰减斜率 0.3→0.6
                 _rfd_slope = 0.6 if _db_chunk_count < 50 else 0.3
                 _rfd_ac_boost = 1.5 if _rfd_ac >= 5 else 1.0
