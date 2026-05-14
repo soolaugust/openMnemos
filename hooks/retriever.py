@@ -6543,12 +6543,14 @@ def main():
         #   根因（数据驱动，2026-05-06）：31-chunk 库 15 个 7d>=3 被 suppress_final_gate 拦截，
         #   但 fallback_pair 不检查 7d/24h → 垄断 chunk 经 pair 路径重新注入。
         _fb_pair_7d_ceiling = 7 if _db_chunk_count < 50 else (6 if _db_chunk_count < 100 else 6)  # iter1521: tiny 5→7 sync
+        # iter1800: pair_freshness_cap — pair 补充上下文优先低频未内化 chunk
+        _fb_pair_ac_cap = max(4, _db_chunk_count // 6)
         if len(positive) == 1 and len(final) >= 3:
             _fb_pair_top1_id = positive[0][1].get("id", "")
             # iter1166: fallback_cooldown_align — sync FULL fallback_pair
             _fb_pair_cands = [(float(c.get("importance", 0) or 0), c) for _, c in final
                               if c.get("id") != _fb_pair_top1_id
-                              and (c.get("access_count", 0) or 0) < 30
+                              and (c.get("access_count", 0) or 0) < _fb_pair_ac_cap
                               and _session_injection_counts.get(c.get("id", ""), 0) < _pair_dedup_thresh
                               and _recent_7d_counts.get(c.get("id", ""), 0) < _fb_pair_7d_ceiling
                               # iter1027: fallback_24h_align — global ac>=4 阈值=1
@@ -7810,9 +7812,13 @@ def main():
             #   降到 0.10 时 positive 可能已有多条（低分但 >0.10）导致 len(positive)!=1。
             # 修复：final_gate 后最终兜底——从 final 按 importance 选非 top1 chunk 配对。
             _ps842_top1_id = top_k[0][1].get("id", "")
+            # iter1800: pair_freshness_cap — pair 补充上下文应优先低频未内化 chunk
+            # 数据驱动（2026-05-14）：pair 注入 top3 全为 ac>=4 已内化知识（git commit/memory验证/PE），
+            #   按 importance DESC 选中，零信息增量。ac<4（median+1）确保 pair 注入新鲜知识。
+            _pair_ac_cap = max(4, _db_chunk_count // 6)
             _ps842_cands = [(float(c.get("importance", 0) or 0), c) for _, c in final
                             if c.get("id") != _ps842_top1_id
-                            and (c.get("access_count", 0) or 0) < 30
+                            and (c.get("access_count", 0) or 0) < _pair_ac_cap
                             and _session_injection_counts.get(c.get("id", ""), 0) < _pair_dedup_thresh
                             and _pair_suppress_ok(c.get("id", ""), 0.0, ac=c.get("access_count", 0) or 0)]
             if _ps842_cands:
@@ -7843,12 +7849,14 @@ def main():
                 #   chunk_type != top1_type 排除过半候选 → 配对失败。
                 _dp895_exclude = f"'{_dp895_top1_id}'"
                 # iter1371: pair_global_include — 包含 global chunk（同步 iter868）
+                # iter1800: pair_freshness_cap — pair 补充上下文优先低频未内化 chunk
+                _dp895_ac_cap = max(4, _db_chunk_count // 6)
                 _dp895_rows = conn.execute(
                     f"SELECT id, summary, content, chunk_type, importance, access_count "
                     f"FROM memory_chunks WHERE (project=? OR project='global') AND chunk_state='ACTIVE' "
-                    f"AND id NOT IN ({_dp895_exclude}) "
+                    f"AND id NOT IN ({_dp895_exclude}) AND access_count < ? "
                     f"ORDER BY importance DESC, access_count ASC LIMIT 5",
-                    (project,)
+                    (project, _dp895_ac_cap)
                 ).fetchall()
                 # 过滤 7d 过高的候选
                 _dp895_7d = _rt663_7d if '_rt663_7d' in dir() and _rt663_7d else _recent_7d_counts
