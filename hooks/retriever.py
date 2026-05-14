@@ -2482,6 +2482,45 @@ def main():
                 except Exception:
                     pass
 
+        # iter1868: never_injected_local_inject — 从未注入的本地 chunk 强制进入候选池
+        # 根因（数据驱动，2026-05-15）：git:a0ab16e8cafc(16 local) 中 sem_c4531bbd(ac=1,imp=0.85)
+        #   和 import-b1d88(ac=2,imp=0.82) 从未被注入。FTS5 关键词不匹配（prompt 不含
+        #   "mtk_active_load_balance"/"Patch 发送"等术语）→ 永远无法进入候选池。
+        #   iter1600 仅对 _local_sparse 项目生效，非 sparse 项目的 FTS miss chunk 无补救。
+        #   exploration_boost(2.0x) 只对已在候选中的 chunk 生效，此处 chunk 根本不在候选中。
+        # 修复：FTS 有结果时，检查是否包含从未注入的本地 chunk；缺失则补入 1 条
+        #   ac 最低+importance 最高的。给 fts_rank=min_rank*0.8 参与正常竞争。
+        #   不限 _local_sparse，所有项目均生效。与 iter1600 互补（iter1600 管 sparse miss，
+        #   此处管 non-sparse 中的 never-injected miss）。
+        if use_fts and fts_results and not _local_sparse:
+            try:
+                _nili_fts_ids = [r.get("id") for r in fts_results if r.get("id")]
+                _nili_ph = ",".join("?" for _ in _nili_fts_ids)
+                _nili_row = conn.execute(
+                    "SELECT id, summary, content, chunk_type, importance, "
+                    "COALESCE(access_count,0), created_at, COALESCE(lru_gen,0), project "
+                    f"FROM memory_chunks WHERE project=? AND chunk_state='ACTIVE' "
+                    f"AND id NOT IN ({_nili_ph}) "
+                    "ORDER BY access_count ASC, importance DESC LIMIT 1",
+                    [project] + _nili_fts_ids
+                ).fetchone()
+                if _nili_row and not _injection_timeline.get(_nili_row[0]):
+                    _nili_min_rank = min((r.get("fts_rank", 1.0) for r in fts_results), default=1.0)
+                    _nili_chunk = {
+                        "id": _nili_row[0], "summary": _nili_row[1], "content": _nili_row[2],
+                        "chunk_type": _nili_row[3] or "", "importance": _nili_row[4] or 0.5,
+                        "access_count": _nili_row[5], "created_at": _nili_row[6],
+                        "lru_gen": _nili_row[7], "project": _nili_row[8] or project,
+                        "fts_rank": _nili_min_rank * 0.8,
+                    }
+                    fts_results.append(_nili_chunk)
+                    _deferred.log(DMESG_DEBUG, "retriever",
+                                  f"iter1868_never_injected_local_inject: "
+                                  f"id={_nili_row[0][:12]} imp={_nili_row[4]:.2f} ac={_nili_row[5]}",
+                                  session_id=session_id, project=project)
+            except Exception:
+                pass
+
         # iter1612: topic_mismatch_discount — query 内容词集合，用于同项目话题偏移检测
         _query_content_words = set()
         try:
