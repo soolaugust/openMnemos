@@ -2719,9 +2719,15 @@ def main():
             #   从未注入 = 用户从未见过该知识，"遗忘"假设不成立。豁免后 exploration_boost 全效。
             _ret = float(chunk.get("retrievability") or 1.0)
             _chunk_never_injected = not _injection_timeline.get(chunk.get("id", ""))
+            # iter1866: high_importance_forgetting_exempt — imp>=0.85 豁免 soft_forgetting
+            # 数据驱动（2026-05-15）：9d07bb29(用户偏好,ac=1,rtv=0.00,imp=0.88) 被 *0.55
+            #   惩罚后排名低于同 relevance 的低 importance chunk。
+            #   高重要性知识价值不随遗忘曲线衰减，与 design_constraint 同理。
+            _chunk_high_importance = (float(chunk.get("importance") or 0) >= 0.85)
             if (_ret < 0.15
                     and chunk.get("chunk_type") != "design_constraint"
-                    and not _chunk_never_injected):
+                    and not _chunk_never_injected
+                    and not _chunk_high_importance):
                 score *= 0.55
 
             # ── iter1303: thin_content_hard_suppress — content==summary 极短碎片硬拦截 ──
@@ -9417,7 +9423,11 @@ def main():
                         and s < _SAT_FLOOR_EFF))
                 if _sat_hit:
                     # iter1566: saturated_floor_strip_fallback — 阻止 saturated chunk 经 _fallback_protected 逃逸 floor_gate
-                    c.pop("_fallback_protected", None)
+                    # iter1866: sat_floor_sparse_local_preserve — sparse 项目本地 chunk 保留 protected
+                    #   数据驱动（2026-05-15）：git:78dc99a5695f(1 local) sat_floor strip + floor_gate
+                    #   全灭 → 100% 空召回。sparse 本地 chunk 是唯一知识源，保留标记让 rescue 路径生效。
+                    if not (_local_sparse and c.get("project") == project):
+                        c.pop("_fallback_protected", None)
                     return (0.0, c)
                 return (s, c)
             top_k = [_sat_floor_apply(s, c) for s, c in top_k]
