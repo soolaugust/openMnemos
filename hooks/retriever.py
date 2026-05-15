@@ -8183,11 +8183,12 @@ def main():
                 # iter1800: pair_freshness_cap — pair 补充上下文优先低频未内化 chunk
                 # iter1801: pair_ac_cap_widen — 同步 line 6547
                 _dp895_ac_cap = max(5, _db_chunk_count // 5)
+                # iter1879: pair_freshness_first — 优先低 AC 新鲜知识曝光
                 _dp895_rows = conn.execute(
                     f"SELECT id, summary, content, chunk_type, importance, access_count "
                     f"FROM memory_chunks WHERE (project=? OR project='global') AND chunk_state='ACTIVE' "
                     f"AND id NOT IN ({_dp895_exclude}) AND access_count < ? "
-                    f"ORDER BY importance DESC, access_count ASC LIMIT 5",
+                    f"ORDER BY access_count ASC, importance DESC LIMIT 5",  # iter1879
                     (project, _dp895_ac_cap)
                 ).fetchall()
                 # 过滤 7d 过高的候选
@@ -8569,7 +8570,7 @@ def main():
                     f"SELECT id, summary, content, chunk_type, importance, access_count "
                     f"FROM memory_chunks WHERE project=? AND chunk_state='ACTIVE' "
                     f"AND id != ? "
-                    f"ORDER BY importance DESC, access_count ASC LIMIT 5",
+                    f"ORDER BY access_count ASC, importance DESC LIMIT 5",  # iter1879
                     (project, _pf914_top1_id)
                 ).fetchall()
                 _pf914_7d = _rt663_7d if '_rt663_7d' in dir() and _rt663_7d else _recent_7d_counts

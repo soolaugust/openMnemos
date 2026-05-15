@@ -4549,7 +4549,7 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                             "COALESCE(access_count,0), project "
                             "FROM memory_chunks WHERE project=? AND chunk_state='ACTIVE' "
                             "AND importance >= ? "
-                            "ORDER BY importance DESC, access_count ASC LIMIT 5",
+                            "ORDER BY access_count ASC, importance DESC LIMIT 5",
                             (project, _lsr_imp_floor_d)
                         ).fetchall()
                         for _lsr_d in _lsr_rows_d:
@@ -6297,7 +6297,7 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                     f"SELECT id, summary, content, chunk_type, importance, access_count "
                     f"FROM memory_chunks WHERE project=? AND chunk_state='ACTIVE' "
                     f"AND id NOT IN ({_dp895_exclude}) "
-                    f"ORDER BY importance DESC, access_count ASC LIMIT 5",
+                    f"ORDER BY access_count ASC, importance DESC LIMIT 5",
                     (project,)
                 ).fetchall()
                 # iter923: pair_7d_align_final_gate — 对齐 suppress_final_gate 阈值（同 iter914）
@@ -6583,7 +6583,7 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                             "SELECT id, summary, content, chunk_type, importance, "
                             "COALESCE(access_count,0), created_at, 0.0, COALESCE(lru_gen,0), project "
                             f"FROM memory_chunks WHERE (project=? OR project='global') AND chunk_state='ACTIVE'{_ult_where} "
-                            "ORDER BY importance DESC, access_count ASC LIMIT 5",
+                            "ORDER BY access_count ASC, importance DESC LIMIT 5",
                             (project, *_ult_exclude)
                         ).fetchall()
                     if _dbuf_rows:
