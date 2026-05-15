@@ -4798,7 +4798,8 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                                           session_id=session_id, project=project)
             # iter864: diversity_pair_from_db (hard_deadline path)
             # iter943: diversity_pair_7d_suppress — 排除 7d 达阈值的 chunk
-            if len(positive) == 1 and _db_chunk_count < 50:
+            # iter1883: threshold 50→100 (sync retriever.py iter1203)
+            if len(positive) == 1 and _db_chunk_count < 100:
                 _top1_id_hd = positive[0][1][_CI_ID]
                 try:
                     import sqlite3 as _div_sql_hd
@@ -4830,6 +4831,10 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                         # iter1713: diversity_pair_floor_safe — score 保底=floor
                         _div_floor_hd = 0.05 if _db_chunk_count < 20 else (0.08 if _db_chunk_count < 50 else 0.12)
                         positive.append((max(positive[0][0] * 0.25, _div_floor_hd), _div_chunk_hd))
+                        if '_diversity_pair_ids' in dir():
+                            _diversity_pair_ids.add(_div_pick_hd[0])  # iter1883
+                        if '_fallback_protected_ids' in dir():
+                            _fallback_protected_ids.add(_div_pick_hd[0])  # iter1883: survive floor_gate
                         _deferred.log(DMESG_DEBUG, "retriever_daemon",
                                       f"iter864_diversity_pair_hd: db_pick {_div_pick_hd[0][:12]} "
                                       f"imp={_div_pick_hd[4]:.2f} ac={_div_pick_hd[5]}",
@@ -5351,7 +5356,8 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
         # iter864: diversity_pair_from_db — 同步 retriever.py
         # 根因：52% 单条注入，6/20 chunk 从未曝光（FTS 未命中 → 不在 final）。
         # 修复：positive 仍为单条时从 DB 查同 project 低频高 importance chunk 配对。
-        if len(positive) == 1 and _db_chunk_count < 50:
+        # iter1883: threshold 50→100 (sync retriever.py iter1203)
+        if len(positive) == 1 and _db_chunk_count < 100:
             _top1_id_d = positive[0][1][_CI_ID]
             try:
                 import sqlite3 as _div_sql_d
@@ -5388,6 +5394,7 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                     _div_score_d = max(positive[0][0] * 0.25, _div_floor_d)
                     positive.append((_div_score_d, _div_chunk_d))
                     _diversity_pair_ids.add(_div_pick_d[0])  # iter1881
+                    _fallback_protected_ids.add(_div_pick_d[0])  # iter1883: pair must survive floor_gate
                     _deferred.log(DMESG_DEBUG, "retriever_daemon",
                                   f"iter867_diversity_rotation: db_pick {_div_pick_d[0][:12]} "
                                   f"imp={_div_pick_d[4]:.2f} ac={_div_pick_d[5]} idx={_div_idx_d}",
