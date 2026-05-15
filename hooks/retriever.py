@@ -4312,10 +4312,12 @@ def main():
                         for _lsr_row in _lsr_rows:
                             if _recent_6h_counts.get(_lsr_row[0], 0) >= 1:
                                 continue
+                            _lsr_imp = _lsr_row[4] or 0.5
                             _lsr_chunk = {
                                 "id": _lsr_row[0], "summary": _lsr_row[1], "content": _lsr_row[2],
-                                "chunk_type": _lsr_row[3] or "", "importance": _lsr_row[4] or 0.5,
+                                "chunk_type": _lsr_row[3] or "", "importance": _lsr_imp,
                                 "project": project, "access_count": _lsr_row[5],
+                                "fts_rank": _lsr_imp,
                             }
                             fts_results = [_lsr_chunk]
                             use_fts = True
