@@ -6277,6 +6277,8 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 # iter1562: pair_inherit_floor_protect
                 if _ps_top1_id in _fallback_protected_ids:
                     _fallback_protected_ids.add(_ps_best[1][_CI_ID])
+                # iter1887: lite_pair_sat_floor_shield — sync retriever.py
+                _diversity_pair_ids.add(_ps_best[1][_CI_ID])
                 _deferred.log(DMESG_DEBUG, "retriever_daemon",
                               f"iter832_post_suppress_pair: paired {_ps_best[1][_CI_ID][:12]} "
                               f"s={_ps_best[0]:.3f} with top1={_ps_top1_id[:12]}",
@@ -6299,6 +6301,8 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                     # iter1562: pair_inherit_floor_protect — pair 继承 dead_zone 保护
                     if top_k[0][1][_CI_ID] in _fallback_protected_ids:
                         _fallback_protected_ids.add(_ps842_best[1][_CI_ID])
+                    # iter1887: lite_pair_sat_floor_shield — sync retriever.py
+                    _diversity_pair_ids.add(_ps842_best[1][_CI_ID])
                     _deferred.log(DMESG_DEBUG, "retriever_daemon",
                                   f"iter842_pair_from_final: paired {_ps842_best[1][_CI_ID][:12]} "
                                   f"imp={_ps842_best[0]:.2f} with top1={_ps842_top1_id[:12]}",
@@ -6349,6 +6353,8 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                     # iter1562: pair_inherit_floor_protect
                     if _dp895_top1_id in _fallback_protected_ids:
                         _fallback_protected_ids.add(_dp895_pick[0])
+                    # iter1887: lite_pair_sat_floor_shield — sync retriever.py
+                    _diversity_pair_ids.add(_dp895_pick[0])
                     _deferred.log(DMESG_DEBUG, "retriever_daemon",
                                   f"iter895_db_diversity_pair: paired {_dp895_pick[0][:12]} "
                                   f"type={_dp895_pick[3]} imp={_dp895_pick[4]:.2f} "

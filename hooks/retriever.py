@@ -8241,6 +8241,8 @@ def main():
                     _dp895_score = top_k[0][0] * 0.2  # 配对 score 为主条的 20%
                     # iter1812: pair_unconditional_floor_protect — 同步 iter868
                     _dp895_chunk["_fallback_protected"] = True
+                    # iter1887: pair_sat_floor_shield — 同步 iter1881
+                    _dp895_chunk["_diversity_pair"] = True
                     top_k.append((_dp895_score, _dp895_chunk))
                     _deferred.log(DMESG_DEBUG, "retriever",
                                   f"iter895_db_diversity_pair: paired {_dp895_pick[0][:12]} "
@@ -9221,6 +9223,10 @@ def main():
                 # iter1565: pair_inherit_floor_protect_lite — LITE post_suppress_pair 继承 _fallback_protected
                 if top_k[0][1].get("_fallback_protected"):
                     _ps_lite_best[1]["_fallback_protected"] = True
+                # iter1887: lite_pair_sat_floor_shield — 同步 iter1881 防 sat_floor 二杀
+                # 根因（数据驱动，2026-05-15）：LITE pair 有 _fallback_protected 但无 _diversity_pair，
+                #   sat_floor strip protected(line 9504) → floor_gate 二杀 → LITE pair 零生效。
+                _ps_lite_best[1]["_diversity_pair"] = True
                 top_k.append(_ps_lite_best)
                 _deferred.log(DMESG_DEBUG, "retriever",
                               f"iter832_post_suppress_pair_lite: paired "
@@ -9249,6 +9255,8 @@ def main():
                     _ps842_lite_score = top_k[0][0] * 0.25
                     # iter1812: pair_unconditional_floor_protect — 同步 iter868 修复
                     _ps842_lite_best[1]["_fallback_protected"] = True
+                    # iter1887: lite_pair_sat_floor_shield — 同步 iter1881
+                    _ps842_lite_best[1]["_diversity_pair"] = True
                     top_k.append((_ps842_lite_score, _ps842_lite_best[1]))
                     _deferred.log(DMESG_DEBUG, "retriever",
                                   f"iter842_pair_from_final_lite: paired "
@@ -9351,7 +9359,7 @@ def main():
                     _f868_chunk = {"id": _f868_pick[0], "summary": _f868_pick[1],
                                    "content": _f868_pick[2], "chunk_type": _f868_pick[3],
                                    "importance": _f868_pick[4], "access_count": _f868_pick[5],
-                                   "_fallback_protected": True}
+                                   "_fallback_protected": True, "_diversity_pair": True}
                     # iter1812: pair_unconditional_floor_protect — pair 无条件标记防 score_floor_gate 误杀
                     # 根因（数据驱动，2026-05-14）：49% 注入仅 1 条 chunk。iter868 pair score=top1*0.20，
                     #   对 top1=0.30 的情况 pair_score=0.06 < floor=0.10 → pair 被 score_floor_gate 移除。
