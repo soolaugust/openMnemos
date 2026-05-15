@@ -5901,7 +5901,7 @@ def main():
                         context_text = context_text[:effective_max_chars] + "…"
                     # iter1590: post_filter_hash — hash 基于实际注入的 top_k
                     _pf_ids_hd = sorted([c["id"] for _, c in top_k])
-                    _pf_hash_hd = hashlib.md5("|".join(_pf_ids_hd).encode()).hexdigest()[:8] if _pf_ids_hd else current_hash
+                    _pf_hash_hd = hashlib.md5("|".join(_pf_ids_hd).encode()).hexdigest()[:8] if _pf_ids_hd else f"wipeout_{int(_time.time())}"
                     _write_hash(_pf_hash_hd)
                     _mark_session_injected(session_id)  # iter805
                     _tlb_write(prompt_hash, _pf_hash_hd, _get_db_mtime())  # 迭代57: TLB
@@ -10740,7 +10740,16 @@ def main():
         #   修复：用实际注入的 chunk IDs 重算 hash，使 suppress 条件变化（如时间推移、7d 重置）
         #   能自然打破 hash 锁定。
         _post_filter_ids = sorted([c["id"] for _, c in top_k])
-        _post_filter_hash = hashlib.md5("|".join(_post_filter_ids).encode()).hexdigest()[:8] if _post_filter_ids else current_hash
+        # iter1888: suppress_wipeout_volatile_hash — 全灭时写 volatile hash 打破 TLB 死锁
+        # 根因（数据驱动，2026-05-15）：65% skipped_same_hash 为 k=0 全灭空召回。
+        #   全灭时 _post_filter_ids=[] → 回写 current_hash → TLB 下次命中 → exit(0)
+        #   → rotation/diversity_probe 永远无法触发 → suppress 条件变化（7d 重置）无法被发现。
+        # 修复：全灭时写入带秒级时间戳的 volatile hash，确保 TLB 下次不命中，
+        #   让完整检索路径有机会通过 rotation/diversity_probe 发现新候选。
+        if _post_filter_ids:
+            _post_filter_hash = hashlib.md5("|".join(_post_filter_ids).encode()).hexdigest()[:8]
+        else:
+            _post_filter_hash = f"wipeout_{int(_time.time())}"
         _write_hash(_post_filter_hash)
         _mark_session_injected(session_id)  # iter805
         _tlb_write(prompt_hash, _post_filter_hash, _get_db_mtime())  # 迭代57: TLB
