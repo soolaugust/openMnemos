@@ -6652,7 +6652,11 @@ def main():
                     # 根因（数据驱动，2026-05-15）：iter1713 用 _div_floor=0.08(20-49 db)，
                     #   但 FULL _score_floor=0.10(iter1760)。pair score=0.08 < floor=0.10
                     #   → floor_gate 仍清除 pair。加 _fallback_protected 彻底豁免 floor_gate。
-                    _div_floor = 0.05 if _db_chunk_count < 20 else (0.10 if _db_chunk_count < 50 else 0.12)
+                    # iter1886: diversity_pair_floor_sync_small_db — 对齐 iter1884 (<20→<30)
+                    # 根因（数据驱动，2026-05-15）：24-chunk 库 _score_floor=0.05(<30)，
+                    #   但 _div_floor=0.10(<20→20-29 走 0.10)。pair score=max(top1*0.25, 0.10)。
+                    #   虽有 _fallback_protected 绕过 floor_gate，但影响 pair 排序权重。
+                    _div_floor = 0.05 if _db_chunk_count < 30 else (0.10 if _db_chunk_count < 50 else 0.12)
                     _div_score = max(positive[0][0] * 0.25, _div_floor)
                     positive.append((_div_score, _div_chunk))
                     _deferred.log(DMESG_DEBUG, "retriever",

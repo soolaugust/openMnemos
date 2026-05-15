@@ -4829,7 +4829,8 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                                         _div_pick_hd[4], 0, 0, _div_pick_hd[5], None, None, None,
                                         _div_pick_hd[3], None)
                         # iter1713: diversity_pair_floor_safe — score 保底=floor
-                        _div_floor_hd = 0.05 if _db_chunk_count < 20 else (0.08 if _db_chunk_count < 50 else 0.12)
+                        # iter1886: sync diversity_pair_floor_sync_small_db (<20→<30)
+                        _div_floor_hd = 0.05 if _db_chunk_count < 30 else (0.08 if _db_chunk_count < 50 else 0.12)
                         positive.append((max(positive[0][0] * 0.25, _div_floor_hd), _div_chunk_hd))
                         if '_diversity_pair_ids' in dir():
                             _diversity_pair_ids.add(_div_pick_hd[0])  # iter1883
@@ -5391,7 +5392,8 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                                    _div_pick_d[4], 0, 0, _div_pick_d[5], None, None, None,
                                    _div_pick_d[3], None)
                     # iter1713: diversity_pair_floor_safe — score 保底=floor 防 floor_gate 二杀
-                    _div_floor_d = 0.05 if _db_chunk_count < 20 else (0.08 if _db_chunk_count < 50 else 0.12)
+                    # iter1886: sync diversity_pair_floor_sync_small_db (<20→<30)
+                    _div_floor_d = 0.05 if _db_chunk_count < 30 else (0.08 if _db_chunk_count < 50 else 0.12)
                     _div_score_d = max(positive[0][0] * 0.25, _div_floor_d)
                     positive.append((_div_score_d, _div_chunk_d))
                     _diversity_pair_ids.add(_div_pick_d[0])  # iter1881
