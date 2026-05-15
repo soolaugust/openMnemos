@@ -5190,6 +5190,12 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                                 "ftrace_json": _hd_er_ftrace,
                             })
                         else:
+                            # iter1882: hard_deadline 成功注入也写 ftrace
+                            _hd_inj_ftrace = None
+                            if _deferred._buf:
+                                _hd_inj_msgs = [msg for _, _, msg, _, _, _ in _deferred._buf[-5:]]
+                                if _hd_inj_msgs:
+                                    _hd_inj_ftrace = json.dumps(_hd_inj_msgs, ensure_ascii=False)
                             store_insert_trace(wconn, {
                                 "id": str(uuid_mod.uuid4()),
                                 "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -5198,6 +5204,7 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                                 "top_k_json": _hd_top_k, "injected": 1,
                                 "reason": f"hash_changed|{priority.lower()}|hard_deadline",
                                 "duration_ms": duration_ms,
+                                "ftrace_json": _hd_inj_ftrace,
                             })
                         _deferred.flush(wconn)
                         wconn.commit()
@@ -7634,13 +7641,20 @@ def _retriever_main_impl(hook_input: dict, mods: dict,
                 #   原因：suppress 在 _score_chunk 内返回 0 不写 dmesg，fallback 也不触发时无 log。
                 #   关键词过滤仅匹配 6 个词 → 全 miss → ftrace=None → 空召回无法诊断。
                 # 修复：candidates>0 时记录 deferred log 尾部 5 条（任意内容），兜底诊断。
+                # iter1882: daemon_inject_ftrace — 成功注入也写 ftrace（对齐 retriever.py iter1863）
+                # 根因（数据驱动，2026-05-15）：5/12-5/14 共 3 条 daemon injected=1 trace ftrace=NULL，
+                #   无法诊断 pair/diversity/suppress_fallback 决策路径。
+                # 修复：无条件从 _deferred_buf 提取 ftrace（空召回取全部，成功注入取尾部 5 条）。
                 _ftrace_entries = None
-                if not _effective_injected and _deferred_buf:
-                    if _candidates_count > 0:
-                        _ftrace_entries = [msg for _, _, msg, _, _, _ in _deferred_buf[-5:]]
+                if _deferred_buf:
+                    if not _effective_injected:
+                        if _candidates_count > 0:
+                            _ftrace_entries = [msg for _, _, msg, _, _, _ in _deferred_buf[-5:]]
+                        else:
+                            _ftrace_entries = [msg for _, _, msg, _, _, _ in _deferred_buf
+                                               if any(k in msg for k in ("suppress", "fallback", "全灭", "empty", "zero", "thresh"))]
                     else:
-                        _ftrace_entries = [msg for _, _, msg, _, _, _ in _deferred_buf
-                                           if any(k in msg for k in ("suppress", "fallback", "全灭", "empty", "zero", "thresh"))]
+                        _ftrace_entries = [msg for _, _, msg, _, _, _ in _deferred_buf[-5:]]
                     if not _ftrace_entries:
                         _ftrace_entries = None
                 store_insert_trace(_wconn, {
