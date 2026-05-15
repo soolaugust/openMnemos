@@ -261,7 +261,37 @@ def swap_in(conn: sqlite3.Connection, chunk_ids: list) -> dict:
         conn.execute("DELETE FROM swap_chunks WHERE id = ?", (cid,))
         restored += 1
 
+    # iter1893: swap_in_timeline_backfill — 恢复 chunk 时回补 injection_timeline
+    # 根因（数据驱动，2026-05-15）：swap_out 时 timeline 条目被 21d GC 自然清除，
+    #   swap_in 恢复后 timeline 为空 → suppress 6h/24h/7d 计数=0 → 垄断 chunk 逃脱。
+    #   feishu CLI(ac=5,imp=0.95) swap_in 后将以"新 chunk"身份绕过所有 suppress。
+    # 修复：从 recall_traces 回补已恢复 chunk 的 21d 内注入时间戳到 timeline 文件。
     if restored > 0:
+        try:
+            import os
+            from pathlib import Path as _Path1893
+            _mos_dir = _Path1893(os.environ.get("MEMORY_OS_DIR", "")) if os.environ.get("MEMORY_OS_DIR") else _Path1893.home() / ".claude" / "memory-os"
+            _tl_path = _mos_dir / ".injection_timeline.json"
+            _tl = {}
+            if _tl_path.exists():
+                _tl = json.loads(_tl_path.read_text(encoding="utf-8"))
+            _cutoff = (datetime.now(timezone.utc) - __import__('datetime').timedelta(days=21)).isoformat()
+            _patched = 0
+            for cid in chunk_ids:
+                if cid in _tl:
+                    continue
+                _rows = conn.execute(
+                    "SELECT timestamp FROM recall_traces "
+                    "WHERE injected=1 AND timestamp>? AND top_k_json LIKE ?",
+                    (_cutoff, f'%{cid[:12]}%')
+                ).fetchall()
+                if _rows:
+                    _tl[cid] = sorted(set(r[0] for r in _rows))
+                    _patched += 1
+            if _patched > 0:
+                _tl_path.write_text(json.dumps(_tl, ensure_ascii=False), encoding="utf-8")
+        except Exception:
+            pass
         bump_chunk_version()  # 迭代64: TLB v2 — swap in 恢复的 chunk 影响 Top-K
     return {"restored_count": restored, "not_found": not_found}
 
