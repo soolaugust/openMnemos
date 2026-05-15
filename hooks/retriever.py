@@ -6639,13 +6639,18 @@ def main():
                     _div_pick = _div_cands[_div_idx]
                     _div_chunk = {"id": _div_pick[0], "summary": _div_pick[1],
                                   "content": _div_pick[2], "chunk_type": _div_pick[3],
-                                  "importance": _div_pick[4], "access_count": _div_pick[5]}
+                                  "importance": _div_pick[4], "access_count": _div_pick[5],
+                                  "_fallback_protected": True}
                     # iter1713: diversity_pair_floor_safe — score 保底=floor 防 floor_gate 二杀
                     # 根因（数据驱动，2026-05-13）：diversity_pair 从未成功注入(ftrace 0 次)。
                     #   _div_score = top1*0.25，小库 top1~0.3 → pair_score=0.075 < floor=0.08
                     #   → floor_gate 每次清除 pair，diversity_pair 机制完全失效。
                     # 修复：score 取 max(top1*0.25, floor)，确保 pair 不被 floor_gate 误杀。
-                    _div_floor = 0.05 if _db_chunk_count < 20 else (0.08 if _db_chunk_count < 50 else 0.12)
+                    # iter1871: diversity_pair_protected — _fallback_protected + floor 对齐 _score_floor
+                    # 根因（数据驱动，2026-05-15）：iter1713 用 _div_floor=0.08(20-49 db)，
+                    #   但 FULL _score_floor=0.10(iter1760)。pair score=0.08 < floor=0.10
+                    #   → floor_gate 仍清除 pair。加 _fallback_protected 彻底豁免 floor_gate。
+                    _div_floor = 0.05 if _db_chunk_count < 20 else (0.10 if _db_chunk_count < 50 else 0.12)
                     _div_score = max(positive[0][0] * 0.25, _div_floor)
                     positive.append((_div_score, _div_chunk))
                     _deferred.log(DMESG_DEBUG, "retriever",
