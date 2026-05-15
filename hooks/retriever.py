@@ -4745,7 +4745,8 @@ def main():
                                             and (c.get("access_count", 0) or 0) >= _fb_ac_thresh_hd(c))
                                    and _fb_7d_ok_hd(c)]
                     # iter1683: zero_local_dead_zone_fallback_skip (HD) — local=0 跳过
-                    if _sef_hd_imp and _sef_hd_max >= _DEAD_ZONE_MIN and _local_chunk_count > 0:
+                    # iter1878: global_knowledge_fallback — local=0 但库>5 时仍允许 fallback
+                    if _sef_hd_imp and _sef_hd_max >= _DEAD_ZONE_MIN and (_local_chunk_count > 0 or _db_chunk_count > 5):
                         # iter1767: fallback_diversity_rotation — sync FULL path
                         _sef_hd_best = max(_sef_hd_imp, key=lambda x: x[0] / (1 + len(_injection_timeline.get(x[1].get("id", ""), []))))
                         _sef_hd_best[1]["_fallback_protected"] = True
@@ -4767,7 +4768,8 @@ def main():
                     # 修复：条件从 ==0 放宽为 < DEAD_ZONE_MIN，与 iter775 无缝衔接。
                     # iter1623: zero_local_dead_zone_skip (HD) — sync FULL path
                     # iter1734: suppress_wipeout_no_fallback — 全零分(纯suppress)不 fallback
-                    elif _sef_hd_imp and 0 < _sef_hd_max < _DEAD_ZONE_MIN and candidates_count > 0 and _local_chunk_count > 0:
+                    # iter1878: global_knowledge_fallback — sync above
+                    elif _sef_hd_imp and 0 < _sef_hd_max < _DEAD_ZONE_MIN and candidates_count > 0 and (_local_chunk_count > 0 or _db_chunk_count > 5):
                         # iter1767: fallback_diversity_rotation — sync FULL path
                         _sef_hd_best = max(_sef_hd_imp, key=lambda x: x[0] / (1 + len(_injection_timeline.get(x[1].get("id", ""), []))))
                         _sef_hd_best[1]["_fallback_protected"] = True
@@ -6725,7 +6727,8 @@ def main():
                 #   c9accb7b(feishu CLI) → 注入 2 条与 memory-os 开发无关的跨项目噪声。
                 #   iter1623 仅保护 _sef_full_max < DEAD_ZONE_MIN 路径，此处遗漏。
                 # 修复：对齐 iter1623，local=0 跳过此 fallback（所有候选均为跨项目=噪声）。
-                if _sef_by_imp and _sef_full_max >= _DEAD_ZONE_MIN_FULL and _local_chunk_count > 0:
+                # iter1878: global_knowledge_fallback — local=0 但库>5 时仍允许 fallback
+                if _sef_by_imp and _sef_full_max >= _DEAD_ZONE_MIN_FULL and (_local_chunk_count > 0 or _db_chunk_count > 5):
                     # iter1767: fallback_diversity_rotation — 降低高注入次数 chunk 的 fallback 优先级
                     # 根因（数据驱动，2026-05-14）：fallback 永远选 importance 最高的同一 chunk，
                     #   PE LKMM(imp=0.84,lifetime=6x)、migration QE(imp=0.90,lifetime=5x) 垄断 fallback，
@@ -6748,7 +6751,8 @@ def main():
                 # iter776→782: dead_zone_unified_fallback — 统一 [0, DEAD_ZONE_MIN) 兜底
                 # iter1623: zero_local_dead_zone_skip — local=0 跳过（全跨项目=噪声）
                 # iter1734: suppress_wipeout_no_fallback — 全零分(纯suppress)不 fallback
-                elif _sef_by_imp and 0 < _sef_full_max < _DEAD_ZONE_MIN_FULL and candidates_count > 0 and _local_chunk_count > 0:
+                # iter1878: global_knowledge_fallback — sync above
+                elif _sef_by_imp and 0 < _sef_full_max < _DEAD_ZONE_MIN_FULL and candidates_count > 0 and (_local_chunk_count > 0 or _db_chunk_count > 5):
                     # iter1767: fallback_diversity_rotation — sync above
                     _sef_best = max(_sef_by_imp, key=lambda x: x[0] / (1 + len(_injection_timeline.get(x[1].get("id", ""), []))))
                     _sef_best[1]["_fallback_protected"] = True
