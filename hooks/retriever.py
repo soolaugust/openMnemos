@@ -5102,6 +5102,11 @@ def main():
                     # iter1765: saturated_nondc_lifetime_cap — tiny_db ac>=5 non-dc 阈值 8→5
                     if _hd_tiny_db and (c.get("access_count", 0) or 0) >= 5 and c.get("chunk_type") != "design_constraint":
                         _lt_thresh = 5
+                    # iter1894: mid_saturated_lifetime_cap — tiny_db ac>=4+lt>=4 non-dc 阈值 8→6
+                    # 数据驱动（2026-05-15）：4 个 lt=4+ac=4 的 decision/procedure chunk
+                    #   7d 窗口重置后周期性逃逸（_lt_thresh=8）。阈值 8→6 允许再注入 2 次后 suppress。
+                    if _hd_tiny_db and (c.get("access_count", 0) or 0) >= 4 and _lt >= 4 and c.get("chunk_type") != "design_constraint":
+                        _lt_thresh = min(_lt_thresh, 6)
                     # iter1469: global_saturated_lifetime_cap — global ac>=4 在 tiny_db 不享受 8 的放宽
                     # 根因（数据驱动，2026-05-11）：abspath:7e3095aef7a6(47 chunk,tiny_db) 中
                     #   0aff0d67(git commit,ac=4,lt=5) 非 dc 类型，逃逸 _lt_thresh=8。
@@ -7993,6 +7998,9 @@ def main():
                     # iter1765: saturated_nondc_lifetime_cap — sync FULL path
                     if _tiny_db and (c.get("access_count", 0) or 0) >= 5 and c.get("chunk_type") != "design_constraint":
                         _lt_thresh = 5
+                    # iter1894: mid_saturated_lifetime_cap — sync FULL path
+                    if _tiny_db and (c.get("access_count", 0) or 0) >= 4 and _lt >= 4 and c.get("chunk_type") != "design_constraint":
+                        _lt_thresh = min(_lt_thresh, 6)
                     # iter1469: global_saturated_lifetime_cap — sync FULL path
                     if _tiny_db and c.get("project") == "global" and (c.get("access_count", 0) or 0) >= 4:
                         _lt_thresh = 5
