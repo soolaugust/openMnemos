@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to **openMnemos** are recorded here. The project follows
+All notable changes to **0CompactMem** are recorded here. The project follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) conventions and
 [Semantic Versioning](https://semver.org/) with one caveat: until v1.0.0, the
 internal iteration counter (`iterN`) is the more granular changelog. Public
@@ -16,8 +16,8 @@ For day-to-day, per-iteration optimization notes, see
 
 ## [0.1.0] — 2026-05-20
 
-First public-friendly cut. Project renamed from `memory-os` to **openMnemos**
-on 2026-05-19. Public repository: <https://github.com/soolaugust/openMnemos>.
+First public-friendly cut. Project renamed from `memory-os` to **0CompactMem**
+on 2026-05-19. Public repository: <https://github.com/soolaugust/0CompactMem>.
 
 ### Added
 - **Project rename + dual-language READMEs.** English (`README.md`,

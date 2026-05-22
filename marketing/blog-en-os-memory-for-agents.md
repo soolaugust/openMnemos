@@ -2,7 +2,7 @@
 title: "Why your AI agents need OS-style memory management (and not another vector DB)"
 description: "Most LLM memory libraries are vector stores in disguise. The mental model that actually scales — for one agent, and especially for many — is the operating-system memory subsystem. Here's the case for it, and an open-source implementation."
 tags: ["ai", "llm", "agents", "memory"]
-canonical_url: "https://github.com/soolaugust/openMnemos"
+canonical_url: "https://github.com/soolaugust/0CompactMem"
 published: false
 ---
 
@@ -23,7 +23,7 @@ LLM agents are *new* consumers of an *old* problem. We should not invent a new
 abstraction. We should reuse the one that has been battle-tested for decades.
 
 This post argues for that, then walks through how
-[openMnemos](https://github.com/soolaugust/openMnemos) — an open-source memory
+[0CompactMem](https://github.com/soolaugust/0CompactMem) — an open-source memory
 layer — implements the OS analogy concretely.
 
 ---
@@ -128,7 +128,7 @@ up automatically. No syncing protocol, no cache coherence headaches — because
 the underlying store is the single source of truth, exactly like a shared
 filesystem.
 
-This is what `openMnemos` does in practice. It is a single SQLite file. Any
+This is what `0CompactMem` does in practice. It is a single SQLite file. Any
 process that opens it joins the same memory namespace.
 
 ---
@@ -151,9 +151,9 @@ absolutely do.
 
 ---
 
-## What openMnemos actually implements
+## What 0CompactMem actually implements
 
-[openMnemos](https://github.com/soolaugust/openMnemos) (formerly `memory-os`)
+[0CompactMem](https://github.com/soolaugust/0CompactMem) (formerly `memory-os`)
 is a small Python project that wires the OS analogy concretely:
 
 - **Storage**: SQLite (WAL mode), single file, single source of truth.
@@ -186,10 +186,10 @@ Be honest about what OS-style memory is *not*:
 - **Not a managed cloud service.** If you want a SaaS to call from anywhere,
   use mem0 cloud or Zep cloud.
 - **Not a full agent runtime.** If you want LangGraph/Letta-style agents
-  with built-in tool loops, openMnemos is just the memory layer; pair it
+  with built-in tool loops, 0CompactMem is just the memory layer; pair it
   with your runtime of choice.
 - **Not a planet-scale vector DB.** If you have 100M+ chunks, use a real
-  vector DB. openMnemos targets the laptop / single-server regime.
+  vector DB. 0CompactMem targets the laptop / single-server regime.
 
 ---
 
@@ -197,19 +197,19 @@ Be honest about what OS-style memory is *not*:
 
 ```bash
 # In Claude Code
-/install-plugin github:soolaugust/openMnemos
+/install-plugin github:soolaugust/0CompactMem
 ```
 
 ```bash
 # Or manually
-git clone https://github.com/soolaugust/openMnemos
-cd openMnemos
+git clone https://github.com/soolaugust/0CompactMem
+cd 0CompactMem
 pip install -e .
 python init/bootstrap.py
 ```
 
 The README walks through the rest. The
-[`llms.txt`](https://github.com/soolaugust/openMnemos/blob/main/llms.txt) at
+[`llms.txt`](https://github.com/soolaugust/0CompactMem/blob/main/llms.txt) at
 the repo root is a deliberately compact summary if you want to feed it to
 your own model first.
 
@@ -223,5 +223,5 @@ that layer well will steal ideas from operating systems, not from search
 engines. Demand paging > "top-K similar." Pinning > TTL. Watermarks >
 unbounded growth.
 
-If that resonates, [come read the code](https://github.com/soolaugust/openMnemos)
+If that resonates, [come read the code](https://github.com/soolaugust/0CompactMem)
 or open an issue. The interesting work is just starting.

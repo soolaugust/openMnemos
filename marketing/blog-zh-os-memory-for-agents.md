@@ -2,7 +2,7 @@
 
 > 给程序员的一个猜想：未来一年里，"agent memory" 会成为基础设施层。能赢的不会是又一个向量库，而是把操作系统内核里那套 demand paging / kswapd / mlock / kworker 搬过来的人。
 >
-> 本文是这个猜想的论证，附一个 [开源实现 openMnemos](https://github.com/soolaugust/openMnemos)。
+> 本文是这个猜想的论证，附一个 [开源实现 0CompactMem](https://github.com/soolaugust/0CompactMem)。
 
 ## 一句话
 
@@ -90,7 +90,7 @@ OS 风格记忆里：
 
 OS 思路的回答：**一个 store，多个读写者，调度器感知的检索**。两个 agent 看到完全一样的 chunk。一边学到新约束并钉住，另一边自动看到。没有同步协议、没有缓存一致性的烦恼——因为底层就一份事实，跟共享文件系统一样。
 
-[openMnemos](https://github.com/soolaugust/openMnemos) 实际上就是这么做的：一个 SQLite 文件，任何打开它的进程就加入了同一个记忆命名空间。
+[0CompactMem](https://github.com/soolaugust/0CompactMem) 实际上就是这么做的：一个 SQLite 文件，任何打开它的进程就加入了同一个记忆命名空间。
 
 ---
 
@@ -109,9 +109,9 @@ OS 思路的回答：**一个 store，多个读写者，调度器感知的检索
 
 ---
 
-## openMnemos 实际做了什么
+## 0CompactMem 实际做了什么
 
-[openMnemos](https://github.com/soolaugust/openMnemos)（前身是 `memory-os`）是一个小的 Python 项目，把上述 OS 类比落到代码：
+[0CompactMem](https://github.com/soolaugust/0CompactMem)（前身是 `memory-os`）是一个小的 Python 项目，把上述 OS 类比落到代码：
 
 - **存储**：SQLite（WAL），单文件，单一事实源。
 - **检索**：BM25 + 语义混合打分，显式的 `memory_lookup` 原语 = "demand paging"。
@@ -129,8 +129,8 @@ OS 思路的回答：**一个 store，多个读写者，调度器感知的检索
 ## 它不适合什么
 
 - **托管云服务**：要 SaaS 用 mem0 / Zep cloud。
-- **完整的 agent runtime**：要 LangGraph / Letta 那种带工具循环的，openMnemos 只是记忆层，搭配你自己的 runtime。
-- **百万级以上向量库**：100M+ chunk 用真正的向量 DB。openMnemos 瞄准的是笔记本/单机规模。
+- **完整的 agent runtime**：要 LangGraph / Letta 那种带工具循环的，0CompactMem 只是记忆层，搭配你自己的 runtime。
+- **百万级以上向量库**：100M+ chunk 用真正的向量 DB。0CompactMem 瞄准的是笔记本/单机规模。
 
 ---
 
@@ -138,18 +138,18 @@ OS 思路的回答：**一个 store，多个读写者，调度器感知的检索
 
 ```bash
 # Claude Code 里
-/install-plugin github:soolaugust/openMnemos
+/install-plugin github:soolaugust/0CompactMem
 ```
 
 ```bash
 # 或者手动
-git clone https://github.com/soolaugust/openMnemos
-cd openMnemos
+git clone https://github.com/soolaugust/0CompactMem
+cd 0CompactMem
 pip install -e .
 python init/bootstrap.py
 ```
 
-README 里有完整指引。仓库根的 [`llms.txt`](https://github.com/soolaugust/openMnemos/blob/main/llms.txt) 是一个很紧凑的项目摘要，可以喂给你自己的模型先看。
+README 里有完整指引。仓库根的 [`llms.txt`](https://github.com/soolaugust/0CompactMem/blob/main/llms.txt) 是一个很紧凑的项目摘要，可以喂给你自己的模型先看。
 
 ---
 
@@ -157,4 +157,4 @@ README 里有完整指引。仓库根的 [`llms.txt`](https://github.com/soolaug
 
 Agent memory 在 2026 会变成一个真正的基础设施层，就像 90 年代的数据库、2010 年代的消息队列。把这一层做好的团队，会从操作系统里偷思路，而不是从搜索引擎。Demand paging > "top-K 相似"。Pin > TTL。水位线 > 无限增长。
 
-如果这套思路打动了你，[来看看代码](https://github.com/soolaugust/openMnemos) 或开个 issue。有意思的工作才刚开始。
+如果这套思路打动了你，[来看看代码](https://github.com/soolaugust/0CompactMem) 或开个 issue。有意思的工作才刚开始。

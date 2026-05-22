@@ -6,43 +6,48 @@ Submission link: https://news.ycombinator.com/submit
 
 Primary:
 
-> Show HN: openMnemos – kernel-grade persistent memory for LLM agents
+> Show HN: 0CompactMem – never lose context to compaction again (Claude Code)
 
-Backup (more catchy, less technical):
+Backup (more technical):
 
-> Show HN: Memory for AI agents, modeled on the Linux memory subsystem
+> Show HN: 0CompactMem – OS memory management for LLM agents (zero compaction)
 
-> Show HN: We built LLM memory by stealing kswapd, mlock, and demand paging
+> Show HN: I eliminated Claude Code's context compaction with kswapd and mlock
 
 ## URL
 
-https://github.com/soolaugust/openMnemos
+https://github.com/soolaugust/0CompactMem
 
 ## First comment (post immediately after submitting; HN expects this)
 
 > Hi HN — author here.
 >
-> openMnemos is a memory layer for LLM agents. The bet is that the right mental
-> model for agent memory is the operating-system memory subsystem (RAM ↔ context,
-> disk ↔ knowledge base, demand paging, kswapd-style eviction, mlock pinning,
-> CRIU-style session checkpoints), not "another vector database."
+> If you use Claude Code (or any long-session LLM tool), you've seen this:
 >
-> Concretely it ships as:
+>     ⚠️ Auto-compact: conversation is approaching context limit...
 >
->   - A single SQLite file (WAL mode). No service to run.
->   - An MCP server, so Claude Code / Cursor / custom agents pick up
->     `memory_lookup`, `pin_memory`, `unpin_memory`, `memory_stats` as tools.
->   - Multi-agent: any process opening the file joins the same memory.
->   - Hard / soft pinning: hard pins survive every reclaim path.
+> At that point, your AI loses decisions, constraints, and context you spent
+> hours building up. Next session? Start from zero. Multiple agents? Each
+> re-learns everything independently.
+>
+> 0CompactMem fixes this by giving agents persistent memory that lives
+> *outside* the context window. When compaction happens, nothing meaningful
+> is lost — because the important stuff was already persisted.
+>
+> The design bet: treat agent memory as an OS memory-management problem, not
+> a vector-search problem. Concretely:
+>
+>   - Single SQLite file (WAL mode). No service to run.
+>   - MCP server: Claude Code / Cursor / custom agents get `memory_lookup`,
+>     `pin_memory`, `unpin_memory`, `memory_stats` as native tools.
+>   - Hard / soft pinning (mlock semantics): pin a constraint, guarantee it
+>     survives every reclaim path — including compaction.
 >   - kswapd-style watermarks + DAMON-inspired access tracking for eviction.
+>   - Multi-agent shared: any process opening the file joins the same memory.
 >   - 3,500+ tests; ~1,050 internal tuning iterations.
 >
-> Why I built it: every new conversation with an AI assistant starts from zero,
-> and multi-agent setups have no shared state. That's not a model limitation,
-> it's a missing infrastructure layer. Treating "memory" like a search index
-> only solves the easy half of the problem; the hard half is reclaiming under
-> pressure and guaranteeing certain knowledge is never evicted. OS engineers
-> solved that 30 years ago, and the algorithms transfer cleanly.
+> Why "0CompactMem": the "0" means zero — zero effective compaction. Your
+> critical knowledge is always there, even when the context window resets.
 >
 > Honest caveats:
 >
@@ -50,8 +55,8 @@ https://github.com/soolaugust/openMnemos
 >   - Not a managed cloud service. If you want SaaS, mem0/Zep cloud are good.
 >   - Public release is v0.1.0; APIs may shift before v1.0.
 >
-> Happy to dig into eviction policy, SQLite-vs-vector-DB choices, multi-agent
-> coherence, or the OS analogy itself. Roast away.
+> Happy to dig into the zero-compact guarantee, eviction policy,
+> SQLite-vs-vector-DB choices, or the OS analogy. Roast away.
 
 ## Posting checklist
 

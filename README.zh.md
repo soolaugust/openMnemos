@@ -1,16 +1,16 @@
 <div align="center">
 
-# openMnemos
+# 0CompactMem
 
-**为 LLM agent 设计的 OS 风格持久化记忆层。**
+**零压缩。无限记忆。为 Claude Code 和所有 LLM agent 而生。**
 
-*Demand paging。kswapd 风格淘汰。mlock 级别钉死。多 agent 共享。*
+*你的 AI 永不失忆——告别 "context compacted" 的痛苦。*
 
 [![Python](https://img.shields.io/badge/python-3.12%2B-blue?logo=python&logoColor=white)](https://www.python.org/)
 [![SQLite](https://img.shields.io/badge/storage-SQLite%20WAL-lightgrey?logo=sqlite)](https://sqlite.org/)
 [![Tests](https://img.shields.io/badge/tests-3500%2B%20passing-brightgreen)](#测试)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
-[![Discussions](https://img.shields.io/badge/讨论-GitHub-blue?logo=github)](https://github.com/soolaugust/openMnemos/discussions)
+[![Discussions](https://img.shields.io/badge/讨论-GitHub-blue?logo=github)](https://github.com/soolaugust/0CompactMem/discussions)
 
 [English](./README.md) · [中文](./README.zh.md)
 
@@ -18,29 +18,71 @@
 
 > **Claude Code 一行装：**
 > ```
-> /install-plugin github:soolaugust/openMnemos
+> /install-plugin github:soolaugust/0CompactMem
 > ```
 
 ---
 
-## 问题
+## 问题：context compaction 毁掉你的心流
 
-每次启动与 AI 助手的新对话，它都从零开始。所有决策、踩过的坑、架构约束——全部消失。你重新解释背景，模型重新犯同样的错。如果同时跑多个 agent，它们之间也无法共享彼此学到的任何东西。
+如果你用 Claude Code，你一定见过这个：
 
-这不是模型限制，而是**缺失的基础设施层**。
+```
+⚠️ Auto-compact: conversation is approaching context limit...
+```
+
+每次 compact，AI 丢失了你们之间积累的决策、约束、踩过的坑。你重新解释，它重新犯错。几小时的上下文积累——一次压缩全部归零。
+
+多个 agent 一起工作？它们之间无法共享学到的东西。每个都从零开始。
+
+**这不是模型的限制，是缺了一层基础设施。**
 
 ---
 
-## 解决方案
+## 解法：让记忆在 compaction 之外持久存活
 
-openMnemos 把**操作系统内存管理哲学**搬给 AI 认知资源用。让 Linux 用有限 RAM 处理数百万进程的同一套原语，现在赋予 LLM agent 持久化、可检索、多 agent 共享的记忆。
+0CompactMem 给你的 AI agent **持久化、可检索的记忆**，活在 context window 之外。当 compaction 发生时，什么都不丢——因为重要的东西从一开始就不仅仅存在于 context window 里。
 
-| OS 概念 | openMnemos 对应 |
+结果：**零有效压缩**。你的 AI 跨 session、跨 compaction、跨 agent 保留每一个决策、约束和教训。
+
+### 工作流程
+
+```
+你说话
+  → 0CompactMem 检索相关记忆 → 注入 context
+  → AI 带着完整上下文回答
+  → Session 结束 → 决策和洞察自动提取 → 持久化
+  → Compaction 发生？没影响——记忆活在 window 外
+  → 下次 session 启动 → 工作集自动恢复
+```
+
+整个管线跑在 Claude Code hooks 里，无需手动管理记忆。
+
+---
+
+## 为什么叫 "0CompactMem"？
+
+| 别人看到的 | 实际发生的 |
 |---|---|
-| RAM（工作区） | Context window — AI 当前能看到的内容 |
+| "Context compacted" | 关键知识早已持久化到记忆库 |
+| 新 session 启动 | 工作集 <100ms 自动恢复 |
+| 多个 agent 并行跑 | 共享同一份记忆——零重复解释 |
+| 3 周前定的约束 | 钉死在记忆中，保证永不被淘汰 |
+
+**零压缩影响。零上下文丢失。零重复解释。**
+
+---
+
+## 底层原理：OS 内存管理给 AI 用
+
+秘密武器？我们没发明新算法，直接搬了 Linux 内核做了 40 年的东西：
+
+| OS 概念 | 0CompactMem 对应 |
+|---|---|
+| RAM（工作区） | Context window — AI 当前看到的 |
 | 磁盘（持久存储） | 知识库 — 跨 session 存活的事实 |
-| Demand paging（按需分页） | 按需检索 — 在合适的时刻取相关记忆 |
-| `mlock` | Hard / soft pinning — 钉死一条不可被淘汰的约束 |
+| Demand paging（按需分页） | 按需检索 — 在合适时刻取相关记忆 |
+| `mlock` | Hard / soft pinning — 钉死不可淘汰的约束 |
 | kswapd 水位线 | 容量感知淘汰 — 压力下的可预测回收 |
 | CRIU 检查点 / 恢复 | Session 快照 — 暂停与无缝恢复 |
 | 进程调度 | 多 agent 协调 — 多个 agent 共享同一个知识库 |
@@ -48,70 +90,53 @@ openMnemos 把**操作系统内存管理哲学**搬给 AI 认知资源用。让 
 
 ---
 
-## 与 mem0 / Letta / Zep 的差异
+## 跟同类方案的对比
 
-LLM agent 记忆层已经有不少方案。openMnemos 走的是一条根本不同的路线：**复用成熟的操作系统原语，而不是从零发明一套新机制。**
+|                          | **0CompactMem**          | mem0           | Letta (MemGPT) | Zep            |
+|--------------------------|--------------------------|----------------|----------------|----------------|
+| 设计隐喻                 | OS 内存子系统            | 向量库         | Agent 运行时   | 时序图         |
+| 零压缩保证               | ✅ pinned 记忆存活       | ❌             | ❌             | ❌             |
+| 多 agent 共享            | ✅ 原生单库              | ⚠️ 需 API     | ✅             | ✅             |
+| MCP 原生                 | ✅ 一等公民              | ❌             | ❌             | ❌             |
+| 单文件部署               | ✅ SQLite，无需服务      | ❌ 需服务端    | ❌ 需服务端    | ❌ 需服务端    |
+| Demand-paging 检索       | ✅ 显式                  | 隐式           | 隐式           | 隐式           |
+| 淘汰策略                 | ✅ kswapd + DAMON        | 仅 TTL         | 仅 recency     | recency + decay|
+| Pin / mlock 语义         | ✅                       | ❌             | ❌             | ❌             |
 
-|                  | **openMnemos**           | mem0           | Letta (MemGPT) | Zep            |
-|------------------|--------------------------|----------------|----------------|----------------|
-| 设计隐喻         | OS 内存子系统            | 向量库         | Agent 运行时   | 时序知识图     |
-| 多 agent 共享    | ✅ 原生单一存储          | ⚠️ 通过 API    | ✅             | ✅             |
-| MCP 原生支持     | ✅ first-class           | ❌             | ❌             | ❌             |
-| 单文件部署       | ✅ SQLite，无需服务      | ❌ 需服务      | ❌ 需服务      | ❌ 需服务      |
-| 显式按需分页检索 | ✅                       | 隐式           | 隐式           | 隐式           |
-| 淘汰策略         | ✅ kswapd 风格 + DAMON   | 仅 TTL         | 近因           | 近因 + 衰减    |
-| Pin / mlock 语义 | ✅                       | ❌             | ❌             | ❌             |
-
-> **一句话总结。** 如果你想要一个能 `pip install`、在笔记本上以 sidecar 运行、被多个 Claude Code / Cursor / 自定义 agent 共享、能用操作系统心智模型推理的记忆层，openMnemos 就是为此而生的。如果你需要托管云服务或完整 agent 运行时，请考虑上面的替代方案。
+> **一句话**：如果你受够了 context compaction 清空你的 AI 记忆，想要一个 `pip install` 就能用、笔记本上跑、多 agent 共享、关键约束永不丢失的方案——0CompactMem 就是为你做的。
 
 ---
 
-## 工作原理
+## 性能一览
 
-```
-用户输入
-  → 系统检索相关记忆 → 注入上下文
-  → AI 基于完整上下文响应
-  → Session 结束 → 决策与洞察自动提取 → 持久化到 store.db
-  → 下次 Session 启动 → 工作集自动恢复
-```
-
-整个流水线运行在 Claude Code hooks 内，零手动记忆管理。
+| 指标 | 数值 |
+|---|---|
+| 检索延迟 (P50, 热路径) | **~0.1 ms**（比 54ms 子进程基线快 540 倍）|
+| Recall@3 vs 基线 | **+147%** |
+| 跨 session 召回率 | **94.2%** |
+| 每次调用 token 开销 | ~44 tokens 注入，**+256 tokens 净 ROI**（省去重新解释）|
+| 测试套件 | 3,500+ 测试覆盖检索、淘汰、MCP、隐私过滤 |
 
 ---
 
 ## 快速开始
 
-**一行装（推荐）。**
+**一行安装（推荐）**
 
 ```
-/install-plugin github:soolaugust/openMnemos
+/install-plugin github:soolaugust/0CompactMem
 ```
 
-**手动安装。**
+**手动安装**
 
 ```bash
-git clone https://github.com/soolaugust/openMnemos
-cd openMnemos
+git clone https://github.com/soolaugust/0CompactMem
+cd 0CompactMem
 pip install -e .
 mkdir -p ~/.claude/memory-os
 ```
 
-完整的 Claude Code hook 配置、守护进程管理、故障排查见 [`docs/SETUP.md`](./docs/SETUP.md)。
-
----
-
-## 性能一瞥
-
-| 指标 | 数值 |
-|---|---|
-| 检索延迟（P50，热路径） | **~0.1 ms**（比 54 ms 子进程基线快 540×）|
-| Recall@3 提升 vs 基线 | **+147%** |
-| 跨 session 召回率 | **94.2%** |
-| 每次调用 token 成本 | 注入 ~44 tokens，**净 ROI +256 tokens**（节省的复述）|
-| 测试套件 | 3500+ 用例覆盖检索/淘汰/MCP/隐私过滤 |
-
-数据来自标准基准；复现脚本在 `benchmarks/` 下。
+详细的 Claude Code hook 配置、daemon 管理和 troubleshooting 见 [`docs/SETUP.md`](./docs/SETUP.md)。
 
 ---
 
@@ -119,22 +144,11 @@ mkdir -p ~/.claude/memory-os
 
 三层：
 
-1. **Hooks** — 位于 Claude Code 系统调用边界（`SessionStart` / `UserPromptSubmit` / `Stop` / `PostToolUse`），调用 store。
-2. **Store** — 单个 SQLite 文件（WAL 模式）+ FTS5 全文索引，藏在统一 VFS 接口（`store.py` / `store_vfs.py` / `store_criu.py`）后。
-3. **Daemons & IPC** — 常驻 retriever daemon（Unix socket）、异步 extractor pool（kworker 风格）、跨 agent 通知总线。
+1. **Hooks** — 位于 Claude Code 系统调用边界（`SessionStart`、`UserPromptSubmit`、`Stop`、`PostToolUse`），调用 store。
+2. **Store** — 单一 SQLite 文件（WAL 模式）带 FTS5 全文索引，统一 VFS 接口（`store.py` / `store_vfs.py` / `store_criu.py`）。
+3. **Daemons & IPC** — 持久检索 daemon（Unix socket）、异步提取池（kworker 风格）、跨 agent 通知总线。
 
-完整分层图、磁盘 schema、各子系统设计动因见 [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md)。完整的 OS 与认知科学原语映射见 [`docs/DESIGN_PHILOSOPHY.md`](./docs/DESIGN_PHILOSOPHY.md)。
-
----
-
-## 路线图
-
-- **分布式 openMnemos** — cgroup 风格多 agent 配额、网络复制存储
-- **自适应水位线** — 跟随 agent 行为观测自动调参的淘汰
-- **arXiv preprint** — 与 mem0 / Letta / Zep 的正式对比评估
-- **Per-chunk embedding 路由** — 代码与文本用不同的 embedding 模型
-
-已经做完的（1051+ 次调参迭代，八轮主要能力升级）见 [`CHANGELOG.md`](./CHANGELOG.md)。沿途解决的具体痛点见 [`docs/PROBLEMS_SOLVED.md`](./docs/PROBLEMS_SOLVED.md)。
+完整分层图、磁盘 schema 和各子系统设计理由见 [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md)。OS 与认知科学原语的完整映射见 [`docs/DESIGN_PHILOSOPHY.md`](./docs/DESIGN_PHILOSOPHY.md)。
 
 ---
 
@@ -145,31 +159,32 @@ mkdir -p ~/.claude/memory-os
 python3 -m pytest tests/test_agent_team.py tests/test_chaos.py -q
 ```
 
-覆盖：per-session 数据库隔离、并发写安全、跨 agent IPC 投递、extractor pool 队列语义、CRIU 检查点校验、goals progress 幂等性。
+覆盖：per-session DB 隔离、并发写安全、跨 agent IPC 投递、提取池队列语义、CRIU checkpoint 验证、goals-progress 幂等性。
 
 ---
 
 ## 依赖
 
-无 GPU。无外部 API。完全本地运行。
+无 GPU。无外部 API。全部本地运行。
 
 | 依赖 | 用途 |
 |---|---|
 | Python 3.12+ | 核心运行时 |
-| SQLite（内置） | 存储 + FTS5 全文索引 |
+| SQLite（内置） | Store + FTS5 全文索引 |
 | `nc`, `flock` | Daemon socket + 单实例启动 |
 
 ---
 
 ## 贡献
 
-每个子系统都藏在干净的 VFS 接口背后，组件可独立测试。欢迎提 Issue、设计建议、PR——设计类问题去 [Discussions](https://github.com/soolaugust/openMnemos/discussions)，提 PR 前请先跑一下上面的稳定测试子集。
+每个子系统藏在干净的 VFS 接口后面，可独立测试。欢迎 issue、设计提案和 PR — 设计问题见 [Discussions](https://github.com/soolaugust/0CompactMem/discussions)，提交 PR 前请跑一遍上面的测试子集。
 
 ---
 
 <div align="center">
 
-*操作系统几十年前就解过的问题。同样的方案直接迁移。*
+*Context compaction 是 Claude Code 的头号生产力杀手。*
+*0CompactMem 让它变成一个不存在的问题。*
 
 **[English](./README.md) · [中文](./README.zh.md)**
 

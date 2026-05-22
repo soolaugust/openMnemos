@@ -1,6 +1,6 @@
 # arXiv preprint — outline
 
-**Working title:** *openMnemos: An Operating-System Approach to Persistent Memory for LLM Agents*
+**Working title:** *0CompactMem: An Operating-System Approach to Persistent Memory for LLM Agents*
 
 **Target category:** cs.AI (primary) · cs.OS (cross-list)
 
@@ -24,21 +24,21 @@ cognitive memory subsystem from a search index. Specifically, it lacks
 back-pressure under capacity, explicit pinning of non-negotiable knowledge,
 and a coherent multi-agent sharing model.
 
-We propose **openMnemos**, a memory layer for LLM agents that adopts
+We propose **0CompactMem**, a memory layer for LLM agents that adopts
 operating-system memory-management primitives directly. We map demand paging
 to on-demand retrieval, kswapd-style watermarks to capacity-aware eviction,
 DAMON-inspired access tracking to working-set estimation, `mlock` to
 hard/soft pin semantics, and CRIU to session checkpoint/restore. The system
 is implemented as a single SQLite file with an MCP-native interface.
 
-We evaluate openMnemos on (i) a multi-session retention benchmark adapted
+We evaluate 0CompactMem on (i) a multi-session retention benchmark adapted
 from LongMemEval, (ii) a multi-agent shared-knowledge scenario, and
 (iii) eviction-under-pressure workloads. We report retrieval quality,
 constraint-survival rate, and memory-pressure behavior, and discuss the
 trade-offs of an OS-style design.
 
 The implementation is open source (MIT) at
-<https://github.com/soolaugust/openMnemos>.
+<https://github.com/soolaugust/0CompactMem>.
 
 ---
 
@@ -51,7 +51,7 @@ The implementation is open source (MIT) at
 - Contributions:
   1. An OS-primitive taxonomy for agent memory (demand paging, kswapd, mlock,
      DAMON, CRIU, kworker).
-  2. An open-source reference implementation (openMnemos).
+  2. An open-source reference implementation (0CompactMem).
   3. Empirical evaluation on retention, multi-agent sharing, and
      eviction-under-pressure.
 
@@ -64,7 +64,7 @@ The implementation is open source (MIT) at
   retrieval/RAG vs framing as resource management.
 
 ### 3. Design (≈2 pages)
-- 3.1 Mapping table (OS concept ↔ openMnemos primitive).
+- 3.1 Mapping table (OS concept ↔ 0CompactMem primitive).
 - 3.2 Storage layer: single SQLite file, WAL mode, multi-process safety.
 - 3.3 Retrieval as demand paging: BM25 + semantic, scored, on-demand.
 - 3.4 Eviction: watermarks, hot/cold tiering, pair-saturation diversity.
@@ -101,9 +101,9 @@ The implementation is open source (MIT) at
 - Threats to validity: benchmark coverage, simulator vs real-agent behavior.
 
 ### 7. Future Work (≈0.5 page)
-- Distributed openMnemos: a "cgroup"-like layer for agent quotas.
+- Distributed 0CompactMem: a "cgroup"-like layer for agent quotas.
 - Adaptive watermarks based on observed agent behavior.
-- Cross-store federation (multiple openMnemos files, one logical view).
+- Cross-store federation (multiple 0CompactMem files, one logical view).
 
 ### 8. Conclusion (≈0.25 page)
 

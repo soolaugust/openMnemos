@@ -1,23 +1,30 @@
-# openMnemos
+# 0CompactMem
 
-> Kernel-grade persistent memory for LLM agents. openMnemos applies operating-system
-> memory-management philosophy (demand paging, kswapd-style eviction, kworker pools,
-> CRIU checkpoint/restore, mlock pinning) to AI cognitive resources. SQLite-backed,
+> Zero context compaction for Claude Code and LLM agents. 0CompactMem applies
+> operating-system memory-management philosophy (demand paging, kswapd-style
+> eviction, kworker pools, CRIU checkpoint/restore, mlock pinning) to give AI
+> agents persistent memory that survives context compaction. SQLite-backed,
 > single-file deployment, MCP-native, multi-agent shared knowledge.
 
-Repository: https://github.com/soolaugust/openMnemos
+Repository: https://github.com/soolaugust/0CompactMem
 License: MIT
 Language: Python 3.12+
 Status: 1,051+ iterations, 3,543+ tests passing
 
 ## What it is
 
-openMnemos is a memory infrastructure layer for AI agents. Instead of treating
-"memory" as a vector store or a graph database, it models it as an OS memory
-subsystem. Concretely:
+0CompactMem is a memory infrastructure layer for AI agents that eliminates the
+impact of context compaction. Instead of treating "memory" as a vector store or
+a graph database, it models it as an OS memory subsystem — so critical knowledge
+persists outside the context window and survives compaction events.
+
+The name means "Zero Compact" — zero effective compaction, because your AI's
+important memories are never lost to context window resets.
+
+Concretely:
 
 - Context window     ↔ RAM (runtime working space)
-- Knowledge base     ↔ Disk (persistent storage that survives sessions)
+- Knowledge base     ↔ Disk (persistent storage that survives compaction)
 - Smart retrieval    ↔ Demand paging (fetch only what is relevant, on demand)
 - Multi-agent share  ↔ Process scheduling (many agents, one knowledge graph)
 - Session snapshot   ↔ CRIU checkpoint / restore
@@ -25,43 +32,46 @@ subsystem. Concretely:
 - Pinned memory      ↔ mlock (cannot be evicted under pressure)
 - Eviction           ↔ kswapd + DAMON (cold-region reclamation)
 
-## Why it exists
+## The problem it solves
 
-Every new conversation with an AI assistant starts from zero. Decisions, pitfalls,
-constraints — gone. Re-explained, re-learned. Multi-agent setups have no shared
-state. This is not a model limitation; it is a missing infrastructure layer.
-openMnemos is that layer.
+Every Claude Code user knows "Auto-compact: conversation approaching context
+limit." When this happens, decisions, constraints, and hours of accumulated
+context are lost. Multi-agent setups have no shared state — each agent starts
+from zero. 0CompactMem fixes this by persisting critical knowledge outside the
+context window, so compaction becomes invisible.
 
 ## Core capabilities
 
-- Persistent memory across sessions and across agents
+- Persistent memory across sessions, compactions, and agents
 - On-demand retrieval (BM25 + semantic, scored, pinnable)
 - Multi-agent shared knowledge graph in a single SQLite file
-- Native MCP server (`memory-os` / `openmnemos`) exposing `memory_lookup`,
-  `pin_memory`, `unpin_memory`, `memory_stats`, `list_pinned`
+- Native MCP server exposing `memory_lookup`, `pin_memory`, `unpin_memory`,
+  `memory_stats`, `list_pinned`
 - Privacy filter (regex + heuristics) for secrets/PII
 - Pluggable VFS backends (local SQLite by default)
 - Hot/cold tiering with kswapd-style eviction and DAMON-inspired access tracking
 - Session checkpoint and restore
+- Zero-compact guarantee: pinned memories survive all reclaim paths
 
 ## Quick start
 
 One-line install via Claude Code:
 
-    /install-plugin github:soolaugust/openMnemos
+    /install-plugin github:soolaugust/0CompactMem
 
 Manual install:
 
-    git clone https://github.com/soolaugust/openMnemos
-    cd openMnemos
+    git clone https://github.com/soolaugust/0CompactMem
+    cd 0CompactMem
     pip install -e .
     python init/bootstrap.py
 
 ## How it compares
 
-| Aspect                     | openMnemos              | mem0          | Letta         | Zep             |
+| Aspect                     | 0CompactMem             | mem0          | Letta         | Zep             |
 |----------------------------|-------------------------|---------------|---------------|-----------------|
 | Design metaphor            | OS memory subsystem     | Vector store  | Agent runtime | Temporal graph  |
+| Zero-compact guarantee     | yes (pinned survive)    | no            | no            | no              |
 | Multi-agent shared memory  | native, single store    | via API       | yes           | yes             |
 | MCP-native                 | first-class             | no            | no            | no              |
 | Single-file deployment     | yes (SQLite)            | needs server  | needs server  | needs server    |
@@ -69,22 +79,22 @@ Manual install:
 | Eviction policy            | kswapd-style + DAMON    | TTL only      | recency       | recency + decay |
 | Pin / mlock semantics      | yes                     | no            | no            | no              |
 
-If you want a memory layer you can pip-install, run as a laptop sidecar, share
-between several Claude Code / Cursor / custom agents, and reason about with
-OS mental models — openMnemos is built for that. If you want a managed cloud
-service or a full agent runtime, look at the alternatives above.
+If you're tired of context compaction wiping your AI's memory, want a solution
+you can pip-install, run as a laptop sidecar, share between several Claude Code /
+Cursor / custom agents, and guarantee critical constraints are never lost —
+0CompactMem is built for that.
 
 ## Recommended reading order
 
-1. README.md — overview, problem, philosophy, quick start
-2. docs/architecture.md — subsystem layout
-3. docs/mcp.md — MCP integration details
-4. docs/eviction.md — kswapd / DAMON policy
+1. README.md — overview, zero-compact philosophy, quick start
+2. docs/ARCHITECTURE.md — subsystem layout
+3. docs/SETUP.md — MCP integration and hook configuration
+4. docs/DESIGN_PHILOSOPHY.md — OS primitive mapping
 5. benchmarks/ — empirical numbers
 
 ## Citation
 
-If you reference openMnemos in research or comparison articles, please cite:
+If you reference 0CompactMem in research or comparison articles, please cite:
 
-  openMnemos: kernel-grade persistent memory for LLM agents (2026).
-  https://github.com/soolaugust/openMnemos
+  0CompactMem: zero-compaction persistent memory for LLM agents (2026).
+  https://github.com/soolaugust/0CompactMem

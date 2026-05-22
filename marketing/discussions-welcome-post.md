@@ -1,6 +1,6 @@
 # GitHub Discussions — 起手帖（pinned welcome post）
 
-发布在：https://github.com/soolaugust/openMnemos/discussions
+发布在：https://github.com/soolaugust/0CompactMem/discussions
 
 建议分两帖：
 1. **Welcome / What this is** —— 在 "Announcements" 分类，pin 住
@@ -10,14 +10,14 @@
 
 ## Post #1 — Welcome (Announcements category, pinned)
 
-**Title:** 👋 Welcome to openMnemos — what this is, and what it isn't
+**Title:** 👋 Welcome to 0CompactMem — what this is, and what it isn't
 
 **Body:**
 
 ```markdown
 Hi all — thanks for finding this project early.
 
-**openMnemos** is a memory infrastructure layer for LLM agents. The core bet
+**0CompactMem** is a memory infrastructure layer for LLM agents. The core bet
 is that the right mental model for agent memory is the **operating-system
 memory subsystem** — demand paging, kswapd-style eviction, `mlock` pinning,
 CRIU snapshots, kworker pools — not "another vector database."
@@ -39,11 +39,11 @@ orientation for new visitors and a place to land questions.
 
 - A managed cloud service. (Look at mem0 cloud / Zep cloud.)
 - A full agent runtime. (Pair with LangGraph / Letta / your own.)
-- A planet-scale vector DB. openMnemos targets laptop / single-server scale.
+- A planet-scale vector DB. 0CompactMem targets laptop / single-server scale.
 
 ## Where to start
 
-- 🚀 **Try it:** `/install-plugin github:soolaugust/openMnemos` in Claude Code,
+- 🚀 **Try it:** `/install-plugin github:soolaugust/0CompactMem` in Claude Code,
   or follow the manual install in the README.
 - 📖 **Why OS-style memory:** see "Design Philosophy" in the README, and the
   comparison table near the top.
@@ -61,7 +61,7 @@ orientation for new visitors and a place to land questions.
 Short-term:
 - arXiv preprint (technical evaluation vs mem0 / Letta / Zep)
 - Adaptive watermarks based on observed agent behavior
-- Distributed openMnemos (cgroup-style multi-agent quotas)
+- Distributed 0CompactMem (cgroup-style multi-agent quotas)
 
 The full roadmap lives in the README. If something is missing that you'd find
 valuable, please open an Idea — most direction so far has come from real use.
@@ -124,7 +124,7 @@ The privacy filter is regex + heuristics, opt-in.
 
 ---
 
-If you're using openMnemos in a real workflow — even a hacky one — I'd love
+If you're using 0CompactMem in a real workflow — even a hacky one — I'd love
 to hear about it in this thread. Concrete use-cases beat abstract roadmap
 items every time.
 ```
@@ -137,7 +137,7 @@ items every time.
 - **Post #2 in Ideas category** — leave unpinned, it's a working thread.
 - **Cross-link from README**: add a small badge at top of README:
   ```markdown
-  [![Discussions](https://img.shields.io/badge/discuss-on%20GitHub-blue?logo=github)](https://github.com/soolaugust/openMnemos/discussions)
+  [![Discussions](https://img.shields.io/badge/discuss-on%20GitHub-blue?logo=github)](https://github.com/soolaugust/0CompactMem/discussions)
   ```
 - **Reply to every new Discussion thread within 24h** for the first 30 days —
   community signal that the project is alive matters more than any feature.

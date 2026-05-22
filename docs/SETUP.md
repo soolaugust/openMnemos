@@ -1,7 +1,7 @@
 # Setup — manual installation and Claude Code hook configuration
 
 > If you're using Claude Code, the one-line install is the easiest path:
-> `/install-plugin github:soolaugust/openMnemos`. This page is for everyone
+> `/install-plugin github:soolaugust/0CompactMem`. This page is for everyone
 > else — manual installs, custom paths, hook configuration, and
 > daemon-management.
 
@@ -16,8 +16,8 @@
 
 ```bash
 # 1. Clone
-git clone https://github.com/soolaugust/openMnemos ~/codes/openMnemos
-cd ~/codes/openMnemos
+git clone https://github.com/soolaugust/0CompactMem ~/codes/0CompactMem
+cd ~/codes/0CompactMem
 
 # 2. Install Python package (editable)
 pip install -e .
@@ -29,25 +29,25 @@ mkdir -p ~/.claude/memory-os
 ## Claude Code hook configuration
 
 Add the following to `~/.claude/settings.json`. Replace
-`/path/to/openMnemos` with the absolute path of your clone.
+`/path/to/0CompactMem` with the absolute path of your clone.
 
 ```json
 {
   "hooks": {
     "SessionStart": [
-      { "type": "command", "command": "python3 /path/to/openMnemos/hooks/loader.py", "timeout": 10 }
+      { "type": "command", "command": "python3 /path/to/0CompactMem/hooks/loader.py", "timeout": 10 }
     ],
     "UserPromptSubmit": [
-      { "type": "command", "command": "bash /path/to/openMnemos/hooks/retriever_wrapper.sh", "timeout": 10, "async": false },
-      { "type": "command", "command": "python3 /path/to/openMnemos/hooks/writer.py", "timeout": 10, "async": false },
-      { "type": "command", "command": "python3 /path/to/openMnemos/hooks/parallel_hint.py", "timeout": 3, "async": false }
+      { "type": "command", "command": "bash /path/to/0CompactMem/hooks/retriever_wrapper.sh", "timeout": 10, "async": false },
+      { "type": "command", "command": "python3 /path/to/0CompactMem/hooks/writer.py", "timeout": 10, "async": false },
+      { "type": "command", "command": "python3 /path/to/0CompactMem/hooks/parallel_hint.py", "timeout": 3, "async": false }
     ],
     "PostToolUse": [
-      { "matcher": "Bash|Read", "hooks": [{ "type": "command", "command": "python3 /path/to/openMnemos/hooks/output_compressor.py", "timeout": 5 }] },
-      { "matcher": "*", "hooks": [{ "type": "command", "command": "python3 /path/to/openMnemos/hooks/tool_profiler.py", "timeout": 5, "async": true }] }
+      { "matcher": "Bash|Read", "hooks": [{ "type": "command", "command": "python3 /path/to/0CompactMem/hooks/output_compressor.py", "timeout": 5 }] },
+      { "matcher": "*", "hooks": [{ "type": "command", "command": "python3 /path/to/0CompactMem/hooks/tool_profiler.py", "timeout": 5, "async": true }] }
     ],
     "Stop": [
-      { "type": "command", "command": "python3 /path/to/openMnemos/hooks/extractor.py", "timeout": 10, "async": true }
+      { "type": "command", "command": "python3 /path/to/0CompactMem/hooks/extractor.py", "timeout": 10, "async": true }
     ]
   }
 }
