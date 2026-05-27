@@ -188,7 +188,7 @@ No GPU. No external API. Everything runs locally.
 
 ## Paper
 
-📄 **[Beyond Eviction: Full OS Memory Semantics for LLM Agent Persistence](https://github.com/soolaugust/0CompactMem/releases/download/v0.1.0/main.pdf)** (PDF, 8 pages)
+📄 **[Beyond Eviction: Full OS Memory Semantics for LLM Agent Persistence](https://github.com/soolaugust/0CompactMem/releases/download/v0.1.0/paper.pdf)** (PDF, 8 pages)
 
 Technical paper describing the complete OS→agent-memory mapping: demand paging, kswapd, DAMON, mlock, CRIU, kworker, and shared memory.
 
