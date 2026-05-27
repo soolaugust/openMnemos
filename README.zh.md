@@ -175,6 +175,23 @@ python3 -m pytest tests/test_agent_team.py tests/test_chaos.py -q
 
 ---
 
+## 论文
+
+📄 **[Beyond Eviction: Full OS Memory Semantics for LLM Agent Persistence](https://github.com/soolaugust/0CompactMem/releases/download/v0.1.0/main.pdf)** (PDF, 8 页)
+
+技术论文，描述完整的 OS→agent-memory 映射：demand paging、kswapd、DAMON、mlock、CRIU、kworker、shared memory。
+
+## 引用
+
+```bibtex
+@software{su2026compactmem,
+  title = {0CompactMem: Full OS Memory Semantics for LLM Agent Persistence},
+  author = {Su, Zhidao},
+  year = {2026},
+  url = {https://github.com/soolaugust/0CompactMem}
+}
+```
+
 ## 贡献
 
 每个子系统藏在干净的 VFS 接口后面，可独立测试。欢迎 issue、设计提案和 PR — 设计问题见 [Discussions](https://github.com/soolaugust/0CompactMem/discussions)，提交 PR 前请跑一遍上面的测试子集。
