@@ -186,6 +186,23 @@ No GPU. No external API. Everything runs locally.
 
 ---
 
+## Paper
+
+📄 **[Beyond Eviction: Full OS Memory Semantics for LLM Agent Persistence](https://github.com/soolaugust/0CompactMem/releases/download/v0.1.0/paper.pdf)** (PDF, 8 pages)
+
+Technical paper describing the complete OS→agent-memory mapping: demand paging, kswapd, DAMON, mlock, CRIU, kworker, and shared memory.
+
+## Citation
+
+```bibtex
+@software{su2026compactmem,
+  title = {0CompactMem: Full OS Memory Semantics for LLM Agent Persistence},
+  author = {Su, Zhidao},
+  year = {2026},
+  url = {https://github.com/soolaugust/0CompactMem}
+}
+```
+
 ## Contributing
 
 Each subsystem hides behind a clean VFS interface, so components are testable in isolation. Issues, design proposals, and pull requests are welcome — see the [Discussions tab](https://github.com/soolaugust/0CompactMem/discussions) for design questions, and please run the test subset above before submitting a PR.
