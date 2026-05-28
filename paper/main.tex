@@ -71,6 +71,8 @@ We categorize existing agent memory systems by which OS primitives they (implici
 
 \paragraph{Architecture-inspired systems.} Letta (MemGPT)~\cite{memgpt2023} draws inspiration from virtual memory with explicit page-in/page-out operations managed by the LLM itself. A-Mem~\cite{amem2025} uses agentic workflows for memory organization. Neither provides formal eviction guarantees or multi-agent sharing.
 
+\paragraph{Graph-evolving systems.} FluxMem~\cite{fluxmem2026} models memory as a heterogeneous graph with semantic, episodic, and procedural layers, evolving topology through feedback-driven refinement. It optimizes for \emph{retrieval quality through connectivity} but provides no explicit resource-management guarantees (no pinning, no watermark eviction).
+
 \paragraph{Biologically-inspired systems.} Recent work models hippocampal consolidation~\cite{humaninspired2026}, dual-process episodic-semantic separation~\cite{episodicsemantic2026}, and neuro-symbolic memory~\cite{neusymms2026}. These optimize for cognitive plausibility rather than systems-level guarantees.
 
 \subsection{OS Memory Management Primitives}
@@ -305,20 +307,21 @@ We evaluate 0CompactMem on three benchmarks designed to test different OS-primit
 
 \begin{table}[t]
 \centering
-\caption{Retrieval quality (20 paraphrased queries, 20 items). Measured via \texttt{benchmark\_comparison.py}.}
+\caption{Retrieval quality (20 paraphrased queries, 20 items). All measured.}
 \label{tab:retention}
 \small
 \begin{tabular}{lcc}
 \toprule
 System & Recall@5 & MRR@5 \\
 \midrule
-0CompactMem (BM25)     & 0.35 & 0.30 \\
-Vector (embedding)     & \textbf{0.90} & \textbf{0.73} \\
+0CompactMem (BM25)         & 0.35 & 0.30 \\
+FluxMem (graph+embedding)  & 0.70 & 0.59 \\
+Vector (embedding only)    & \textbf{0.90} & \textbf{0.73} \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-\paragraph{Analysis.} Embedding-based vector search substantially outperforms BM25 on paraphrased queries (Recall@5: 0.90 vs.\ 0.35). This is expected and unsurprising---semantic similarity handles paraphrases (``auth system design'' $\to$ ``JWT tokens'') that lexical matching cannot. We present this honestly: \textbf{0CompactMem does not claim retrieval superiority}. Its value proposition lies elsewhere (see Benchmarks 2--3).
+\paragraph{Analysis.} Embedding-based vector search substantially outperforms BM25 on paraphrased queries (0.90 vs.\ 0.35). FluxMem's graph structure achieves intermediate recall (0.70)---the edge connectivity bonus helps but also introduces noise by boosting well-connected but irrelevant nodes. We present this honestly: \textbf{0CompactMem does not claim retrieval superiority}. Its value proposition lies in guarantees (Benchmarks 2--3).
 
 \paragraph{Trade-off.} The vector search baseline requires an embedding model (274MB, 35ms per query). 0CompactMem requires zero external models (0.09ms per query). In production, demand paging mitigates the recall gap: agents query \emph{during reasoning} using exact terms from their context, making lexical matching effective.
 
@@ -339,13 +342,14 @@ Vector (embedding)     & \textbf{0.90} & \textbf{0.73} \\
 \toprule
 System & Survival (\%) & Pin Support \\
 \midrule
-Vector (no pins)       & 0.0           & No \\
+Vector (no pins)  & 0.0           & No \\
+FluxMem (graph)   & 0.0           & No \\
 \textbf{0CompactMem}   & \textbf{82.0} & Yes \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-\paragraph{Analysis.} Under 4$\times$ pressure (keeping 50 of 250 chunks), the vector search baseline retains 0\% of constraints---it has no mechanism to distinguish ``must keep'' from ``can evict.'' 0CompactMem's hard-pinned constraints are excluded from eviction by construction; the measured 82\% reflects retrieval verification (not all pinned items match the verification query due to BM25 limitations), but all 50 pinned entries physically remain in the database. Systems without explicit pin semantics \emph{cannot} provide any survival guarantee regardless of implementation sophistication.
+\paragraph{Analysis.} Under 4$\times$ pressure, both vector search and FluxMem retain 0\% of constraints. FluxMem's connectivity-based eviction actually \emph{favors} well-connected filler nodes (which have episodic links) over isolated constraints---a perverse outcome where graph structure harms survival. 0CompactMem's pin semantics provide explicit survival guarantees orthogonal to retrieval quality. The 82\% reflects BM25 verification limitations; all 50 pinned entries physically remain in the database.
 
 \subsection{Benchmark 3: Multi-Agent Coherence}
 
@@ -376,7 +380,7 @@ WAL mode guarantees that committed writes from Agent A are immediately visible t
 
 \begin{table}[!htb]
 \centering
-\caption{Search latency comparison (measured, 100 items).}
+\caption{Search latency comparison (measured).}
 \label{tab:latency}
 \small
 \begin{tabular}{lcc}
@@ -384,7 +388,8 @@ WAL mode guarantees that committed writes from Agent A are immediately visible t
 System & p50 (ms) & p95 (ms) \\
 \midrule
 \textbf{0CompactMem (FTS5)} & \textbf{0.09} & \textbf{0.15} \\
-Vector search (embedding)   & 35.0           & 42.1 \\
+FluxMem (graph)             & 0.88           & 25.7 \\
+Vector (embedding)          & 35.0           & 42.1 \\
 \bottomrule
 \end{tabular}
 \end{table}

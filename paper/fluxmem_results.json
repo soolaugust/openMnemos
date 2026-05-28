@@ -1,0 +1,14 @@
+{
+  "retrieval": {
+    "recall_at_5": 0.7,
+    "mrr_at_5": 0.585
+  },
+  "constraint_survival": {
+    "survival_rate": 0.0,
+    "survived": 0
+  },
+  "latency": {
+    "search_p50_ms": 0.88,
+    "search_p95_ms": 25.73
+  }
+}
