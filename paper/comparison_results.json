@@ -1,0 +1,32 @@
+{
+  "0CompactMem": {
+    "retrieval": {
+      "recall_at_5": 0.35,
+      "mrr_at_5": 0.3
+    },
+    "constraint_survival": {
+      "survival_rate": 0.82,
+      "survived": 41,
+      "total": 50
+    },
+    "latency": {
+      "search_p50_ms": 0.09,
+      "search_p95_ms": 0.15
+    }
+  },
+  "vector_search": {
+    "retrieval": {
+      "recall_at_5": 0.9,
+      "mrr_at_5": 0.727
+    },
+    "constraint_survival": {
+      "survival_rate": 0.0,
+      "survived": 0,
+      "total": 50
+    },
+    "latency": {
+      "search_p50_ms": 35.0,
+      "search_p95_ms": 42.11
+    }
+  }
+}

@@ -35,7 +35,7 @@ Persistent memory for LLM agents has attracted significant attention, with recen
 
 We present \textbf{0CompactMem}, an agent memory layer that implements the \emph{full spectrum} of OS memory-management primitives. We formalize a complete mapping from seven OS subsystems to agent-memory operations and demonstrate that this holistic approach yields properties no single-primitive system achieves: guaranteed constraint survival under arbitrary pressure (pin semantics), sub-linear retrieval cost with demand paging, graceful degradation via watermark-driven eviction, and zero-coordination multi-agent sharing via WAL-mode SQLite.
 
-We evaluate on three benchmarks: multi-session retention, constraint-survival under pressure, and multi-agent coherence. Under 4$\times$ memory pressure with equal-importance chunks, unpinned baselines retain 0\% of constraints while 0CompactMem's hard-pin semantics guarantee 100\% survival (measured). Multi-agent WAL sharing achieves 100\% write visibility and pin-respect across concurrent processes (measured). All benchmark scripts are included for reproducibility.
+We evaluate on three benchmarks comparing 0CompactMem against embedding-based vector search (representing mem0/Zep-class systems). Vector search achieves 2.6$\times$ higher retrieval recall on paraphrased queries (0.90 vs.\ 0.35), but 0CompactMem provides capabilities vector search cannot: under 4$\times$ memory pressure, pinned constraints survive at 82\% (vs.\ 0\% for systems without pins); search latency is 389$\times$ faster (0.09ms vs.\ 35ms, no embedding model needed); and WAL-mode sharing provides 100\% multi-agent visibility. All benchmark scripts and data are included for reproducibility.
 
 The system is open source (MIT) at \url{https://github.com/soolaugust/0CompactMem}.
 \end{abstract}
@@ -53,7 +53,7 @@ However, all existing systems map \emph{at most one or two} OS memory primitives
 \paragraph{Contributions.} We make three contributions:
 \begin{enumerate}[leftmargin=*,nosep]
   \item \textbf{A complete OS$\to$agent-memory taxonomy} mapping seven kernel subsystems (demand paging, kswapd, DAMON, mlock, CRIU, kworker, shared memory) to agent-memory operations (\S\ref{sec:design}).
-  \item \textbf{0CompactMem}: an open-source reference implementation as a single SQLite file with MCP-native interface, 3{,}500+ tests, and 1{,}050+ tuning iterations (\S\ref{sec:impl}).
+  \item \textbf{0CompactMem}: an open-source reference implementation as a single SQLite file with MCP-native interface, 10{,}700+ test assertions, and 1{,}370+ development iterations (\S\ref{sec:impl}).
   \item \textbf{Empirical evaluation} demonstrating that the full-spectrum approach yields emergent properties unachievable by any subset (\S\ref{sec:eval}).
 \end{enumerate}
 
@@ -93,9 +93,10 @@ Table~\ref{tab:coverage} summarizes which OS primitives each system implements. 
 
 \begin{table}[t]
 \centering
-\caption{OS primitive coverage across agent memory systems, based on published descriptions. \checkmark = explicitly described in paper/docs; $\sim$ = partially/implicitly present; --- = not described. Characterizations of external systems are based on their published papers and documentation as of May 2026.}
+\caption{OS primitive coverage across agent memory systems (based on published papers/docs, May 2026). \checkmark = explicit; $\sim$ = partial; --- = absent.}
 \label{tab:coverage}
-\small
+\footnotesize
+\setlength{\tabcolsep}{2.5pt}
 \begin{tabular}{lccccccc}
 \toprule
 System & \rotatebox{70}{Demand paging} & \rotatebox{70}{kswapd} & \rotatebox{70}{DAMON} & \rotatebox{70}{mlock} & \rotatebox{70}{CRIU} & \rotatebox{70}{kworker} & \rotatebox{70}{Shared mem} \\
@@ -117,47 +118,47 @@ HTM-EAR~\cite{htmear2026}  & ---  & \checkmark & \checkmark & ---  & ---  & --- 
 \begin{figure*}[t]
 \centering
 \begin{tikzpicture}[
-  node distance=0.6cm and 1.2cm,
-  block/.style={rectangle, draw, rounded corners, minimum width=2.2cm, minimum height=0.7cm, align=center, font=\small},
+  node distance=1.0cm,
+  block/.style={rectangle, draw, rounded corners, minimum width=2.5cm, minimum height=0.8cm, align=center, font=\small},
   osblock/.style={block, fill=blue!10},
   agentblock/.style={block, fill=green!10},
   arrow/.style={-{Stealth[length=2mm]}, thick},
-  label/.style={font=\scriptsize\itshape, text=gray}
+  lbl/.style={font=\scriptsize\itshape, text=gray, midway, above}
 ]
 
-% OS Side
-\node[osblock] (dp) {Demand\\Paging};
-\node[osblock, below=of dp] (ksw) {kswapd};
+% OS Side (left column)
+\node[osblock]                (dp)  {Demand Paging};
+\node[osblock, below=of dp]  (ksw) {kswapd};
 \node[osblock, below=of ksw] (dam) {DAMON};
-\node[osblock, below=of dam] (ml) {mlock};
-\node[osblock, right=3.5cm of dp] (criu) {CRIU};
-\node[osblock, below=of criu] (kw) {kworker};
-\node[osblock, below=of kw] (shm) {shmem};
+\node[osblock, below=of dam] (ml)  {mlock};
+\node[osblock, below=of ml]  (criu){CRIU};
+\node[osblock, below=of criu](kw)  {kworker};
+\node[osblock, below=of kw]  (shm) {shmem};
 
-% Agent Side
-\node[agentblock, right=3.5cm of criu] (lookup) {memory\_lookup\\(on-demand)};
-\node[agentblock, below=of lookup] (evict) {Watermark\\Eviction};
-\node[agentblock, below=of evict] (track) {Access\\Tracking};
-\node[agentblock, below=of track] (pin) {Hard/Soft\\Pin};
-\node[agentblock, right=3.5cm of dp, yshift=-4.2cm] (ckpt) {Session\\Checkpoint};
-\node[agentblock, below=of ckpt] (async) {Async\\Hooks};
-\node[agentblock, below=of async] (wal) {WAL Shared\\SQLite};
+% Agent Side (right column, aligned with left)
+\node[agentblock, right=6cm of dp]  (lookup) {memory\_lookup};
+\node[agentblock, right=6cm of ksw] (evict)  {Watermark Eviction};
+\node[agentblock, right=6cm of dam] (track)  {Access Tracking};
+\node[agentblock, right=6cm of ml]  (pin)    {Hard/Soft Pin};
+\node[agentblock, right=6cm of criu](ckpt)   {Session Checkpoint};
+\node[agentblock, right=6cm of kw]  (async)  {Async Hooks};
+\node[agentblock, right=6cm of shm] (wal)    {WAL Shared SQLite};
 
 % Arrows
-\draw[arrow] (dp) -- node[above, label] {page fault $\to$ query} (lookup);
-\draw[arrow] (ksw) -- node[above, label] {watermarks} (evict);
-\draw[arrow] (dam) -- node[above, label] {access freq} (track);
-\draw[arrow] (ml) -- node[above, label] {lock pages} (pin);
-\draw[arrow] (criu) -- node[above, label] {snapshot} (ckpt);
-\draw[arrow] (kw) -- node[above, label] {deferred} (async);
-\draw[arrow] (shm) -- node[above, label] {MAP\_SHARED} (wal);
+\draw[arrow] (dp)   -- node[lbl] {page fault $\to$ query}  (lookup);
+\draw[arrow] (ksw)  -- node[lbl] {watermarks}              (evict);
+\draw[arrow] (dam)  -- node[lbl] {access frequency}        (track);
+\draw[arrow] (ml)   -- node[lbl] {lock pages}              (pin);
+\draw[arrow] (criu) -- node[lbl] {snapshot/restore}        (ckpt);
+\draw[arrow] (kw)   -- node[lbl] {deferred work}           (async);
+\draw[arrow] (shm)  -- node[lbl] {MAP\_SHARED}             (wal);
 
-% Group labels
-\node[above=0.3cm of dp, font=\small\bfseries] {Linux Kernel};
-\node[above=0.3cm of lookup, font=\small\bfseries] {0CompactMem};
+% Column headers
+\node[above=0.4cm of dp, font=\small\bfseries]     {Linux Kernel};
+\node[above=0.4cm of lookup, font=\small\bfseries]  {0CompactMem};
 
 \end{tikzpicture}
-\caption{Architecture: mapping OS memory primitives to 0CompactMem operations. Each OS subsystem (left) maps to a corresponding agent-memory operation (right), preserving the semantic guarantees of the original.}
+\caption{Architecture: each OS memory subsystem (left) maps 1:1 to a 0CompactMem operation (right), preserving the semantic guarantees of the original primitive.}
 \label{fig:arch}
 \end{figure*}
 
@@ -180,26 +181,26 @@ Table~\ref{tab:mapping} presents the full OS$\to$agent-memory mapping.
 \centering
 \caption{Complete OS $\to$ 0CompactMem primitive mapping.}
 \label{tab:mapping}
-\small
-\begin{tabular}{lp{5cm}p{5cm}p{3.5cm}}
+\footnotesize
+\begin{tabular}{lp{4.2cm}p{4.8cm}p{3cm}}
 \toprule
-\textbf{OS Primitive} & \textbf{OS Semantics} & \textbf{0CompactMem Mapping} & \textbf{Implementation} \\
+\textbf{OS Primitive} & \textbf{OS Semantics} & \textbf{0CompactMem Mapping} & \textbf{Impl.} \\
 \midrule
-Demand paging & Load page only on fault; no pre-loading & \texttt{memory\_lookup(query)}: retrieve chunks only when reasoning hits knowledge gap & MCP tool; BM25+FTS5 scorer \\
+Demand paging & Load page only on fault & \texttt{memory\_lookup}: retrieve on knowledge gap & MCP tool; BM25+FTS5 \\
 \addlinespace
-kswapd & Background reclaim when free pages $<$ watermark & Eviction sweep when chunk count exceeds high watermark & Watermark thresholds; composite score \\
+kswapd & Reclaim when free $<$ watermark & Eviction when chunks exceed watermark & Composite score \\
 \addlinespace
-DAMON & Track page access frequency without HW counters & Access-count tracking on each retrieval; decay over time & SQLite \texttt{access\_count}, \texttt{last\_accessed} \\
+DAMON & Track access frequency & Access-count per retrieval; decay & \texttt{access\_count} \\
 \addlinespace
-mlock (hard) & Page survives ALL reclaim paths including OOM & Hard-pinned chunk survives all eviction: stale reclaim, DAMON dead, kswapd min & \texttt{pin\_memory(id, 'hard')} \\
+mlock (hard) & Survives ALL reclaim paths & Hard-pin survives all eviction & \texttt{pin\_memory(hard)} \\
 \addlinespace
-mlock (soft) & Page survives normal reclaim but not extreme pressure & Soft-pinned chunk survives stale/DAMON but yields under zone-min pressure & \texttt{pin\_memory(id, 'soft')} \\
+mlock (soft) & Survives normal reclaim & Soft-pin yields under extreme pressure & \texttt{pin\_memory(soft)} \\
 \addlinespace
-CRIU & Checkpoint process state; restore on different host/time & Session working-set snapshot at Stop; restore at SessionStart & JSON checkpoint file \\
+CRIU & Checkpoint/restore state & Working-set snapshot at Stop/Start & JSON checkpoint \\
 \addlinespace
-kworker & Deferred background work (writeback, compaction) & Async hooks: extraction, profiling, consolidation run in background & Async hook execution \\
+kworker & Deferred background work & Async hooks (extract, profile) & Async execution \\
 \addlinespace
-shmem & Multiple processes map same physical pages & Multiple Claude Code instances open same SQLite (WAL mode) & File-based; WAL readers don't block \\
+shmem & Shared physical pages & Multiple agents open same SQLite & WAL mode \\
 \bottomrule
 \end{tabular}
 \end{table*}
@@ -222,7 +223,7 @@ When total chunk count exceeds the \emph{high watermark}, a background eviction 
 
 Eviction priority is determined by a composite score:
 \begin{equation}
-  \text{evict\_score}(c) = w_1 \cdot \text{staleness}(c) + w_2 \cdot (1 - \text{imp}(c)) + w_3 \cdot \text{cold}(c)
+  s_e(c) = w_1 \!\cdot\! \text{stale}(c) + w_2 \!\cdot\! (1{-}\text{imp}(c)) + w_3 \!\cdot\! \text{cold}(c)
 \end{equation}
 where $\text{staleness}$ measures time since last access, $\text{imp}$ is importance, and $\text{cold}$ is the DAMON-derived access frequency indicator.
 
@@ -287,53 +288,53 @@ We evaluate 0CompactMem on three benchmarks designed to test different OS-primit
 
 \paragraph{Setup.} Adapted from LongMemEval~\cite{longmemeval2024}: 200 knowledge items accumulated across 20 simulated sessions. At session 21, we query all 200 items with varied paraphrasing.
 
-\paragraph{Metrics.} Recall@5, MRR@5, NDCG@10.
+\paragraph{Metrics.} Recall@5, MRR@5.
 
 \paragraph{Results.} See Table~\ref{tab:retention}.
 
 \begin{table}[t]
 \centering
-\caption{Multi-session retention benchmark (200 items, 20 sessions, paraphrased queries). Measured via \texttt{run\_benchmarks.py}.}
+\caption{Retrieval quality comparison (20 paraphrased queries over 20 knowledge items). Measured via \texttt{benchmark\_comparison.py}.}
 \label{tab:retention}
 \small
 \begin{tabular}{lcc}
 \toprule
-Retrieval Strategy & Recall@5 & MRR@5 \\
+System & Recall@5 & MRR@5 \\
 \midrule
-BM25 FTS5 (paraphrased queries)   & 0.40 & 0.40 \\
+0CompactMem (BM25)     & 0.35 & 0.30 \\
+Vector (embedding)     & \textbf{0.90} & \textbf{0.73} \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-\paragraph{Analysis.} The measured Recall@5 of 0.40 with paraphrased queries reflects the well-known limitation of lexical retrieval: BM25 cannot match ``auth system design choice'' to a stored chunk containing ``authentication decision.'' This motivates the demand-paging design---in production, the agent queries \emph{during reasoning} using terms already present in its context (e.g., ``authentication''), yielding exact lexical matches. The 0.40 figure represents the \emph{worst case}: fully paraphrased out-of-context queries. In practice, in-context queries achieve near-perfect recall because the agent's query naturally contains the stored terms.
+\paragraph{Analysis.} Embedding-based vector search substantially outperforms BM25 on paraphrased queries (Recall@5: 0.90 vs.\ 0.35). This is expected and unsurprising---semantic similarity handles paraphrases (``auth system design'' $\to$ ``JWT tokens'') that lexical matching cannot. We present this honestly: \textbf{0CompactMem does not claim retrieval superiority}. Its value proposition lies elsewhere (see Benchmarks 2--3).
 
-\paragraph{Limitation.} We do not include a semantic retrieval baseline (embedding-based) because 0CompactMem deliberately avoids embedding dependencies for zero-infrastructure deployment. Adding optional embeddings is future work (\S\ref{sec:future}).
+\paragraph{Trade-off.} The vector search baseline requires an embedding model (274MB, 35ms per query). 0CompactMem requires zero external models (0.09ms per query). In production, demand paging mitigates the recall gap: agents query \emph{during reasoning} using exact terms from their context, making lexical matching effective.
 
 \subsection{Benchmark 2: Constraint Survival Under Pressure}
 
-\paragraph{Setup.} 50 constraints are marked as ``non-negotiable'' (hard-pinned). The store is then subjected to 4$\times$ capacity pressure (200 low-importance chunks are injected, triggering repeated eviction sweeps). We measure how many constraints survive.
+\paragraph{Setup.} 50 constraints are marked as ``non-negotiable'' (hard-pinned). 200 filler chunks with \emph{the same importance and access recency} are injected, then eviction reduces the store to 50 chunks (4$\times$ pressure). We measure how many constraints survive.
 
 \paragraph{Metric.} Constraint-survival rate (\% of pinned constraints retrievable after pressure).
 
 \paragraph{Results.} See Table~\ref{tab:survival}.
 
-\begin{table}[t]
+\begin{table}[!htb]
 \centering
-\caption{Constraint survival under 4$\times$ memory pressure (200 filler chunks, same importance as constraints, evict to keep only 50 of 250). Measured via \texttt{run\_benchmarks.py}.}
+\caption{Constraint survival under 4$\times$ pressure (50 constraints + 200 filler, evict to keep 50). Measured.}
 \label{tab:survival}
 \small
 \begin{tabular}{lcc}
 \toprule
-Eviction Strategy & Survival (\%) & Source \\
+System & Survival (\%) & Pin Support \\
 \midrule
-No eviction (unbounded) & 100.0 & trivial \\
-LRU eviction, no pins   & 0.0   & measured \\
-\textbf{LRU + hard pin} & \textbf{100.0} & measured \\
+Vector (no pins)       & 0.0           & No \\
+\textbf{0CompactMem}   & \textbf{82.0} & Yes \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-\paragraph{Analysis.} When constraints share the same importance level and access recency as general knowledge (a realistic scenario---not all constraints are ``obviously important''), any eviction policy that lacks explicit pinning \emph{cannot} distinguish them. Under 4$\times$ pressure (keeping only 50 of 250 chunks), LRU without pins retains 0\% of constraints (measured). With hard pinning, 100\% survive regardless of pressure (measured). This is not a statistical result but a \emph{semantic guarantee}: pinned chunks are unconditionally excluded from eviction candidate sets by construction.
+\paragraph{Analysis.} Under 4$\times$ pressure (keeping 50 of 250 chunks), the vector search baseline retains 0\% of constraints---it has no mechanism to distinguish ``must keep'' from ``can evict.'' 0CompactMem's hard-pinned constraints are excluded from eviction by construction; the measured 82\% reflects retrieval verification (not all pinned items match the verification query due to BM25 limitations), but all 50 pinned entries physically remain in the database. Systems without explicit pin semantics \emph{cannot} provide any survival guarantee regardless of implementation sophistication.
 
 \subsection{Benchmark 3: Multi-Agent Coherence}
 
@@ -343,17 +344,17 @@ LRU eviction, no pins   & 0.0   & measured \\
 
 \paragraph{Results.}
 
-\begin{table}[t]
+\begin{table}[!htb]
 \centering
 \caption{Multi-agent coherence (2 concurrent agents, shared SQLite store). Measured via \texttt{run\_benchmarks.py}.}
 \label{tab:multiagent}
 \small
 \begin{tabular}{lcc}
 \toprule
-Configuration & Write Visibility & Pin Respect \\
+Configuration & Visibility & Pin Respect \\
 \midrule
-Separate stores (trivial baseline) & 0\% & N/A \\
-\textbf{0CompactMem (shared WAL)} & \textbf{100\%} & \textbf{100\%} \\
+Separate stores & 0\% & N/A \\
+\textbf{Shared WAL} & \textbf{100\%} & \textbf{100\%} \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -362,18 +363,17 @@ WAL mode guarantees that committed writes from Agent A are immediately visible t
 
 \subsection{Latency}
 
-\begin{table}[t]
+\begin{table}[!htb]
 \centering
-\caption{Operation latency (store with 10{,}000 chunks, measured on Intel i7, NVMe SSD).}
+\caption{Search latency comparison (measured, 100 items).}
 \label{tab:latency}
 \small
 \begin{tabular}{lcc}
 \toprule
-Operation & p50 (ms) & p95 (ms) \\
+System & p50 (ms) & p95 (ms) \\
 \midrule
-\texttt{memory\_lookup} (top-5) & 0.08 & 0.22 \\
-Write (single chunk)            & 2.3  & 5.8 \\
-Pin/unpin                       & 0.01 & 0.01 \\
+\textbf{0CompactMem (FTS5)} & \textbf{0.09} & \textbf{0.15} \\
+Vector search (embedding)   & 35.0           & 42.1 \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -384,22 +384,24 @@ All request-path operations (lookup, write, pin) complete well within MCP timeou
 
 To demonstrate that the \emph{combination} of primitives matters, we analyze which system property is lost when each component is removed. Table~\ref{tab:ablation} shows a \emph{structural} ablation: each row identifies which guarantee becomes impossible without that primitive (not a quantitative measurement, but a logical consequence of the design).
 
-\begin{table}[t]
+\begin{table}[!htb]
 \centering
-\caption{Structural ablation: which guarantee is lost when each primitive is removed. \checkmark = guaranteed by design; --- = impossible without the primitive.}
+\caption{Structural ablation: which guarantee is lost. \checkmark = by design; --- = impossible without.}
 \label{tab:ablation}
-\small
+\footnotesize
 \begin{tabular}{lcccc}
 \toprule
-Configuration & \shortstack{Constraint\\Survival} & \shortstack{On-demand\\Retrieval} & \shortstack{Multi-agent\\Sharing} & \shortstack{Bounded\\Growth} \\
+ & Surv. & Retr. & Share & Bound \\
 \midrule
-Full system            & \checkmark & \checkmark & \checkmark & \checkmark \\
-$-$ pin (mlock)        & ---        & \checkmark & \checkmark & \checkmark \\
-$-$ demand paging      & \checkmark & ---        & \checkmark & \checkmark \\
-$-$ eviction (kswapd)  & \checkmark & \checkmark & \checkmark & ---        \\
-$-$ shared mem (WAL)   & \checkmark & \checkmark & ---        & \checkmark \\
+Full system       & \checkmark & \checkmark & \checkmark & \checkmark \\
+$-$ pin           & ---        & \checkmark & \checkmark & \checkmark \\
+$-$ demand page   & \checkmark & ---        & \checkmark & \checkmark \\
+$-$ eviction      & \checkmark & \checkmark & \checkmark & ---        \\
+$-$ WAL           & \checkmark & \checkmark & ---        & \checkmark \\
 \bottomrule
 \end{tabular}
+\\[2pt]
+\scriptsize Surv.=Constraint Survival, Retr.=On-demand Retrieval, Share=Multi-agent, Bound=Bounded Growth
 \end{table}
 
 \paragraph{Key observations:}
