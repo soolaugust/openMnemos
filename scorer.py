@@ -71,6 +71,9 @@ _SAT_CAP = _sysctl("scorer.saturation_cap")
 _STARV_FACTOR = _sysctl("scorer.starvation_boost_factor")
 _STARV_MIN_AGE = _sysctl("scorer.starvation_min_age_days")
 _STARV_RAMP = _sysctl("scorer.starvation_ramp_days")
+# ── iter_new: Ebbinghaus 常量预加载 ──
+_EBBINGHAUS_ENABLED = _sysctl("scorer.ebbinghaus_enabled") or False
+_EBBINGHAUS_CAP = _sysctl("scorer.ebbinghaus_stability_cap") or 365.0
 # ── 迭代333：TMV 常量预加载 ──
 _TMV_ACC_THRESHOLD = _sysctl("scorer.tmv_acc_threshold") or 50
 _TMV_DISCOUNT_WEIGHT = _sysctl("scorer.tmv_discount_weight") or 0.30
@@ -110,8 +113,19 @@ def recency_score(iso_str: str) -> float:
     return 1.0 / (1.0 + age_days)
 
 
+def ebbinghaus_retention(stability: float, age_days: float) -> float:
+    """
+    Ebbinghaus 遗忘曲线：R = e^(-t/S)。
+    OS 类比：MGLRU 指数老化 — P(page_in_working_set) = e^(-age/half_life)。
+    stability 由 SM-2 算法维护（每次成功检索 stability *= 2.0）。
+    """
+    if stability <= 0:
+        stability = 1.0
+    return math.exp(-age_days / stability)
+
+
 def importance_with_decay(importance: float, last_accessed: str,
-                          chunk_type: str = "") -> float:
+                          chunk_type: str = "", stability: float = 0.0) -> float:
     """
     OS 类比：page aging bit — 未被访问的页 age 递增。
     遗忘曲线：effective_importance = importance × decay(age)
@@ -149,7 +163,12 @@ def importance_with_decay(importance: float, last_accessed: str,
             pass  # fallback to global _DECAY_RATE
 
     age = _age_days(last_accessed)
-    decay = effective_decay ** (age / 7.0)
+    # iter_new: Ebbinghaus 遗忘曲线 gated by sysctl
+    if _EBBINGHAUS_ENABLED and stability > 0:
+        eff_stability = max(1.0, min(_EBBINGHAUS_CAP, stability))
+        decay = ebbinghaus_retention(eff_stability, age)
+    else:
+        decay = effective_decay ** (age / 7.0)
     return max(_IMP_FLOOR, importance * decay)
 
 
@@ -215,6 +234,7 @@ def saturation_penalty(recall_count: int) -> float:
     """
     if recall_count <= 0:
         return 0.0
+    recall_count = int(recall_count)
     _l = _LOG2_1P[recall_count] if recall_count < _LOG2_TABLE_SIZE else math.log2(1 + recall_count)
     penalty = _SAT_FACTOR * _l
     return min(_SAT_CAP, penalty)
@@ -545,7 +565,8 @@ def retrieval_score(relevance: float, importance: float,
                     encoding_context: dict = None,
                     query_context: dict = None,
                     query_alpha: float = None,
-                    chunk_type: str = "") -> float:
+                    chunk_type: str = "",
+                    stability: float = 0.0) -> float:
     """
     召回评分（retriever.py 使用）。
     score = relevance × (base_score + access_bonus + freshness_bonus)
@@ -578,7 +599,9 @@ def retrieval_score(relevance: float, importance: float,
     """
     _refresh_now()  # iter260: 单次刷新 now 缓存，后续 _age_days 复用
     # iter375: type-differential decay — pass chunk_type for per-type decay rate
-    eff_imp = importance_with_decay(importance, last_accessed, chunk_type=chunk_type)
+    # iter_new: Ebbinghaus — pass stability for exponential decay
+    eff_imp = importance_with_decay(importance, last_accessed,
+                                    chunk_type=chunk_type, stability=stability)
     rec = recency_score(last_accessed)
     ab = access_bonus(access_count)
     fb = freshness_bonus(created_at) if created_at else 0.0

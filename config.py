@@ -2532,6 +2532,8 @@ _REGISTRY: dict = {
         "IWCSI 触发的 importance 下限：只强制曝光 importance >= 此值的零召回 chunk"),
     "retriever.cold_start_max_inject": (2, int, 1, 3, None,
         "IWCSI 每次最多强制注入的 chunk 数量（默认2，加速新导入知识曝光）"),
+    "retriever.cold_start_ac_threshold": (1, int, 0, 10, None,
+        "cold_start_probe 判定 chunk 为'冷'的 access_count 上限（ac<=此值视为未曝光）"),
     # ── iter376: Emotional Salience Retrieval Boost ──────────────────────────
     # OS 类比：Linux OOM Score 情绪加权 — 高情绪显著性记忆优先保留，类比 oom_adj=-800
     # 认知科学依据：McGaugh (2000) 情绪增强记忆巩固（amygdala-hippocampus interaction）
@@ -3608,6 +3610,58 @@ _REGISTRY: dict = {
         "低质量 chunk 降级目标 importance 上限"),
     "bdi_writeback.demote_oom_adj": (400, int, 100, 900, None,
         "低质量 chunk 降级设置的 oom_adj 值"),
+    # ── privacy (iter_new) ──
+    "privacy.scrub_enabled": (True, bool, None, None, None,
+        "VFS 写入路径隐私过滤（secret/token 自动脱敏为 [REDACTED:type]）"),
+    "privacy.extra_patterns_json": ("[]", str, None, None, None,
+        "用户自定义额外脱敏正则（JSON array of {pattern, label}）"),
+    # ── precompact (iter_new) ──
+    "precompact.enabled": (True, bool, None, None, None,
+        "PreCompact hook 是否注入 pinned + critical chunks 到压缩后上下文"),
+    "precompact.max_chars": (2000, int, 200, 5000, None,
+        "PreCompact 注入最大字符数"),
+    "precompact.decision_top_k": (3, int, 1, 10, None,
+        "PreCompact 注入的 recent decision chunk 数"),
+    "precompact.decision_min_importance": (0.6, float, 0.3, 1.0, None,
+        "PreCompact decision chunk 最低 importance 阈值"),
+    # ── scorer ebbinghaus (iter_new) ──
+    "scorer.ebbinghaus_enabled": (False, bool, None, None, None,
+        "使用 Ebbinghaus 遗忘曲线 R=e^(-t/S) 替代线性衰减 0.95^(t/7)"),
+    "scorer.ebbinghaus_stability_cap": (365.0, float, 7.0, 3650.0, None,
+        "stability 上限（天），防止超稳定 chunk 永不衰减"),
+    # ── contradiction (iter_new) ──
+    "contradiction.supersession_enabled": (True, bool, None, None, None,
+        "Jaccard 超取代检测（新 chunk 语义重叠 >threshold 时 supersede 旧 chunk）"),
+    "contradiction.jaccard_threshold": (0.85, float, 0.5, 1.0, None,
+        "Jaccard token 重叠阈值（>= 此值触发 supersession）"),
+    "contradiction.max_candidates": (50, int, 10, 500, None,
+        "每次检测最多比较的候选 chunk 数（限制扫描范围）"),
+    # ── replay (iter_new) ──
+    "replay.enabled": (False, bool, None, None, None,
+        "session replay 事件记录（ftrace ring buffer 类比，调试用）"),
+    "replay.max_age_days": (30, int, 7, 365, None,
+        "replay 事件最大保留天数（超过自动 GC）"),
+    "replay.max_data_chars": (2000, int, 500, 10000, None,
+        "每条 replay event 的 data 字段最大字符数"),
+    # ── context offload (phase2) ──
+    "offload.enabled": (True, bool, None, None, None,
+        "context pressure 升高时自动切换为 compact reference 注入模式"),
+    "offload.trigger_pressure": ("some", str, None, None, None,
+        "触发 offload 的最低 pressure 级别（none/some/full）"),
+    "offload.ref_max_chars": (30, int, 15, 80, None,
+        "offload mode 下每条 chunk summary 的最大字符数"),
+    # ── graph export (phase2) ──
+    "graph_export.enabled": (True, bool, None, None, None,
+        "检索注入时追加 top-k chunk 间的关系图（如有 edge）"),
+    "graph_export.max_edges": (10, int, 3, 30, None,
+        "关系图最多导出的边数"),
+    # ── chunk aggregation (phase2) ──
+    "aggregation.enabled": (True, bool, None, None, None,
+        "SessionStart 时自动聚合相关 chunk 为 composite（hugepages 类比）"),
+    "aggregation.min_cluster_size": (3, int, 2, 10, None,
+        "触发聚合的最小簇大小"),
+    "aggregation.max_composite_bullets": (7, int, 3, 15, None,
+        "每条 composite chunk 最多包含的子项数"),
 }
 
 # ── 磁盘配置缓存（进程内只读一次）──

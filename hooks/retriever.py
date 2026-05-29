@@ -2682,7 +2682,7 @@ def main():
             score = _unified_retrieval_score(
                 relevance=relevance,
                 importance=_imp_clamped,
-                last_accessed=chunk["last_accessed"],
+                last_accessed=chunk.get("last_accessed", ""),
                 access_count=chunk.get("access_count", 0) or 0,
                 created_at=chunk.get("created_at", ""),
                 chunk_id=chunk.get("id", ""),
@@ -6547,6 +6547,8 @@ def main():
                 #   的象征性 score，确保组合上下文。排除 access_count>=30 的过饱和 chunk。
                 # iter1192: pair_min_score_gate — imp_pair 候选须通过 min_score
                 # iter1724: pair_global_dc_hard_exclude — sync FULL imp_pair path
+                _top1_sum = (positive[0][1].get("summary") or "")
+                _top1_tg = _top1_sum.split("]")[0] + "]" if _top1_sum.startswith("[") and "]" in _top1_sum else None
                 _imp_pairs = [(float(c.get("importance", 0) or 0), c) for s, c in final
                               if c.get("id") != positive[0][1].get("id")
                               and s >= _min_thresh
@@ -9294,6 +9296,7 @@ def main():
             #   落到 iter868 DB 盲查 → 注入不相关 global chunk（schedqos 到 kernel 项目）。
             #   final>=2 时已有 1 条 FTS 相关候选可配对，无需等 3 条。
             _ps842_lite_top1_id = top_k[0][1].get("id", "")
+            _lt_pair_floor = 0.05 if _db_chunk_count < 20 else (0.08 if _db_chunk_count < 50 else 0.20)
             # iter1197: lite_pair_min_score_gate — sync iter842 path
             # iter1724: pair_global_dc_hard_exclude — sync LITE pair path
             _ps842_lite_cands = [(float(c.get("importance", 0) or 0), c) for s, c in final
